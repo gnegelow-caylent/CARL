@@ -129,12 +129,18 @@ resource "aws_iam_role_policy" "bedrock" {
           "bedrock:InvokeModelWithResponseStream"
         ]
         Resource = [
-          # Claude 4.5 models (inference profiles)
+          # Claude 4.5 models - inference profiles
           "arn:aws:bedrock:${local.region}:*:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
           "arn:aws:bedrock:${local.region}:*:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          # Claude 4.5 models - foundation model format (AWS checks both)
+          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
           # Legacy Claude 3 models (backwards compatibility)
           "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
-          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+          # Wildcard for all Anthropic models (future-proof)
+          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.*",
+          "arn:aws:bedrock:${local.region}:*:inference-profile/*anthropic*"
         ]
       },
       {
