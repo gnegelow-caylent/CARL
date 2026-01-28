@@ -801,3 +801,83 @@ requiring attention.
 
         logger.info(f"Report saved to s3://{self.reports_bucket}/{s3_key}")
         return s3_key
+
+    def save_document(
+        self,
+        document_buffer: Any,
+        report_type: ReportType,
+        format: str = "docx",
+        filename: str = None
+    ) -> str:
+        """
+        Save a document (Word/PDF) to S3 and return the S3 key.
+
+        Args:
+            document_buffer: BytesIO buffer containing the document
+            report_type: Type of report
+            format: Document format ('docx' or 'pdf')
+            filename: Optional custom filename
+
+        Returns:
+            S3 key where document was saved
+        """
+        if not self.reports_bucket:
+            logger.warning("No reports bucket configured")
+            return ""
+
+        timestamp = datetime.utcnow()
+        if not filename:
+            filename = f"{report_type.value}_{timestamp.strftime('%Y%m%d_%H%M%S')}.{format}"
+
+        s3_key = f"reports/{timestamp.strftime('%Y/%m')}/{filename}"
+
+        # Determine content type
+        content_types = {
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'pdf': 'application/pdf'
+        }
+        content_type = content_types.get(format, 'application/octet-stream')
+
+        self.s3.put_object(
+            Bucket=self.reports_bucket,
+            Key=s3_key,
+            Body=document_buffer.getvalue(),
+            ContentType=content_type,
+            Metadata={
+                "report-type": report_type.value,
+                "generated-at": timestamp.isoformat(),
+                "format": format
+            }
+        )
+
+        logger.info(f"Document saved to s3://{self.reports_bucket}/{s3_key}")
+        return s3_key
+
+    def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> str:
+        """
+        Generate a presigned URL for downloading a report from S3.
+
+        Args:
+            s3_key: The S3 key of the report
+            expiration: URL expiration time in seconds (default 1 hour)
+
+        Returns:
+            Presigned URL for downloading the report
+        """
+        if not self.reports_bucket or not s3_key:
+            return ""
+
+        try:
+            url = self.s3.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.reports_bucket,
+                    'Key': s3_key
+                },
+                ExpiresIn=expiration
+            )
+            logger.info(f"Generated presigned URL for {s3_key} (expires in {expiration}s)")
+            return url
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL: {e}")
+            return ""

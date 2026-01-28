@@ -2039,20 +2039,48 @@ def handle_report_command_sync(
             report = generator.generate_executive_summary(start_date, end_date)
             # Prepend scan context
             report = report_context + report
-            s3_key = generator.save_report(report, ReportType.EXECUTIVE_SUMMARY)
+            report_type_enum = ReportType.EXECUTIVE_SUMMARY
 
         elif report_type == "full":
             report = generator.generate_full_audit_report(start_date, end_date)
             report = report_context + report
-            s3_key = generator.save_report(report, ReportType.FULL_AUDIT)
+            report_type_enum = ReportType.FULL_AUDIT
 
         elif report_type == "control" and control_id:
             report = generator.generate_control_report(control_id.upper())
             report = report_context + report
-            s3_key = generator.save_report(report, ReportType.CONTROL_SPECIFIC, f"control_{control_id}.md")
+            report_type_enum = ReportType.CONTROL_SPECIFIC
 
         else:
-            s3_key = None
+            report_type_enum = None
+
+        # Step 4: Generate Word document
+        update_progress("📄 Creating Word document...")
+
+        from utils.document_generator import DocumentGenerator
+        doc_gen = DocumentGenerator()
+
+        if report_type == "executive":
+            audit_period = f"{start_date} to {end_date}"
+            doc_buffer = doc_gen.create_executive_summary_docx(
+                report,
+                organization_name="Your Organization",
+                audit_period=audit_period
+            )
+        else:
+            doc_title = {
+                "executive": "Executive Summary",
+                "full": "Full Audit Report",
+                "control": f"Control Report: {control_id}"
+            }.get(report_type, "Compliance Report")
+            doc_buffer = doc_gen.markdown_to_docx(report, title=doc_title)
+
+        # Save document to S3
+        update_progress("☁️ Uploading document to S3...")
+        s3_key = generator.save_document(doc_buffer, report_type_enum, format="docx")
+
+        # Generate presigned URL
+        download_url = generator.generate_presigned_url(s3_key, expiration=86400)  # 24 hours
 
         # Delete the status message (cleanup)
         if status_ts:
@@ -2061,21 +2089,23 @@ def handle_report_command_sync(
             except Exception as e:
                 logger.warning(f"Failed to delete status message: {e}")
 
-        # Step 4: Post final report
+        # Step 5: Post summary with download link
         update_progress("✅ Report generation complete!")
 
-        # Post report preview (first 3000 chars)
-        preview = report[:3000]
-        if len(report) > 3000:
-            preview += "\n\n_... (truncated - see full report)_"
+        # Extract key metrics for summary
+        summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
 
-        slack.post_message(channel_id, text=f"```{preview}```")
+**Audit Period:** {start_date} to {end_date}
+**Environment Scan:** {scan_summary}
 
-        if s3_key:
-            slack.post_message(
-                channel_id,
-                text=f"✅ Full report saved to: `s3://{reports_bucket}/{s3_key}`"
-            )
+📥 **Download Report:**
+{download_url}
+
+_Link expires in 24 hours_
+
+The full report has been generated as a Word document and is ready for download."""
+
+        slack.post_message(channel_id, text=summary_text)
 
     except Exception as e:
         logger.exception("Error generating report")
