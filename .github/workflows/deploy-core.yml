@@ -249,6 +249,9 @@ jobs:
   integration-tests-dev:
     name: Integration Tests (Dev)
     needs: deploy-dev
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/integration-tests.yml
     with:
       environment: dev
