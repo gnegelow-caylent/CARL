@@ -91,7 +91,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# DynamoDB access for config table
+# DynamoDB access for all CARL tables
 resource "aws_iam_role_policy" "dynamodb" {
   name = "dynamodb-access"
   role = aws_iam_role.lambda.id
@@ -106,9 +106,34 @@ resource "aws_iam_role_policy" "dynamodb" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:Query",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:DeleteItem",
+          "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem"
         ]
-        Resource = aws_dynamodb_table.config.arn
+        Resource = [
+          aws_dynamodb_table.config.arn,
+          "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.name_prefix}-*"
+        ]
+      }
+    ]
+  })
+}
+
+# Lambda self-invocation (for async processing)
+resource "aws_iam_role_policy" "lambda_invoke" {
+  name = "lambda-invoke"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = "arn:aws:lambda:${local.region}:${local.account_id}:function:${local.name_prefix}-*"
       }
     ]
   })
