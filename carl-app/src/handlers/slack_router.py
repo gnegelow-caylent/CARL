@@ -632,9 +632,9 @@ def handle_slash_command(payload: dict) -> dict:
     elif subcommand == "jira":
         return handle_jira_command(slack, channel_id, user_id, args)
     elif subcommand == "setup":
-        return handle_setup_command(slack, channel_id, user_id, args, payload.get("trigger_id"))
+        return handle_setup_command(slack, channel_id, user_id, args, payload.get("trigger_id"), payload.get("team_id"))
     elif subcommand == "settings":
-        return handle_settings_command(slack, channel_id, user_id, args)
+        return handle_settings_command(slack, channel_id, user_id, args, payload.get("team_id"))
     elif subcommand == "help":
         return handle_help_command(slack, channel_id, user_id)
     else:
@@ -986,7 +986,7 @@ def handle_help_command(
 
 
 def handle_setup_command(
-    slack: SlackService, channel_id: str, user_id: str, args: str, trigger_id: str = None
+    slack: SlackService, channel_id: str, user_id: str, args: str, trigger_id: str = None, team_id: str = None
 ) -> dict:
     """Handle /carl setup command - initial setup wizard."""
     from services.setup_service import SetupService
@@ -995,14 +995,16 @@ def handle_setup_command(
     parts = args.split() if args else []
     subcommand = parts[0].lower() if parts else "start"
 
-    # Get workspace ID from Slack
-    try:
-        team_info = slack.client.team_info()
-        workspace_id = team_info["team"]["id"]
-    except Exception as e:
-        logger.error(f"Failed to get workspace ID: {e}")
-        slack.post_message(channel_id, text="❌ Failed to get workspace information.")
-        return {"statusCode": 500, "body": str(e)}
+    # Get workspace ID from payload or fallback to API call
+    workspace_id = team_id
+    if not workspace_id:
+        try:
+            team_info = slack.client.team_info()
+            workspace_id = team_info["team"]["id"]
+        except Exception as e:
+            logger.error(f"Failed to get workspace ID: {e}")
+            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the `team:read` OAuth scope.")
+            return {"statusCode": 500, "body": str(e)}
 
     if subcommand == "start":
         # Check if already set up
@@ -1138,21 +1140,23 @@ Run `/carl settings` to update configuration."""
 
 
 def handle_settings_command(
-    slack: SlackService, channel_id: str, user_id: str, args: str
+    slack: SlackService, channel_id: str, user_id: str, args: str, team_id: str = None
 ) -> dict:
     """Handle /carl settings command - view/update configuration."""
     from services.setup_service import SetupService
 
     setup = SetupService()
 
-    # Get workspace ID
-    try:
-        team_info = slack.client.team_info()
-        workspace_id = team_info["team"]["id"]
-    except Exception as e:
-        logger.error(f"Failed to get workspace ID: {e}")
-        slack.post_message(channel_id, text="❌ Failed to get workspace information.")
-        return {"statusCode": 500, "body": str(e)}
+    # Get workspace ID from payload or fallback to API call
+    workspace_id = team_id
+    if not workspace_id:
+        try:
+            team_info = slack.client.team_info()
+            workspace_id = team_info["team"]["id"]
+        except Exception as e:
+            logger.error(f"Failed to get workspace ID: {e}")
+            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the `team:read` OAuth scope.")
+            return {"statusCode": 500, "body": str(e)}
 
     config = setup.get_workspace_config(workspace_id)
 
