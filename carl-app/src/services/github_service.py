@@ -39,11 +39,17 @@ class GitHubService:
         }
 
     def is_repository_empty(self) -> bool:
-        """Check if repository is empty (no commits)."""
-        repo_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
-        resp = requests.get(repo_url, headers=self._get_headers(), timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("size", 0) == 0
+        """
+        Check if repository is empty (no commits).
+
+        Returns True if the default branch doesn't exist yet.
+        """
+        default_branch = self.get_default_branch()
+        branch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{default_branch}"
+        resp = requests.get(branch_url, headers=self._get_headers(), timeout=10)
+        # 404 = branch doesn't exist = empty repo
+        # 200 = branch exists = repo has commits
+        return resp.status_code == 404
 
     def get_default_branch(self) -> str:
         """Get the repository's default branch name."""
