@@ -288,7 +288,7 @@ resource "aws_lambda_function" "carl" {
 
   # COST OPTIMIZATION: Start small, Lambda auto-scales
   memory_size = 512 # Enough for Bedrock calls
-  timeout     = 30  # Most queries under 10s
+  timeout     = 90  # Agentic workflows need 45-60s for complex questions
 
   # Force update when code changes
   publish = true
