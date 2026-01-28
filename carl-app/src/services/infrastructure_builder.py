@@ -1235,9 +1235,6 @@ output "cloudtrail_bucket" {{
             compliance_notes=compliance_notes,
             deployment_steps=deployment_steps,
         )
-                "7. Consider upgrading to security/soc2-stack for full compliance",
-            ],
-        )
 
     def _blueprint_security_soc2(self, config: dict) -> GeneratedInfrastructure:
         """Generate SOC 2 compliant security stack - SMART generation based on existing resources."""
