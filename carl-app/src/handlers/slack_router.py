@@ -533,11 +533,14 @@ This is real data from the user's AWS account, scanned moments ago.
             logger.error(f"Failed to scan AWS environment: {e}")
             context = f"Note: Could not scan AWS environment: {str(e)}\n\n"
 
-    # Add Security Hub findings if available
+    # Add Security Hub findings ONLY if there are actual issues
     summary = findings_service.get_compliance_summary()
     recent_findings = findings_service.get_recent_findings(limit=5)
 
-    context += f"""
+    # Only add Security Hub context if there are findings
+    total_findings = summary.get('critical', 0) + summary.get('high', 0) + summary.get('medium', 0) + summary.get('low', 0)
+    if total_findings > 0 or recent_findings:
+        context += f"""
 Security Hub compliance summary:
 - Critical findings: {summary.get('critical', 0)}
 - High findings: {summary.get('high', 0)}
@@ -547,6 +550,7 @@ Security Hub compliance summary:
 Recent Security Hub findings:
 {json.dumps(recent_findings, indent=2)}
 """
+        logger.info(f"Added Security Hub context: {total_findings} findings")
 
     response = bedrock.ask_compliance_question(question, context)
 

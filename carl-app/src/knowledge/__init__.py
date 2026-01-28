@@ -36,6 +36,7 @@ from .identity_patterns import get_identity_patterns
 from .security_tooling_patterns import get_security_tooling_patterns
 from .logging_patterns import get_logging_patterns
 from .operational_patterns import get_operational_patterns
+from .central_egress_inspection_pattern import get_central_egress_inspection_pattern
 
 from .aws_pricing import (
     calculate_monthly_cost,
@@ -80,6 +81,9 @@ def get_all_foundation_patterns() -> dict:
 
     # Operational patterns
     patterns.update({f"ops_{k}": v for k, v in get_operational_patterns().items()})
+
+    # Central egress and inspection pattern (detailed architecture)
+    patterns.update({"central_egress_inspection": get_central_egress_inspection_pattern()})
 
     return patterns
 
