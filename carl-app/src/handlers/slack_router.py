@@ -24,8 +24,10 @@ from services.foundation import DecisionEngine, FoundationBuilder
 from services.github_service import GitHubService
 from services.github_app_service import GitHubAppAuth
 from services.code_uploader import CodeUploader
+from services.jira_security_sync import JiraSecuritySync
 from utils.aws_client import get_parameter, get_secret
 from utils.logger import get_logger
+from utils.dynamodb_utils import get_table
 
 logger = get_logger(__name__)
 
