@@ -112,10 +112,16 @@ class SlackService:
         title: str | None = None,
         initial_comment: str | None = None,
     ) -> dict[str, Any]:
-        """Upload a file to Slack."""
+        """Upload a file to Slack using files_upload_v2 API."""
         try:
+            # files_upload_v2 expects channel_id (singular), not channels
+            # Use the first channel if multiple are provided
+            channel_id = channels[0] if channels else None
+            if not channel_id:
+                raise ValueError("No channel specified for file upload")
+
             kwargs: dict[str, Any] = {
-                "channels": ",".join(channels),
+                "channel_id": channel_id,
                 "filename": filename,
             }
             if file_path:

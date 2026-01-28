@@ -1561,15 +1561,22 @@ def handle_vpc_config_submission(payload: dict) -> dict:
         "cidr": vpc_cidr  # Use "cidr" key to match what infrastructure_builder expects
     }
 
-    # Post confirmation message
-    slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
-
-    # Generate the Terraform code with the provided configuration
-    user_id = payload.get("user", {}).get("id", "")
-    handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
-
-    # Return 200 response to close modal successfully
+    # Return 200 response immediately to close modal
     # Slack expects an empty response body to close the modal without errors
+    # We'll process the build asynchronously
+
+    # Post confirmation message
+    try:
+        slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
+
+        # Generate the Terraform code with the provided configuration
+        user_id = payload.get("user", {}).get("id", "")
+        handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+    except Exception as e:
+        logger.error(f"Error processing VPC config: {e}")
+        # Still return success so modal closes
+        # Error will be reported in Slack channel
+
     return {"statusCode": 200, "body": ""}
 
 

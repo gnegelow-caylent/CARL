@@ -68,14 +68,20 @@ class CodeUploader:
         thread_ts = summary_msg.get("ts")
         self._post_code_to_thread(channel_id, thread_ts, terraform_code, blueprint_name, metadata)
 
-        # 7. Upload file
-        self.slack.upload_file(
-            channels=[channel_id],
-            content=terraform_code,
-            filename=f"{blueprint_short}_{timestamp}.tf",
-            title=f"Terraform: {blueprint_name}",
-            initial_comment=f"Full code for PR #{pr['number']}: {pr['html_url']}"
-        )
+        # 7. Upload file (optional - if this fails, we still succeed)
+        try:
+            self.slack.upload_file(
+                channels=[channel_id],
+                content=terraform_code,
+                filename=f"{blueprint_short}_{timestamp}.tf",
+                title=f"Terraform: {blueprint_name}",
+                initial_comment=f"Full code for PR #{pr['number']}: {pr['html_url']}"
+            )
+        except Exception as e:
+            # Log error but don't fail the whole operation
+            # Code is still in GitHub PR and Slack thread
+            logger = __import__('utils.logger', fromlist=['get_logger']).get_logger(__name__)
+            logger.warning(f"Failed to upload file to Slack: {e}")
 
         return {
             "branch": branch_name,
