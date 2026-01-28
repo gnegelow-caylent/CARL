@@ -203,7 +203,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return {"statusCode": 401, "body": "Invalid signature"}
 
     # Parse body based on content type
-    content_type = headers.get("content-type", "").lower()
+    # Headers may be lowercase or capitalized
+    content_type = (headers.get("content-type") or headers.get("Content-Type") or "").lower()
     logger.info(f"Content-Type for body parsing: {content_type}")
 
     if "application/json" in content_type:
