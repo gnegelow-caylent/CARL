@@ -39,14 +39,16 @@ jobs:
     name: Deploy Feature - ${{ inputs.feature }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', inputs.environment)] }}
-          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', inputs.environment)] }}
+          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', inputs.environment)] }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
