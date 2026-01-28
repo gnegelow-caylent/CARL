@@ -101,6 +101,44 @@ class JiraService:
             logger.error(f"Request error: {e}")
             raise
 
+    def _request(
+        self,
+        method: str,
+        path: str,
+        data: Optional[Dict] = None,
+        params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        Make authenticated request to Jira API (handles full paths).
+
+        This is an alias for _make_request that handles full REST API paths.
+        """
+        # Strip /rest/api/3 prefix if present to get endpoint
+        endpoint = path
+        if path.startswith("/rest/api/3/"):
+            endpoint = path.replace("/rest/api/3/", "", 1)
+        elif path.startswith("/rest/api/2/"):
+            # Handle API v2 endpoints
+            url = f"{self.jira_url}{path}"
+            try:
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    headers=self.headers,
+                    json=data,
+                    params=params,
+                    timeout=30
+                )
+                response.raise_for_status()
+                if response.status_code == 204:
+                    return {"status": "success"}
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Jira API error: {e}")
+                raise
+
+        return self._make_request(method, endpoint, data, params)
+
     # ========================================================================
     # Security Findings
     # ========================================================================
