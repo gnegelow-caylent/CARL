@@ -186,6 +186,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "evidence" {
     id     = "transition-old-evidence"
     status = "Enabled"
 
+    filter {}
+
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -193,7 +195,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "evidence" {
 
     transition {
       days          = 90
-      storage_class = "GLACIER_INSTANT_RETRIEVAL"
+      storage_class = "GLACIER_IR"
     }
   }
 }
