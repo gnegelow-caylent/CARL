@@ -18,7 +18,35 @@ An AI-powered AWS compliance bot that:
 
 ## Latest Updates (Current Session)
 
-### Bootstrap Automation Released 🚀
+### Smart Infrastructure Generation Released 🎯 (January 28, 2026)
+
+**Revolutionary New Capability:** CARL now scans your AWS environment before generating infrastructure code!
+
+**What Changed:**
+1. ✅ **Environment-Aware Generation** - Scans AWS before creating code
+2. ✅ **Resource Detection Service** - Detects GuardDuty, Security Hub, Config, CloudTrail, VPCs
+3. ✅ **No Duplicate Resources** - Won't try to create what already exists
+4. ✅ **Dynamic Code Generation** - Generates ONLY missing resources (uses data sources for existing)
+5. ✅ **Smart Compliance Notes** - "Using existing CloudTrail: my-trail" vs "CloudTrail created"
+
+**Updated Blueprints:**
+- `security/basic-stack` - Smart detection for GuardDuty, Security Hub, CloudTrail
+- `security/soc2-stack` - Full smart detection including AWS Config
+- `networking/basic-vpc` - VPC detection by name tag
+
+**New Files:**
+- `resource_detector.py` - AWS resource scanning service (300 lines)
+- Updated infrastructure_builder.py with smart generation (~2,000 lines refactored)
+
+**Key Benefits:**
+- Zero manual configuration (no more `create_XXX = false` variables)
+- Cleaner generated code (only what's needed)
+- Clear feedback (✓ exists vs ✗ missing)
+- Faster deployments (less resources to create)
+
+See `SMART_GENERATION.md` for complete details.
+
+### Bootstrap Automation Released 🚀 (January 27, 2026)
 
 **5 Critical Capabilities Added:**
 1. ✅ **VPC Endpoints/PrivateLink Patterns** (3 patterns) - Private connectivity, security gap closed
@@ -80,8 +108,10 @@ carl-app/
 │   │   ├── drift_detector.py      # Infrastructure drift detection
 │   │   ├── bedrock_service.py     # Claude/Bedrock integration
 │   │   ├── knowledge_retrieval.py # RAG + continuous learning
+│   │   ├── resource_detector.py   # **NEW:** AWS resource detection for smart generation
+│   │   ├── infrastructure_builder.py # Smart infrastructure code generation
 │   │   ├── foundation/            # Foundation builder wizard
-│   │   └── bootstrap/             # **NEW:** Complete environment bootstrap
+│   │   └── bootstrap/             # Complete environment bootstrap
 │   │       ├── organizations_bootstrap.py     # Organizations + OU + SCPs
 │   │       ├── identity_center_bootstrap.py  # IAM Identity Center setup
 │   │       ├── security_services_bootstrap.py # Security services delegated admin
@@ -261,8 +291,16 @@ See `ROADMAP.md` for detailed priority list.
 
 For detailed guides and reference materials:
 
-- **[SLACK_COMMANDS.md](./SLACK_COMMANDS.md)** - Comprehensive user guide for all Slack commands with examples, interactive features, and troubleshooting
-- **[SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md)** - Technical implementation guide for async processing, response formatting, modals, and button handlers
+### User Guides
+- **[FEATURES.md](./FEATURES.md)** - Complete feature status overview (what's live vs planned)
+- **[SLACK_COMMANDS.md](./SLACK_COMMANDS.md)** - Comprehensive user guide for all Slack commands
+- **[INFRASTRUCTURE_BLUEPRINTS.md](./INFRASTRUCTURE_BLUEPRINTS.md)** - All available infrastructure blueprints
+
+### Technical Guides
+- **[SMART_GENERATION.md](./SMART_GENERATION.md)** - Smart infrastructure generation (environment-aware code generation)
+- **[BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md)** - Complete AWS environment bootstrap automation
+- **[SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md)** - Async processing, modals, button handlers
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Full technical architecture and component diagrams
-- **[BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md)** - Complete AWS environment bootstrap automation guide
+
+### Planning
 - **[ROADMAP.md](./ROADMAP.md)** - Priority roadmap and next steps

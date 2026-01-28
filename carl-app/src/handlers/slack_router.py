@@ -627,6 +627,8 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_exception_command(slack, channel_id, user_id, args)
     elif subcommand == "drift":
         return handle_drift_command(slack, channel_id, user_id, args)
+    elif subcommand == "jira":
+        return handle_jira_command(slack, channel_id, user_id, args)
     elif subcommand == "setup":
         return handle_setup_command(slack, channel_id, user_id, args, payload.get("trigger_id"))
     elif subcommand == "settings":
@@ -766,15 +768,24 @@ def handle_findings_command(
     ]
 
     for finding in findings[:10]:
+        # Build finding text with Jira link if available
+        jira_ticket_id = finding.get("jira_ticket_id")
+        jira_url = finding.get("jira_url")
+
+        finding_text = (
+            f"*{finding.get('severity', 'UNKNOWN')}* | "
+            f"{finding.get('title', 'No title')}\n"
+            f"Resource: `{finding.get('resource_id', 'N/A')}`"
+        )
+
+        if jira_ticket_id and jira_url:
+            finding_text += f"\n🔗 Jira: <{jira_url}|{jira_ticket_id}>"
+
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (
-                    f"*{finding.get('severity', 'UNKNOWN')}* | "
-                    f"{finding.get('title', 'No title')}\n"
-                    f"Resource: `{finding.get('resource_id', 'N/A')}`"
-                ),
+                "text": finding_text
             },
             "accessory": {
                 "type": "button",
@@ -2547,6 +2558,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_build_blueprint_button(payload, action)
             elif action_id.startswith("estimate_option_"):
                 return handle_estimate_option_button(payload, action)
+            elif action_id.startswith("create_jira_ticket_"):
+                return handle_create_jira_ticket_action(payload, action)
 
     return {"statusCode": 200, "body": "OK"}
 
@@ -3709,5 +3722,305 @@ def handle_drift_command(
     except Exception as e:
         logger.exception("Error in drift command")
         slack.post_message(channel_id, text=f"Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+# ============================================================================
+# JIRA INTEGRATION HANDLERS
+# ============================================================================
+
+def handle_jira_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """
+    Handle /carl jira command.
+
+    Subcommands:
+    - /carl jira test - Test Jira connection
+    - /carl jira sync - Manually sync findings to Jira
+    - /carl jira status - Show Jira integration status
+    """
+    parts = args.split(maxsplit=1)
+    subcommand = parts[0].lower() if parts else "status"
+    sub_args = parts[1] if len(parts) > 1 else ""
+
+    if subcommand == "test":
+        return handle_jira_test(slack, channel_id, user_id)
+    elif subcommand == "sync":
+        return handle_jira_sync(slack, channel_id, user_id, sub_args)
+    elif subcommand == "status":
+        return handle_jira_status(slack, channel_id, user_id)
+    else:
+        slack.post_message(
+            channel_id,
+            text="Unknown Jira subcommand. Use: `test`, `sync`, or `status`"
+        )
+        return {"statusCode": 200, "body": ""}
+
+
+def handle_jira_test(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Test Jira connection and permissions."""
+    try:
+        jira_sync = JiraSecuritySync()
+        result = jira_sync.test_connection()
+
+        if result["success"]:
+            slack.post_message(
+                channel_id,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✅ *Jira Connection Successful*\n\n"
+                                   f"Project: {result.get('project', 'CARLSEC')}\n"
+                                   f"Status: Connected"
+                        }
+                    }
+                ]
+            )
+        else:
+            slack.post_message(
+                channel_id,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"❌ *Jira Connection Failed*\n\n"
+                                   f"Error: {result.get('error', 'Unknown error')}\n\n"
+                                   f"Please check:\n"
+                                   f"• Jira URL is correct\n"
+                                   f"• API token is valid\n"
+                                   f"• Secrets Manager contains credentials"
+                        }
+                    }
+                ]
+            )
+    except Exception as e:
+        logger.error(f"Jira test failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Jira test failed: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_jira_sync(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Manually sync findings to Jira."""
+    slack.post_message(channel_id, text="🔄 Starting Jira sync...")
+
+    try:
+        findings_service = get_findings_service()
+        jira_sync = JiraSecuritySync()
+
+        # Get recent findings (last 24 hours)
+        findings = findings_service.get_recent_findings(limit=50)
+
+        synced_count = 0
+        failed_count = 0
+        skipped_count = 0
+
+        for finding in findings:
+            # Check if already has Jira ticket
+            if finding.get("jira_ticket_id"):
+                skipped_count += 1
+                continue
+
+            # Sync to Jira
+            result = jira_sync.sync_finding_to_jira(
+                finding_id=finding["finding_id"],
+                title=finding["title"],
+                severity=finding["severity"],
+                resource_type=finding.get("resource_type", "Unknown"),
+                resource_id=finding["resource_id"],
+                compliance_status=finding.get("compliance_status", "FAILED"),
+                recommendation=finding.get("recommendation", "Review this finding"),
+                aws_account_id=finding.get("aws_account_id", "N/A"),
+                region=finding.get("region", "us-east-1")
+            )
+
+            if result["success"]:
+                synced_count += 1
+            else:
+                failed_count += 1
+                logger.error(f"Failed to sync finding {finding['finding_id']}: {result.get('error')}")
+
+        # Report results
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✅ *Jira Sync Complete*\n\n"
+                               f"• Synced: {synced_count} findings\n"
+                               f"• Skipped: {skipped_count} (already have tickets)\n"
+                               f"• Failed: {failed_count}"
+                    }
+                }
+            ]
+        )
+
+    except Exception as e:
+        logger.error(f"Jira sync failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Jira sync failed: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_jira_status(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Show Jira integration status."""
+    try:
+        findings_service = get_findings_service()
+        findings = findings_service.get_recent_findings(limit=100)
+
+        total_findings = len(findings)
+        with_jira = sum(1 for f in findings if f.get("jira_ticket_id"))
+        without_jira = total_findings - with_jira
+
+        # Get exception and drift stats
+        exceptions_table = get_table("carl-risk-exceptions")
+        drift_table = get_table("carl-drift-detections")
+
+        exceptions_scan = exceptions_table.scan(
+            ProjectionExpression="exception_id, jira_ticket_id"
+        )
+        total_exceptions = len(exceptions_scan.get("Items", []))
+        exceptions_with_jira = sum(1 for e in exceptions_scan.get("Items", []) if e.get("jira_ticket_id"))
+
+        drift_scan = drift_table.scan(
+            ProjectionExpression="drift_id, jira_ticket_id"
+        )
+        total_drift = len(drift_scan.get("Items", []))
+        drift_with_jira = sum(1 for d in drift_scan.get("Items", []) if d.get("jira_ticket_id"))
+
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "📊 Jira Integration Status"}
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Findings*\n{with_jira}/{total_findings} have Jira tickets"},
+                        {"type": "mrkdwn", "text": f"*Exceptions*\n{exceptions_with_jira}/{total_exceptions} have Jira tickets"}
+                    ]
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Configuration Drift*\n{drift_with_jira}/{total_drift} have Jira tickets"},
+                        {"type": "mrkdwn", "text": f"*Coverage*\n{int((with_jira/total_findings*100) if total_findings > 0 else 0)}% synced"}
+                    ]
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": "Run `/carl jira sync` to sync remaining findings"}
+                    ]
+                }
+            ]
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get Jira status: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to get Jira status: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_create_jira_ticket_action(payload: dict, action: dict) -> dict:
+    """Handle 'Create Jira Ticket' button click."""
+    action_id = action.get("action_id", "")
+    finding_id = action_id.replace("create_jira_ticket_", "")
+
+    channel_id = payload.get("channel", {}).get("id")
+    user_id = payload.get("user", {}).get("id")
+
+    slack = get_slack_service()
+
+    # Acknowledge button click
+    slack.post_message(
+        channel_id,
+        thread_ts=payload.get("message", {}).get("ts"),
+        text=f"🔄 Creating Jira ticket for finding `{finding_id}`..."
+    )
+
+    try:
+        # Get finding details
+        findings_table = get_table("carl-findings")
+        response = findings_table.get_item(Key={"finding_id": finding_id})
+        finding = response.get("Item")
+
+        if not finding:
+            slack.post_message(
+                channel_id,
+                thread_ts=payload.get("message", {}).get("ts"),
+                text=f"❌ Finding not found: {finding_id}"
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Create Jira ticket
+        jira_sync = JiraSecuritySync()
+        result = jira_sync.sync_finding_to_jira(
+            finding_id=finding["finding_id"],
+            title=finding["title"],
+            severity=finding["severity"],
+            resource_type=finding.get("resource_type", "Unknown"),
+            resource_id=finding["resource_id"],
+            compliance_status=finding.get("compliance_status", "FAILED"),
+            recommendation=finding.get("recommendation", "Review this finding"),
+            aws_account_id=finding.get("aws_account_id", "N/A"),
+            region=finding.get("region", "us-east-1")
+        )
+
+        if result["success"]:
+            slack.post_message(
+                channel_id,
+                thread_ts=payload.get("message", {}).get("ts"),
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✅ *Jira Ticket Created*\n\n"
+                                   f"Ticket: <{result['jira_url']}|{result['jira_key']}>\n"
+                                   f"Finding: `{finding_id}`"
+                        }
+                    }
+                ]
+            )
+        else:
+            slack.post_message(
+                channel_id,
+                thread_ts=payload.get("message", {}).get("ts"),
+                text=f"❌ Failed to create Jira ticket: {result.get('error', 'Unknown error')}"
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to create Jira ticket for finding {finding_id}: {e}")
+        slack.post_message(
+            channel_id,
+            thread_ts=payload.get("message", {}).get("ts"),
+            text=f"❌ Failed to create Jira ticket: {str(e)}"
+        )
 
     return {"statusCode": 200, "body": ""}
