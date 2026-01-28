@@ -183,12 +183,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             pass
 
     # Verify Slack signature for all other requests
-    timestamp = headers.get("x-slack-request-timestamp", "")
-    signature = headers.get("x-slack-signature", "")
+    # Headers may be lowercase or capitalized depending on API Gateway configuration
+    timestamp = (headers.get("x-slack-request-timestamp") or
+                 headers.get("X-Slack-Request-Timestamp") or "")
+    signature = (headers.get("x-slack-signature") or
+                 headers.get("X-Slack-Signature") or "")
 
     # If no timestamp/signature, this might be a malformed request
     if not timestamp or not signature:
         logger.warning(f"Missing Slack headers - timestamp: {bool(timestamp)}, signature: {bool(signature)}")
+        logger.warning(f"Available headers: {list(headers.keys())}")
         return {"statusCode": 401, "body": json.dumps({"error": "Missing Slack signature headers"})}
 
     signing_secret = get_parameter(SLACK_SIGNING_SECRET_SSM)
