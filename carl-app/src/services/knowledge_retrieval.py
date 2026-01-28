@@ -155,7 +155,7 @@ class KnowledgeRetrievalService:
     def retrieve_and_generate(
         self,
         query: str,
-        model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        model_id: str = "anthropic.claude-sonnet-4-5-20250929-v1:0"
     ) -> str:
         """
         Retrieve knowledge and generate a response using RAG.
@@ -344,7 +344,7 @@ Format the learning as: "When [situation], [recommendation] because [reason]." "
             }
 
             response = self.bedrock.invoke_model(
-                modelId="anthropic.claude-3-haiku-20240307-v1:0",
+                modelId="anthropic.claude-haiku-4-5-20251001-v1:0",
                 body=json.dumps(body),
                 contentType="application/json",
                 accept="application/json",
