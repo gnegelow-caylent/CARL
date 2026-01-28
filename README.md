@@ -47,6 +47,8 @@ All core capabilities have been implemented, including **NEW: Complete AWS Envir
 |----------|-------------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Full technical architecture, component diagrams, data models |
 | [BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md) | **NEW:** Complete AWS environment bootstrap automation guide |
+| [SLACK_COMMANDS.md](./SLACK_COMMANDS.md) | **NEW:** Comprehensive Slack commands user guide with examples |
+| [SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md) | **NEW:** Technical implementation guide for Slack integration improvements |
 | [ROADMAP.md](./ROADMAP.md) | **NEW:** Priority roadmap and next steps |
 | [IMPLEMENTATION_PHASES.md](./IMPLEMENTATION_PHASES.md) | Phased implementation plan with completed status |
 | [COST_ESTIMATES.md](./COST_ESTIMATES.md) | Detailed cost breakdown |

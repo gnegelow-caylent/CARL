@@ -256,3 +256,13 @@ See `ROADMAP.md` for detailed priority list.
 - Dashboards and trend analysis
 - CI/CD integration (pre-deployment compliance checks)
 - ML-based anomaly detection
+
+## Additional Documentation
+
+For detailed guides and reference materials:
+
+- **[SLACK_COMMANDS.md](./SLACK_COMMANDS.md)** - Comprehensive user guide for all Slack commands with examples, interactive features, and troubleshooting
+- **[SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md)** - Technical implementation guide for async processing, response formatting, modals, and button handlers
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Full technical architecture and component diagrams
+- **[BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md)** - Complete AWS environment bootstrap automation guide
+- **[ROADMAP.md](./ROADMAP.md)** - Priority roadmap and next steps
