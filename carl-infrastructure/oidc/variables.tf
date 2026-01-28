@@ -17,15 +17,3 @@ variable "github_repo" {
   type        = string
   default     = "CARL"
 }
-
-variable "terraform_state_bucket" {
-  description = "S3 bucket for Terraform state (if using remote backend)"
-  type        = string
-  default     = "carl-tfstate"
-}
-
-variable "terraform_state_lock_table" {
-  description = "DynamoDB table for Terraform state locking"
-  type        = string
-  default     = "carl-tfstate-locks"
-}

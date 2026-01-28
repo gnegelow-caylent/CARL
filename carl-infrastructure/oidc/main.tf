@@ -298,7 +298,7 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = ["*"]
   }
 
-  # Terraform state management (if using S3 backend)
+  # Terraform state management (S3 backend)
   statement {
     sid    = "TerraformStateAccess"
     effect = "Allow"
@@ -309,21 +309,8 @@ data "aws_iam_policy_document" "carl_deployer" {
       "s3:DeleteObject"
     ]
     resources = [
-      "arn:aws:s3:::${var.terraform_state_bucket}",
-      "arn:aws:s3:::${var.terraform_state_bucket}/*"
-    ]
-  }
-
-  statement {
-    sid    = "TerraformStateLocking"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
-      "dynamodb:DeleteItem"
-    ]
-    resources = [
-      "arn:aws:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.terraform_state_lock_table}"
+      "arn:aws:s3:::carl-tfstate-*",
+      "arn:aws:s3:::carl-tfstate-*/*"
     ]
   }
 }
