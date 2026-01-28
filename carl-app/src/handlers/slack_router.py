@@ -995,8 +995,179 @@ def handle_build_command(
         terraform_message = f"*Terraform Code:*\n```terraform\n{result.terraform_code}\n```"
         slack.post_message(channel_id, text=terraform_message)
 
+        # Add deployment button
+        deploy_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Ready to deploy this infrastructure?"
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Review & Deploy"
+                    },
+                    "value": f"deploy:{blueprint_name}",
+                    "action_id": "deploy_infrastructure",
+                    "style": "primary"
+                }
+            }
+        ]
+        slack.post_message(channel_id, blocks=deploy_blocks)
+
     except ValueError as e:
         slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_deploy_review(payload: dict, action: dict) -> dict:
+    """Handle deploy review button - show comprehensive summary before deployment."""
+    import re
+
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+    user_id = payload["user"]["id"]
+
+    # Extract blueprint name from button value (format: "deploy:blueprint_name")
+    blueprint_name = action.get("value", "").replace("deploy:", "")
+
+    if not blueprint_name:
+        slack.post_message(channel_id, text="❌ Error: Could not determine which blueprint to deploy.")
+        return {"statusCode": 200, "body": ""}
+
+    try:
+        # Show processing message
+        slack.post_message(channel_id, text=f"🔍 Analyzing deployment plan for `{blueprint_name}`...")
+
+        # Regenerate Terraform code to analyze
+        builder = get_infrastructure_builder()
+        config = {"name": "main", "environment": "prod"}
+        result = builder.generate(blueprint_name.strip(), config)
+
+        # Parse Terraform code to count resources
+        tf_code = result.terraform_code
+
+        # Extract resource types from Terraform code
+        resource_pattern = r'resource\s+"(aws_\w+)"\s+"(\w+)"'
+        resources = re.findall(resource_pattern, tf_code)
+
+        resource_summary = {}
+        for resource_type, resource_name in resources:
+            resource_summary[resource_type] = resource_summary.get(resource_type, 0) + 1
+
+        total_resources = sum(resource_summary.values())
+
+        # Build comprehensive summary
+        summary_lines = [
+            f"📋 **Deployment Plan Summary: {blueprint_name}**\n",
+            f"**What Will Be Created:**",
+            f"• {total_resources} new AWS resources\n",
+        ]
+
+        if resource_summary:
+            summary_lines.append("**Resource Breakdown:**")
+            for rtype, count in sorted(resource_summary.items()):
+                # Make resource types more readable
+                readable_type = rtype.replace('aws_', '').replace('_', ' ').title()
+                summary_lines.append(f"• {count}x {readable_type}")
+            summary_lines.append("")
+
+        # Add compliance notes
+        summary_lines.append("**Security & Compliance:**")
+        for note in result.compliance_notes:
+            summary_lines.append(f"• {note}")
+        summary_lines.append("")
+
+        # Add deployment steps
+        summary_lines.append("**Deployment Process:**")
+        for step in result.deployment_steps[:3]:
+            summary_lines.append(f"• {step}")
+        summary_lines.append("")
+
+        # Estimate monthly cost (rough estimate based on resource types)
+        estimated_cost = 0
+        if "aws_vpc" in resource_summary:
+            estimated_cost += 0  # VPCs are free
+        if "aws_nat_gateway" in resource_summary:
+            estimated_cost += 32.85 * resource_summary["aws_nat_gateway"]
+        if "aws_instance" in resource_summary:
+            estimated_cost += 50 * resource_summary["aws_instance"]  # Rough t3.medium estimate
+        if "aws_rds_instance" in resource_summary:
+            estimated_cost += 120 * resource_summary["aws_rds_instance"]  # Rough db.t3.medium estimate
+
+        if estimated_cost > 0:
+            summary_lines.append(f"**Estimated Monthly Cost:** ~${estimated_cost:.2f}/month")
+        else:
+            summary_lines.append(f"**Estimated Monthly Cost:** Minimal (< $10/month)")
+
+        summary_lines.append("")
+        summary_lines.append("**⚠️ Warning:** This will create real AWS resources that may incur costs.")
+
+        summary_text = "\n".join(summary_lines)
+
+        # Post summary with Confirm/Cancel buttons
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": summary_text
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✅ Confirm & Deploy"
+                        },
+                        "value": f"deploy:{blueprint_name}",
+                        "action_id": "confirm_deploy",
+                        "style": "danger"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "❌ Cancel"
+                        },
+                        "value": f"deploy:{blueprint_name}",
+                        "action_id": "cancel_deploy"
+                    }
+                ]
+            }
+        ]
+
+        slack.post_message(channel_id, blocks=blocks)
+
+    except Exception as e:
+        logger.exception("Error during deployment review")
+        slack.post_message(channel_id, text=f"❌ Error analyzing deployment: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_deploy_confirm(payload: dict, action: dict) -> dict:
+    """Handle deployment confirmation - actually deploy the infrastructure."""
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+
+    slack.post_message(channel_id, text="🚧 **Deployment feature coming soon!**\n\nFor now, please:\n1. Copy the Terraform code from above\n2. Save to a `.tf` file\n3. Run `terraform init && terraform apply`\n\nAutomatic deployment will be available in a future update.")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_deploy_cancel(payload: dict, action: dict) -> dict:
+    """Handle deployment cancellation."""
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+
+    slack.post_message(channel_id, text="✅ Deployment cancelled. No changes were made.")
 
     return {"statusCode": 200, "body": ""}
 
@@ -1228,6 +1399,12 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_foundation_compare(payload, action)
             elif action_id.startswith("feedback_"):
                 return handle_feedback(payload, action)
+            elif action_id == "deploy_infrastructure":
+                return handle_deploy_review(payload, action)
+            elif action_id == "confirm_deploy":
+                return handle_deploy_confirm(payload, action)
+            elif action_id == "cancel_deploy":
+                return handle_deploy_cancel(payload, action)
 
     return {"statusCode": 200, "body": "OK"}
 
