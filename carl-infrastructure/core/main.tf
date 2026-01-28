@@ -186,18 +186,20 @@ resource "aws_iam_role_policy" "deploy_features" {
 }
 
 # 3. Lambda Function (CARL's Brain)
-data "archive_file" "lambda" {
-  type        = "zip"
-  source_dir  = "${path.module}/../../carl-app/src"
-  output_path = "${path.module}/lambda.zip"
+# Note: Lambda package is created by GitHub Actions workflow with dependencies
+# The workflow installs requirements.txt into src/ before zipping
+# Do NOT use data.archive_file here as it would recreate without dependencies
+
+locals {
+  lambda_zip_path = "${path.module}/lambda.zip"
 }
 
 resource "aws_lambda_function" "carl" {
-  filename         = data.archive_file.lambda.output_path
+  filename         = local.lambda_zip_path
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda.arn
   handler          = "handlers.slack_router.lambda_handler"
-  source_code_hash = data.archive_file.lambda.output_base64sha256
+  source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : null
   runtime          = "python3.11"
 
   # COST OPTIMIZATION: Start small, Lambda auto-scales
@@ -336,7 +338,7 @@ module "monitoring" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = "" # Will be created in module if needed
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
   enable_xray         = var.environment == "prod"
 
   tags = merge(var.tags, {
@@ -352,7 +354,7 @@ module "bootstrap" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = ""
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
 
   tags = merge(var.tags, {
     Feature = "bootstrap"
@@ -367,7 +369,7 @@ module "reporting" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = ""
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
 
   tags = merge(var.tags, {
     Feature = "reporting"
@@ -382,7 +384,7 @@ module "foundation" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = ""
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
 
   tags = merge(var.tags, {
     Feature = "foundation"
@@ -397,7 +399,7 @@ module "drift_detection" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = ""
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
 
   tags = merge(var.tags, {
     Feature = "drift_detection"
@@ -412,7 +414,7 @@ module "auto_remediation" {
   project_name        = "carl"
   environment         = var.environment
   kms_key_arn         = ""
-  lambda_package_path = data.archive_file.lambda.output_path
+  lambda_package_path = local.lambda_zip_path
 
   tags = merge(var.tags, {
     Feature = "auto_remediation"

@@ -206,9 +206,11 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies
+          # Install dependencies into src/ directory
+          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
+          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
           pip install -r carl-app/requirements.txt -t carl-app/src/
-          # Package everything
+          # Package everything including dependencies
           cd carl-app/src
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
@@ -262,9 +264,11 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies
+          # Install dependencies into src/ directory
+          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
+          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
           pip install -r carl-app/requirements.txt -t carl-app/src/
-          # Package everything
+          # Package everything including dependencies
           cd carl-app/src
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
@@ -309,9 +313,11 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies
+          # Install dependencies into src/ directory
+          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
+          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
           pip install -r carl-app/requirements.txt -t carl-app/src/
-          # Package everything
+          # Package everything including dependencies
           cd carl-app/src
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
