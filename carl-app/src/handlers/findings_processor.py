@@ -12,7 +12,7 @@ from typing import Any
 from models.finding import Finding, FindingSource, FindingSeverity
 from services.findings_service import FindingsService
 from services.slack_service import SlackService
-from utils.aws_client import get_secret
+from utils.aws_client import get_parameter
 from utils.logger import get_logger
 from utils.soc2_mappings import get_soc2_controls
 
@@ -41,7 +41,7 @@ def get_slack_service() -> SlackService | None:
     global _slack_service
     if _slack_service is None and SLACK_TOKEN_SECRET_ARN:
         try:
-            token = get_secret(SLACK_TOKEN_SECRET_ARN)
+            token = get_parameter(SLACK_TOKEN_SECRET_ARN)
             _slack_service = SlackService(token)
         except Exception as e:
             logger.warning(f"Could not initialize Slack service: {e}")
