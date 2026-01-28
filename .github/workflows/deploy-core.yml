@@ -16,6 +16,17 @@ on:
     paths:
       - 'carl-infrastructure/core/**'
       - 'carl-app/src/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+        default: 'dev'
 
 env:
   TERRAFORM_VERSION: '1.6.0'
