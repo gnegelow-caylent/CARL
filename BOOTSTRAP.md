@@ -41,7 +41,12 @@ The `bootstrap.sh` script automates the entire setup process:
 - Points to S3 state bucket
 - Ready for deployment
 
-### 4. Outputs GitHub Secrets
+### 4. Verifies AWS Bedrock Model Access
+- Checks if Claude models are available
+- Provides instructions if model access needs to be enabled
+- Ensures CARL can use AI features
+
+### 5. Outputs GitHub Secrets
 - Displays exactly what secrets to add
 - Pre-formatted with actual ARNs
 - Copy/paste ready
@@ -106,6 +111,9 @@ Is this correct? (y/n) y
 
 ⚙️  Step 3: Configuring CARL core backend...
   ✓ Created backend configuration for core
+
+🤖 Step 4: Verifying AWS Bedrock model access...
+  ✓ Bedrock access verified - Claude models available
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ Bootstrap Complete!

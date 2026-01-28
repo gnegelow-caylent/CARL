@@ -180,7 +180,37 @@ echo "  ✓ Created backend configuration for core"
 cd ../..
 
 # ============================================================================
-# Step 4: Output GitHub Secrets
+# Step 4: Verify Bedrock Model Access
+# ============================================================================
+
+echo ""
+echo "🤖 Step 4: Verifying AWS Bedrock model access..."
+
+# Check if Claude models are available
+CLAUDE_MODELS=$(aws bedrock list-foundation-models \
+    --region "${AWS_REGION}" \
+    --query 'modelSummaries[?contains(modelId, `anthropic.claude-3-5-sonnet`)].modelId' \
+    --output text 2>/dev/null)
+
+if [ -z "$CLAUDE_MODELS" ]; then
+    echo "  ⚠️  WARNING: Unable to verify Bedrock access"
+    echo ""
+    echo "  CARL requires access to Claude models in AWS Bedrock."
+    echo "  You may need to enable model access manually:"
+    echo ""
+    echo "  1. Go to: https://${AWS_REGION}.console.aws.amazon.com/bedrock/home?region=${AWS_REGION}#/modelaccess"
+    echo "  2. Click 'Enable specific models'"
+    echo "  3. Enable: Claude 3.5 Sonnet and Claude 3 Haiku"
+    echo "  4. Click 'Save changes'"
+    echo ""
+    echo "  Note: Model access is typically granted instantly in most regions."
+    echo ""
+else
+    echo "  ✓ Bedrock access verified - Claude models available"
+fi
+
+# ============================================================================
+# Step 5: Output GitHub Secrets
 # ============================================================================
 
 echo ""
