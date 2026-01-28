@@ -176,6 +176,17 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("question")
         )
 
+    if event.get("action") == "process_report_async":
+        logger.info("Processing async report command")
+        slack = get_slack_service()
+        return handle_report_command_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("report_type"),
+            event.get("control_id")
+        )
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -1891,15 +1902,68 @@ def handle_evidence_command(
 def handle_report_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Handle /carl report command - generate compliance reports."""
+    """Handle /carl report command - generate compliance reports (async)."""
     import os
-    from services.evidence_collector import EvidenceCollector
-    from services.report_generator import ReportGenerator, ReportType
-    from datetime import datetime, timedelta
+    import json
+    import boto3
 
     parts = args.split() if args else []
     report_type = parts[0].lower() if parts else "executive"
     control_id = parts[1] if len(parts) > 1 else None
+
+    # Validate report type
+    if report_type not in ["executive", "full", "control"]:
+        slack.post_message(
+            channel_id,
+            text="Usage: `/carl report executive|full|control <control-id>`"
+        )
+        return {"statusCode": 200, "body": ""}
+
+    if report_type == "control" and not control_id:
+        slack.post_message(
+            channel_id,
+            text="Error: Control report requires a control ID. Usage: `/carl report control CC6.1`"
+        )
+        return {"statusCode": 200, "body": ""}
+
+    # Post initial message
+    slack.post_message(
+        channel_id,
+        text=f"📊 **Generating {report_type} report...**\n\n_Scanning environment and collecting evidence..._"
+    )
+
+    # Invoke async processing in background
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_report_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'report_type': report_type,
+                'control_id': control_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async report processing: {e}")
+        # Fallback to synchronous if async fails
+        return handle_report_command_sync(slack, channel_id, user_id, report_type, control_id)
+
+    # Return empty 200 OK immediately to Slack (prevents timeout)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_report_command_sync(
+    slack: SlackService, channel_id: str, user_id: str, report_type: str, control_id: str | None
+) -> dict:
+    """Synchronous version of report command with environment scanning and progress updates."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+    from services.report_generator import ReportGenerator, ReportType
+    from services.aws_scanner import AWSScanner
+    from datetime import datetime, timedelta
 
     evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
     evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
@@ -1907,7 +1971,42 @@ def handle_report_command(
     exceptions_table = os.environ.get("EXCEPTIONS_TABLE", "carl-exceptions")
     reports_bucket = os.environ.get("REPORTS_BUCKET", "carl-reports")
 
+    # Post initial status message and get timestamp for updates
+    status_response = slack.post_message(
+        channel_id,
+        text=f"📊 **Generating {report_type} report...**\n\n🔄 Scanning AWS environment..."
+    )
+    status_ts = status_response.get("ts") if status_response else None
+
+    def update_progress(status: str):
+        """Update the status message in Slack."""
+        if status_ts:
+            try:
+                slack.update_message(
+                    channel_id,
+                    status_ts,
+                    text=f"📊 **Generating {report_type} report...**\n\n{status}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update progress: {e}")
+
     try:
+        # Step 1: Scan AWS environment
+        update_progress("🔍 Scanning AWS environment for compliance data...")
+        scanner = AWSScanner()
+        scan_results = scanner.scan_environment()
+
+        scan_summary = (
+            f"Scanned: {scan_results.get('vpcs_count', 0)} VPCs, "
+            f"{scan_results.get('security_groups_count', 0)} security groups, "
+            f"{scan_results.get('iam_users_count', 0)} IAM users, "
+            f"{scan_results.get('encryption_findings', 0)} encryption findings"
+        )
+        logger.info(f"Environment scan complete: {scan_summary}")
+
+        # Step 2: Initialize services
+        update_progress("📋 Collecting audit evidence...")
+
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
             evidence_table=evidence_table
@@ -1924,26 +2023,46 @@ def handle_report_command(
         end_date = datetime.utcnow().strftime("%Y-%m-%d")
         start_date = (datetime.utcnow() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-        slack.post_message(channel_id, text=f"Generating {report_type} report... This may take a moment.")
+        # Step 3: Generate report with scan context
+        update_progress(f"📝 Generating {report_type} report with live data...")
+
+        # Add scan context to report generation
+        report_context = f"""
+# Current Environment Context
+{scan_summary}
+
+---
+
+"""
 
         if report_type == "executive":
             report = generator.generate_executive_summary(start_date, end_date)
+            # Prepend scan context
+            report = report_context + report
             s3_key = generator.save_report(report, ReportType.EXECUTIVE_SUMMARY)
 
         elif report_type == "full":
             report = generator.generate_full_audit_report(start_date, end_date)
+            report = report_context + report
             s3_key = generator.save_report(report, ReportType.FULL_AUDIT)
 
         elif report_type == "control" and control_id:
             report = generator.generate_control_report(control_id.upper())
+            report = report_context + report
             s3_key = generator.save_report(report, ReportType.CONTROL_SPECIFIC, f"control_{control_id}.md")
 
         else:
-            slack.post_message(
-                channel_id,
-                text="Usage: `/carl report executive|full|control <control-id>`"
-            )
-            return {"statusCode": 200, "body": ""}
+            s3_key = None
+
+        # Delete the status message (cleanup)
+        if status_ts:
+            try:
+                slack.delete_message(channel_id, status_ts)
+            except Exception as e:
+                logger.warning(f"Failed to delete status message: {e}")
+
+        # Step 4: Post final report
+        update_progress("✅ Report generation complete!")
 
         # Post report preview (first 3000 chars)
         preview = report[:3000]
@@ -1955,12 +2074,20 @@ def handle_report_command(
         if s3_key:
             slack.post_message(
                 channel_id,
-                text=f"Full report saved to: `s3://{reports_bucket}/{s3_key}`"
+                text=f"✅ Full report saved to: `s3://{reports_bucket}/{s3_key}`"
             )
 
     except Exception as e:
         logger.exception("Error generating report")
-        slack.post_message(channel_id, text=f"Error generating report: {str(e)}")
+
+        # Delete status message on error too
+        if status_ts:
+            try:
+                slack.delete_message(channel_id, status_ts)
+            except Exception as e2:
+                logger.warning(f"Failed to delete status message: {e2}")
+
+        slack.post_message(channel_id, text=f"❌ Error generating report: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 
