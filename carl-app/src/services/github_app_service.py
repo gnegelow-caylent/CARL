@@ -3,7 +3,7 @@ import time
 import jwt
 import requests
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -47,7 +47,7 @@ class GitHubAppAuth:
         """
         # Return cached token if still valid (with 5 min buffer)
         if self._cached_token and self._token_expires_at:
-            if datetime.utcnow() < self._token_expires_at - timedelta(minutes=5):
+            if datetime.now(timezone.utc) < self._token_expires_at - timedelta(minutes=5):
                 logger.debug("Using cached GitHub installation token")
                 return self._cached_token
 
