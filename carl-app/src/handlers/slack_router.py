@@ -166,6 +166,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("question")
         )
 
+    if event.get("action") == "process_architect_async":
+        logger.info("Processing async architect command")
+        slack = get_slack_service()
+        return handle_architect_command_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("question")
+        )
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -1516,25 +1526,82 @@ def handle_remediation_approval(
 def handle_architect_command(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
-    """Handle /carl architect command - AI-driven architecture recommendations."""
+    """
+    Handle /carl architect command - AGENTIC architecture recommendations.
+
+    This uses Agent Core where Claude autonomously:
+    - Scans the actual AWS environment
+    - Queries real pricing data
+    - Retrieves architecture patterns
+    - Makes informed, data-driven recommendations
+
+    The agent decides its own workflow based on the question.
+    """
     if not question:
         slack.post_message(
             channel_id,
             text=(
-                "Ask me any AWS architecture question. Examples:\n"
+                "Ask me any AWS architecture question. I'll scan your environment and provide personalized recommendations. Examples:\n"
                 "• `/carl architect How should I design my VPC for a multi-region deployment?`\n"
                 "• `/carl architect Compare Transit Gateway vs VPC Peering for 10 VPCs`\n"
-                "• `/carl architect What's the best egress pattern for SOC 2 compliance?`"
+                "• `/carl architect What's the best egress pattern for SOC 2 compliance?`\n"
+                "• `/carl architect Design a complete AWS foundation for my startup`\n\n"
+                "_Note: I'll autonomously scan your AWS account and query pricing to provide accurate recommendations._"
             ),
         )
         return {"statusCode": 200, "body": ""}
 
-    slack.post_message(channel_id, text=f"Analyzing: _{question}_\n\n_Using AI with AWS best practices context..._")
+    # Post initial message via Slack API
+    slack.post_message(
+        channel_id,
+        text=f"🏗️ Analyzing: _{question}_\n\n_Starting agentic analysis (scanning environment, querying pricing, retrieving patterns)..._"
+    )
 
+    # Invoke async processing in background
     try:
-        from services.ai_architect import get_ai_architect
-        ai_architect = get_ai_architect()
-        response = ai_architect.answer_architecture_question(question)
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_architect_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'question': question
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async processing: {e}")
+        # Fallback to synchronous if async fails
+        return handle_architect_command_sync(slack, channel_id, user_id, question)
+
+    # Return empty 200 OK immediately to Slack (prevents timeout)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_architect_command_sync(
+    slack: SlackService, channel_id: str, user_id: str, question: str
+) -> dict:
+    """
+    Synchronous version of architect command (for async processing or fallback).
+
+    This is where the actual agentic work happens:
+    - Agent autonomously decides which tools to call
+    - Scans AWS environment if needed
+    - Queries pricing if needed
+    - Retrieves patterns if needed
+    - Generates personalized recommendation
+    """
+    try:
+        from services.agentic_architect import get_agentic_architect
+
+        logger.info(f"Processing architect question: {question[:100]}")
+
+        # Get the agentic architect (ONE agent with multiple tools)
+        architect = get_agentic_architect()
+
+        # Agent executes autonomously (decides which tools to call)
+        response = architect.answer_question(question)
 
         # Split long responses
         if len(response) > 3000:
@@ -1561,20 +1628,20 @@ def handle_architect_command(
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Helpful"},
+                        "text": {"type": "plain_text", "text": "👍 Helpful"},
                         "style": "primary",
                         "action_id": f"feedback_helpful_architect_{hash(question) % 10000}",
                         "value": question[:100],
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Not Helpful"},
+                        "text": {"type": "plain_text", "text": "👎 Not Helpful"},
                         "action_id": f"feedback_not_helpful_architect_{hash(question) % 10000}",
                         "value": question[:100],
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Suggest Improvement"},
+                        "text": {"type": "plain_text", "text": "💡 Suggest Improvement"},
                         "action_id": f"feedback_improve_architect_{hash(question) % 10000}",
                         "value": question[:100],
                     },
@@ -1583,14 +1650,14 @@ def handle_architect_command(
         ]
         slack.post_message(channel_id, blocks=blocks)
 
+        logger.info("Architect recommendation completed successfully")
+
     except Exception as e:
-        logger.exception("Error in AI architect")
+        logger.exception("Error in Agentic Architect")
         slack.post_message(
             channel_id,
-            text=f"I encountered an error processing your architecture question. Falling back to basic search.\n\nError: {str(e)}",
+            text=f"❌ I encountered an error while analyzing your architecture question:\n\n```{str(e)}```\n\nPlease try again or rephrase your question.",
         )
-        # Fallback to basic pattern search
-        return handle_ask_command(slack, channel_id, user_id, question)
 
     return {"statusCode": 200, "body": ""}
 
