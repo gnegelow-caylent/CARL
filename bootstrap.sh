@@ -84,17 +84,24 @@ aws s3api put-public-access-block \
 echo "  ✓ Blocked public access"
 
 # Add lifecycle policy to clean up old versions
+cat > /tmp/lifecycle.json <<EOF
+{
+  "Rules": [
+    {
+      "ID": "DeleteOldVersions",
+      "Status": "Enabled",
+      "Filter": {},
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 90
+      }
+    }
+  ]
+}
+EOF
+
 aws s3api put-bucket-lifecycle-configuration \
     --bucket "${STATE_BUCKET}" \
-    --lifecycle-configuration '{
-        "Rules": [{
-            "Id": "DeleteOldVersions",
-            "Status": "Enabled",
-            "NoncurrentVersionExpiration": {
-                "NoncurrentDays": 90
-            }
-        }]
-    }'
+    --lifecycle-configuration file:///tmp/lifecycle.json
 echo "  ✓ Added lifecycle policy (delete old versions after 90 days)"
 
 # ============================================================================
