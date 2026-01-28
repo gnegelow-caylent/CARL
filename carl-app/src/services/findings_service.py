@@ -236,3 +236,72 @@ class FindingsService:
         except Exception as e:
             logger.exception(f"Error suppressing finding: {finding_id}")
             return False
+
+    def store_scanner_findings(self, scan_results: dict[str, Any], region: str = "us-east-1") -> list[str]:
+        """
+        Convert AWSScanner results to Finding objects and store in DynamoDB.
+
+        Args:
+            scan_results: Results from AWSScanner.scan_environment()
+            region: AWS region where scan was performed
+
+        Returns:
+            List of finding IDs that were stored
+        """
+        from models.finding import FindingSource
+        import hashlib
+
+        stored_finding_ids = []
+        account_id = scan_results.get("account_id", "unknown")
+
+        try:
+            # Iterate through all scan categories
+            for category, results in scan_results.items():
+                if category == "account_id":
+                    continue
+
+                if not isinstance(results, dict):
+                    continue
+
+                issues = results.get("issues", [])
+
+                for issue in issues:
+                    # Generate unique finding ID from content
+                    finding_content = f"{category}:{issue['finding']}:{account_id}"
+                    finding_id = f"scanner-{hashlib.md5(finding_content.encode()).hexdigest()[:12]}"
+
+                    # Check if finding already exists
+                    existing = self.get_finding(finding_id, account_id)
+                    if existing:
+                        # Skip if already stored
+                        logger.debug(f"Finding {finding_id} already exists, skipping")
+                        continue
+
+                    # Create Finding object
+                    finding = Finding(
+                        id=finding_id,
+                        source=FindingSource.CARL_SCANNER,
+                        severity=FindingSeverity(issue["severity"]),
+                        title=issue["finding"],
+                        description=f"Category: {category}\n{issue['finding']}",
+                        resource_type=category,
+                        resource_id=account_id,  # Scanner findings are account-level
+                        account_id=account_id,
+                        region=region,
+                        control_ids=[],  # Can be mapped later
+                        status=FindingStatus.NEW,
+                        remediation_steps=issue.get("recommendation", ""),
+                        raw_finding=issue
+                    )
+
+                    # Store in DynamoDB
+                    self.store_finding(finding)
+                    stored_finding_ids.append(finding_id)
+                    logger.info(f"Stored scanner finding: {finding_id} - {issue['finding']}")
+
+            logger.info(f"Stored {len(stored_finding_ids)} new scanner findings")
+            return stored_finding_ids
+
+        except Exception as e:
+            logger.exception("Error storing scanner findings")
+            return stored_finding_ids

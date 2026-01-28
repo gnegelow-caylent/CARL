@@ -25,6 +25,7 @@ class FindingSource(Enum):
     INSPECTOR = "INSPECTOR"
     MACIE = "MACIE"
     ACCESS_ANALYZER = "ACCESS_ANALYZER"
+    CARL_SCANNER = "CARL_SCANNER"
 
 
 class FindingStatus(Enum):
