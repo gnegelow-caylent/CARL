@@ -1062,7 +1062,18 @@ def handle_event(payload: dict) -> dict:
             logger.debug(f"Ignoring message with subtype: {event.get('subtype')}")
             return {"statusCode": 200, "body": "OK"}
 
-        return handle_direct_message(event)
+        # Only respond to direct messages (DMs), not channel messages
+        # Channel IDs start with "C", DM IDs start with "D"
+        channel = event.get("channel", "")
+        channel_type = event.get("channel_type", "")
+
+        # Only handle if it's a DM (channel_type is "im" or channel starts with "D")
+        if channel_type == "im" or channel.startswith("D"):
+            return handle_direct_message(event)
+
+        # Ignore all other channel messages (user talking to others)
+        logger.debug(f"Ignoring channel message in {channel}")
+        return {"statusCode": 200, "body": "OK"}
 
     return {"statusCode": 200, "body": "OK"}
 
