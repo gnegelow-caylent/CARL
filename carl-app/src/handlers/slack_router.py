@@ -1504,7 +1504,7 @@ def show_vpc_config_modal(slack: SlackService, trigger_id: str, channel_id: str,
         logger.exception("Error opening modal")
         slack.post_message(channel_id, text=f"❌ Error showing configuration form: {str(e)}\n\nUsing default configuration instead...")
         # Fallback to default config
-        return handle_build_command(slack, channel_id, user_id, blueprint_name, {"name": "main", "environment": "prod", "vpc_cidr": "10.0.0.0/16"}, trigger_id=None)
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, {"name": "main", "environment": "prod", "cidr": "10.0.0.0/16"}, trigger_id=None)
 
     return {"statusCode": 200, "body": ""}
 
@@ -1532,7 +1532,7 @@ def handle_vpc_config_submission(payload: dict) -> dict:
     config = {
         "name": vpc_name,
         "environment": environment,
-        "vpc_cidr": vpc_cidr
+        "cidr": vpc_cidr  # Use "cidr" key to match what infrastructure_builder expects
     }
 
     # Post confirmation message
