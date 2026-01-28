@@ -956,6 +956,11 @@ def handle_help_command(
 - `/carl drift status` - View current drift summary
 - `/carl drift details <drift-id>` - View drift item details
 
+*Jira Integration:*
+- `/carl jira test` - Test Jira connection and permissions
+- `/carl jira sync` - Sync findings to Jira tickets
+- `/carl jira status` - View Jira integration statistics
+
 *Coming Soon:*
 - `/carl remediate <finding-id>` - Request auto-remediation
 
