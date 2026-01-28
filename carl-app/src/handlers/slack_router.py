@@ -484,6 +484,7 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_recommend_command(slack, channel_id, user_id, args)
     elif subcommand == "build":
         trigger_id = payload.get("trigger_id")
+        logger.info(f"Build command - trigger_id present: {trigger_id is not None}, blueprint: {args}")
         return handle_build_command(slack, channel_id, user_id, args, trigger_id=trigger_id)
     elif subcommand == "estimate":
         return handle_estimate_command(slack, channel_id, user_id, args)
@@ -1250,8 +1251,11 @@ def handle_build_command(
     vpc_blueprints = ["networking/basic-vpc", "networking/three-tier-vpc", "networking/vpc"]
     needs_cidr = any(bp in blueprint_name.lower() for bp in vpc_blueprints)
 
+    logger.info(f"Build command check - needs_cidr: {needs_cidr}, config: {config is None}, trigger_id: {trigger_id is not None}")
+
     # If VPC blueprint and no config provided, ask for CIDR via modal
     if needs_cidr and config is None and trigger_id:
+        logger.info(f"Showing VPC config modal for blueprint: {blueprint_name}")
         return show_vpc_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
 
     builder = get_infrastructure_builder()
