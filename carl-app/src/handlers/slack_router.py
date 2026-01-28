@@ -18,7 +18,7 @@ from services.architecture_advisor import ArchitectureAdvisor
 from services.infrastructure_builder import InfrastructureBuilder
 from services.cost_estimator import CostEstimator, format_cost_estimate
 from services.foundation import DecisionEngine, FoundationBuilder
-from utils.aws_client import get_secret
+from utils.aws_client import get_parameter
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,7 +43,7 @@ def get_slack_service() -> SlackService:
     """Get or create Slack service instance."""
     global _slack_service
     if _slack_service is None:
-        token = get_secret(SLACK_BOT_TOKEN_SSM)
+        token = get_parameter(SLACK_BOT_TOKEN_SSM)
         _slack_service = SlackService(token)
     return _slack_service
 
@@ -161,7 +161,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             pass
 
     # Verify Slack signature for all other requests
-    signing_secret = get_secret(SLACK_SIGNING_SECRET_SSM)
+    signing_secret = get_parameter(SLACK_SIGNING_SECRET_SSM)
     timestamp = headers.get("x-slack-request-timestamp", "")
     signature = headers.get("x-slack-signature", "")
 
