@@ -105,10 +105,12 @@ jobs:
           echo "✅ Lambda function exists"
 
           # Check Lambda can be invoked (dry run)
+          # Create payload file to avoid shell escaping issues
+          echo '{"rawPath":"/health"}' > test-payload.json
           aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
             --invocation-type DryRun \
-            --payload '{"body":"{}"}' \
+            --payload file://test-payload.json \
             response.json || exit 1
           echo "✅ Lambda function is invokable"
 
