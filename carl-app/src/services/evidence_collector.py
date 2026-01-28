@@ -149,6 +149,39 @@ class Evidence:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def to_dynamodb_item(self) -> dict:
+        """Convert to DynamoDB item format with pk/sk keys."""
+        from datetime import datetime
+
+        # Parse timestamp from collected_at
+        try:
+            timestamp = datetime.fromisoformat(self.collected_at.replace('Z', '+00:00')).timestamp()
+        except:
+            timestamp = datetime.utcnow().timestamp()
+
+        item = {
+            "pk": f"ACCOUNT#{self.account_id}#EVIDENCE#{self.evidence_id}",
+            "sk": f"TYPE#{self.evidence_type}#TIMESTAMP#{int(timestamp)}",
+            "evidence_id": self.evidence_id,
+            "evidence_type": self.evidence_type,
+            "title": self.title,
+            "description": self.description,
+            "controls": self.controls,
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "account_id": self.account_id,
+            "region": self.region,
+            "collected_at": self.collected_at,
+            "collected_by": self.collected_by,
+            "s3_key": self.s3_key,
+            "content_hash": self.content_hash,
+            "metadata": self.metadata,
+            "audit_period_start": self.audit_period_start,
+            "audit_period_end": self.audit_period_end,
+            "tags": self.tags,
+        }
+        return item
+
     @classmethod
     def from_dict(cls, data: dict) -> "Evidence":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
@@ -643,7 +676,7 @@ class EvidenceCollector:
         )
 
         # Store metadata in DynamoDB
-        self.table.put_item(Item=evidence.to_dict())
+        self.table.put_item(Item=evidence.to_dynamodb_item())
 
         logger.info(f"Stored evidence: {evidence_id} - {title}")
         return evidence
