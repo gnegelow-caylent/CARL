@@ -86,6 +86,16 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
+      - name: Create Placeholder Lambda Package
+        if: matrix.path == 'carl-infrastructure/core'
+        run: |
+          # Create placeholder lambda.zip for validation
+          # Real package with dependencies is created in deploy job
+          cd ${{ matrix.path }}
+          echo '{"dummy": "placeholder for validation"}' > dummy.txt
+          zip lambda.zip dummy.txt
+          rm dummy.txt
+
       - name: Terraform Format Check
         run: |
           cd ${{ matrix.path }}

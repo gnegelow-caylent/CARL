@@ -52,6 +52,15 @@ jobs:
           cd carl-infrastructure/core
           terraform fmt -check -recursive
 
+      - name: Create Placeholder Lambda Package
+        run: |
+          # Create placeholder lambda.zip for validation
+          # Real package with dependencies is created in deploy job
+          cd carl-infrastructure/core
+          echo '{"dummy": "placeholder for validation"}' > dummy.txt
+          zip lambda.zip dummy.txt
+          rm dummy.txt
+
       - name: Terraform Init
         run: |
           cd carl-infrastructure/core

@@ -199,7 +199,7 @@ resource "aws_lambda_function" "carl" {
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda.arn
   handler          = "handlers.slack_router.lambda_handler"
-  source_code_hash = filebase64sha256(local.lambda_zip_path)
+  source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : ""
   runtime          = "python3.11"
 
   # COST OPTIMIZATION: Start small, Lambda auto-scales
