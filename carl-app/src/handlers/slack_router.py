@@ -1056,6 +1056,12 @@ def handle_event(payload: dict) -> dict:
         # Ignore bot messages to prevent loops
         if event.get("bot_id"):
             return {"statusCode": 200, "body": "OK"}
+
+        # Ignore system messages (channel_join, channel_leave, etc.)
+        if event.get("subtype"):
+            logger.debug(f"Ignoring message with subtype: {event.get('subtype')}")
+            return {"statusCode": 200, "body": "OK"}
+
         return handle_direct_message(event)
 
     return {"statusCode": 200, "body": "OK"}
