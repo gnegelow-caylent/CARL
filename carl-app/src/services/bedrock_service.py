@@ -15,7 +15,8 @@ logger = get_logger(__name__)
 BEDROCK_MODEL_ID = os.environ.get(
     "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Use BEDROCK_REGION first, fall back to AWS_REGION, default to us-east-1
+AWS_REGION = os.environ.get("BEDROCK_REGION") or os.environ.get("AWS_REGION", "us-east-1")
 
 SYSTEM_PROMPT = """You are CARL (Cloud Automated Risk & Compliance Logic), an AI assistant specialized in AWS compliance and security. You help users understand and remediate compliance findings, particularly for SOC 2.
 
