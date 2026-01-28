@@ -67,7 +67,172 @@ resource "aws_dynamodb_table" "config" {
   })
 }
 
-# 2. Lambda Execution Role
+# 2. Evidence Table (stores audit evidence)
+resource "aws_dynamodb_table" "evidence" {
+  name         = "${local.name_prefix}-evidence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.environment == "prod"
+  }
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-evidence"
+  })
+}
+
+# 3. Findings Table (stores security findings)
+resource "aws_dynamodb_table" "findings" {
+  name         = "${local.name_prefix}-findings"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.environment == "prod"
+  }
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-findings"
+  })
+}
+
+# 4. Exceptions Table (stores risk exceptions)
+resource "aws_dynamodb_table" "exceptions" {
+  name         = "${local.name_prefix}-exceptions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.environment == "prod"
+  }
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-exceptions"
+  })
+}
+
+# 5. Evidence Bucket (stores evidence artifacts)
+resource "aws_s3_bucket" "evidence" {
+  bucket = "${local.name_prefix}-evidence"
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-evidence"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# 6. Reports Bucket (stores generated reports)
+resource "aws_s3_bucket" "reports" {
+  bucket = "${local.name_prefix}-reports"
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-reports"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "reports" {
+  bucket = aws_s3_bucket.reports.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "reports" {
+  bucket = aws_s3_bucket.reports.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "reports" {
+  bucket = aws_s3_bucket.reports.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# 7. Lambda Execution Role
 resource "aws_iam_role" "lambda" {
   name = "${local.name_prefix}-lambda-role"
 
@@ -114,6 +279,33 @@ resource "aws_iam_role_policy" "dynamodb" {
         Resource = [
           aws_dynamodb_table.config.arn,
           "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.name_prefix}-*"
+        ]
+      }
+    ]
+  })
+}
+
+# S3 access for evidence and reports (read/write)
+resource "aws_iam_role_policy" "s3_reports" {
+  name = "s3-reports-access"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${local.name_prefix}-evidence",
+          "arn:aws:s3:::${local.name_prefix}-evidence/*",
+          "arn:aws:s3:::${local.name_prefix}-reports",
+          "arn:aws:s3:::${local.name_prefix}-reports/*"
         ]
       }
     ]
@@ -299,6 +491,13 @@ resource "aws_lambda_function" "carl" {
 
       # Config table
       CONFIG_TABLE = aws_dynamodb_table.config.name
+
+      # Reporting tables (will be created when reporting feature is enabled)
+      EVIDENCE_TABLE   = "${local.name_prefix}-evidence"
+      FINDINGS_TABLE   = "${local.name_prefix}-findings"
+      EXCEPTIONS_TABLE = "${local.name_prefix}-exceptions"
+      EVIDENCE_BUCKET  = "${local.name_prefix}-evidence"
+      REPORTS_BUCKET   = "${local.name_prefix}-reports"
 
       # Bedrock - Cost optimized (Claude Haiku 4.5 by default)
       BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
