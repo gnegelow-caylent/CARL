@@ -1,7 +1,7 @@
 """
 Document Generator for CARL Reports.
 
-Converts markdown reports to professional Word documents and PDFs.
+Converts markdown reports to professional PDF documents using ReportLab.
 """
 
 import re
@@ -9,10 +9,12 @@ from io import BytesIO
 from datetime import datetime
 from typing import Optional
 
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+from reportlab.lib import colors
 
 from utils.logger import get_logger
 
@@ -20,46 +22,66 @@ logger = get_logger(__name__)
 
 
 class DocumentGenerator:
-    """Generate professional Word documents from markdown reports."""
+    """Generate professional PDF documents from markdown reports."""
 
     def __init__(self):
         """Initialize the document generator."""
-        pass
+        self.styles = getSampleStyleSheet()
 
-    def markdown_to_docx(self, markdown_content: str, title: str = "CARL Compliance Report") -> BytesIO:
+        # Add custom styles
+        self.styles.add(ParagraphStyle(
+            name='CenterTitle',
+            parent=self.styles['Heading1'],
+            fontSize=24,
+            alignment=TA_CENTER,
+            spaceAfter=12
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='CenterSubtitle',
+            parent=self.styles['Normal'],
+            fontSize=14,
+            alignment=TA_CENTER,
+            textColor=colors.grey,
+            spaceAfter=6
+        ))
+
+    def markdown_to_pdf(self, markdown_content: str, title: str = "CARL Compliance Report") -> BytesIO:
         """
-        Convert markdown content to a formatted Word document.
+        Convert markdown content to a formatted PDF document.
 
         Args:
             markdown_content: The markdown content to convert
             title: The document title
 
         Returns:
-            BytesIO object containing the Word document
+            BytesIO object containing the PDF document
         """
-        logger.info(f"Generating Word document: {title}")
+        logger.info(f"Generating PDF document: {title}")
 
-        doc = Document()
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18,
+        )
 
-        # Set up document properties
-        core_properties = doc.core_properties
-        core_properties.title = title
-        core_properties.author = "CARL - Cloud Automated Risk & Compliance Logic"
-        core_properties.created = datetime.utcnow()
+        # Container for the 'Flowable' objects
+        elements = []
 
         # Add title
-        title_paragraph = doc.add_heading(title, 0)
-        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elements.append(Paragraph(title, self.styles['CenterTitle']))
+        elements.append(Spacer(1, 12))
 
         # Add generation timestamp
-        timestamp = doc.add_paragraph()
-        timestamp.add_run(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}").italic = True
-        timestamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        timestamp_text = f"<i>Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</i>"
+        elements.append(Paragraph(timestamp_text, self.styles['CenterSubtitle']))
+        elements.append(Spacer(1, 24))
 
-        # Add blank line
-        doc.add_paragraph()
-
-        # Parse markdown and convert to document elements
+        # Parse markdown and convert to PDF elements
         lines = markdown_content.split('\n')
         i = 0
         in_code_block = False
@@ -76,88 +98,95 @@ class DocumentGenerator:
                 else:
                     # End of code block - add it to document
                     if code_lines:
-                        code_para = doc.add_paragraph('\n'.join(code_lines))
-                        code_para.style = 'Intense Quote'
+                        code_text = '<pre>' + '<br/>'.join(code_lines) + '</pre>'
+                        elements.append(Paragraph(code_text, self.styles['Code']))
+                        elements.append(Spacer(1, 12))
                     in_code_block = False
                     code_lines = []
                 i += 1
                 continue
 
             if in_code_block:
-                code_lines.append(line)
+                code_lines.append(line.replace('<', '&lt;').replace('>', '&gt;'))
                 i += 1
                 continue
 
             # Handle headings
             if line.startswith('# '):
-                doc.add_heading(line[2:], 1)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[2:], self.styles['Heading1']))
+                elements.append(Spacer(1, 6))
             elif line.startswith('## '):
-                doc.add_heading(line[3:], 2)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[3:], self.styles['Heading2']))
+                elements.append(Spacer(1, 6))
             elif line.startswith('### '):
-                doc.add_heading(line[4:], 3)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[4:], self.styles['Heading3']))
+                elements.append(Spacer(1, 6))
             elif line.startswith('#### '):
-                doc.add_heading(line[5:], 4)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[5:], self.styles['Heading4']))
+                elements.append(Spacer(1, 6))
 
             # Handle horizontal rules
             elif line.strip() in ['---', '***', '___']:
-                doc.add_paragraph('_' * 50)
+                elements.append(Spacer(1, 12))
 
             # Handle bullet lists
             elif line.strip().startswith('- ') or line.strip().startswith('* '):
                 content = line.strip()[2:]
-                doc.add_paragraph(content, style='List Bullet')
+                # Convert markdown bold to HTML
+                content = content.replace('**', '<b>', 1).replace('**', '</b>', 1)
+                elements.append(Paragraph(f"• {content}", self.styles['Normal']))
+                elements.append(Spacer(1, 3))
 
             # Handle numbered lists
             elif re.match(r'^\d+\.\s', line.strip()):
-                content = re.sub(r'^\d+\.\s', '', line.strip())
-                doc.add_paragraph(content, style='List Number')
+                content = re.sub(r'^(\d+)\.\s', r'\1. ', line.strip())
+                content = content.replace('**', '<b>', 1).replace('**', '</b>', 1)
+                elements.append(Paragraph(content, self.styles['Normal']))
+                elements.append(Spacer(1, 3))
 
             # Handle bold text emphasis
-            elif '**' in line:
-                para = doc.add_paragraph()
-                parts = line.split('**')
-                for idx, part in enumerate(parts):
-                    if idx % 2 == 0:
-                        para.add_run(part)
-                    else:
-                        para.add_run(part).bold = True
+            elif '**' in line and line.strip():
+                # Convert markdown bold to HTML bold
+                formatted = line
+                while '**' in formatted:
+                    formatted = formatted.replace('**', '<b>', 1).replace('**', '</b>', 1)
+                elements.append(Paragraph(formatted, self.styles['Normal']))
+                elements.append(Spacer(1, 6))
 
             # Handle blank lines
             elif not line.strip():
-                doc.add_paragraph()
+                elements.append(Spacer(1, 12))
 
             # Regular paragraphs
             else:
                 if line.strip():
-                    # Clean up markdown formatting
+                    # Clean up and escape HTML
                     clean_line = line.replace('_', '').replace('`', '')
-                    doc.add_paragraph(clean_line)
+                    clean_line = clean_line.replace('<', '&lt;').replace('>', '&gt;')
+                    elements.append(Paragraph(clean_line, self.styles['Normal']))
+                    elements.append(Spacer(1, 6))
 
             i += 1
 
-        # Add footer with page numbers
-        section = doc.sections[0]
-        footer = section.footer
-        footer_para = footer.paragraphs[0]
-        footer_para.text = f"Generated by CARL | {datetime.utcnow().strftime('%Y-%m-%d')}"
-        footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Save to BytesIO
-        buffer = BytesIO()
-        doc.save(buffer)
+        # Build PDF
+        doc.build(elements)
         buffer.seek(0)
 
-        logger.info("Word document generated successfully")
+        logger.info("PDF document generated successfully")
         return buffer
 
-    def create_executive_summary_docx(
+    def create_executive_summary_pdf(
         self,
         markdown_content: str,
         organization_name: str = "Organization",
         audit_period: str = ""
     ) -> BytesIO:
         """
-        Create a specially formatted executive summary Word document.
+        Create a specially formatted executive summary PDF document.
 
         Args:
             markdown_content: The markdown content
@@ -165,66 +194,109 @@ class DocumentGenerator:
             audit_period: Audit period for the cover
 
         Returns:
-            BytesIO object containing the Word document
+            BytesIO object containing the PDF document
         """
-        logger.info(f"Generating executive summary for {organization_name}")
+        logger.info(f"Generating executive summary PDF for {organization_name}")
 
-        doc = Document()
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18,
+        )
+
+        elements = []
 
         # Cover page
-        cover_title = doc.add_heading('SOC 2 Type II', 0)
-        cover_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elements.append(Spacer(1, 2*inch))
 
-        cover_subtitle = doc.add_heading('Executive Summary', 1)
-        cover_subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cover_style = ParagraphStyle(
+            'CoverTitle',
+            parent=self.styles['Heading1'],
+            fontSize=32,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#1a237e')
+        )
+        elements.append(Paragraph('SOC 2 Type II', cover_style))
+        elements.append(Spacer(1, 12))
 
-        doc.add_paragraph()
-        doc.add_paragraph()
+        subtitle_style = ParagraphStyle(
+            'CoverSubtitle',
+            parent=self.styles['Heading2'],
+            fontSize=24,
+            alignment=TA_CENTER
+        )
+        elements.append(Paragraph('Executive Summary', subtitle_style))
+        elements.append(Spacer(1, 48))
 
-        org_para = doc.add_paragraph()
-        org_run = org_para.add_run(organization_name)
-        org_run.font.size = Pt(18)
-        org_run.font.bold = True
-        org_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        org_style = ParagraphStyle(
+            'OrgName',
+            parent=self.styles['Normal'],
+            fontSize=18,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#424242')
+        )
+        elements.append(Paragraph(f"<b>{organization_name}</b>", org_style))
 
         if audit_period:
-            period_para = doc.add_paragraph()
-            period_run = period_para.add_run(f"Audit Period: {audit_period}")
-            period_run.font.size = Pt(14)
-            period_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            elements.append(Spacer(1, 12))
+            period_style = ParagraphStyle(
+                'Period',
+                parent=self.styles['Normal'],
+                fontSize=14,
+                alignment=TA_CENTER
+            )
+            elements.append(Paragraph(f"Audit Period: {audit_period}", period_style))
 
-        doc.add_paragraph()
+        elements.append(Spacer(1, 48))
 
-        generated_para = doc.add_paragraph()
-        generated_run = generated_para.add_run(f"Generated: {datetime.utcnow().strftime('%B %d, %Y')}")
-        generated_run.italic = True
-        generated_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        date_style = ParagraphStyle(
+            'GenDate',
+            parent=self.styles['Normal'],
+            fontSize=12,
+            alignment=TA_CENTER,
+            textColor=colors.grey
+        )
+        elements.append(Paragraph(f"<i>Generated: {datetime.utcnow().strftime('%B %d, %Y')}</i>", date_style))
 
-        # Add page break
-        doc.add_page_break()
+        # Page break
+        elements.append(PageBreak())
 
-        # Add the rest of the content using the standard markdown converter
-        # Parse and add content (simplified for executive summary)
+        # Add content using markdown_to_pdf parsing
         lines = markdown_content.split('\n')
         for line in lines:
             if line.startswith('# '):
-                doc.add_heading(line[2:], 1)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[2:], self.styles['Heading1']))
+                elements.append(Spacer(1, 6))
             elif line.startswith('## '):
-                doc.add_heading(line[3:], 2)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[3:], self.styles['Heading2']))
+                elements.append(Spacer(1, 6))
             elif line.startswith('### '):
-                doc.add_heading(line[4:], 3)
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(line[4:], self.styles['Heading3']))
+                elements.append(Spacer(1, 6))
             elif line.strip().startswith('- '):
-                doc.add_paragraph(line.strip()[2:], style='List Bullet')
+                content = line.strip()[2:].replace('**', '<b>', 1).replace('**', '</b>', 1)
+                elements.append(Paragraph(f"• {content}", self.styles['Normal']))
+                elements.append(Spacer(1, 3))
             elif line.strip().startswith('**') and line.strip().endswith('**'):
-                para = doc.add_paragraph()
-                para.add_run(line.strip()[2:-2]).bold = True
+                content = line.strip()[2:-2]
+                elements.append(Paragraph(f"<b>{content}</b>", self.styles['Normal']))
+                elements.append(Spacer(1, 6))
             elif line.strip():
-                doc.add_paragraph(line)
+                clean_line = line.replace('_', '').replace('`', '')
+                clean_line = clean_line.replace('<', '&lt;').replace('>', '&gt;')
+                elements.append(Paragraph(clean_line, self.styles['Normal']))
+                elements.append(Spacer(1, 6))
 
-        # Save to BytesIO
-        buffer = BytesIO()
-        doc.save(buffer)
+        # Build PDF
+        doc.build(elements)
         buffer.seek(0)
 
-        logger.info("Executive summary document generated successfully")
+        logger.info("Executive summary PDF generated successfully")
         return buffer

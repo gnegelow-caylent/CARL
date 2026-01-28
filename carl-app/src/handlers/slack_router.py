@@ -2054,15 +2054,15 @@ def handle_report_command_sync(
         else:
             report_type_enum = None
 
-        # Step 4: Generate Word document
-        update_progress("📄 Creating Word document...")
+        # Step 4: Generate PDF document
+        update_progress("📄 Creating PDF document...")
 
         from utils.document_generator import DocumentGenerator
         doc_gen = DocumentGenerator()
 
         if report_type == "executive":
             audit_period = f"{start_date} to {end_date}"
-            doc_buffer = doc_gen.create_executive_summary_docx(
+            doc_buffer = doc_gen.create_executive_summary_pdf(
                 report,
                 organization_name="Your Organization",
                 audit_period=audit_period
@@ -2073,11 +2073,11 @@ def handle_report_command_sync(
                 "full": "Full Audit Report",
                 "control": f"Control Report: {control_id}"
             }.get(report_type, "Compliance Report")
-            doc_buffer = doc_gen.markdown_to_docx(report, title=doc_title)
+            doc_buffer = doc_gen.markdown_to_pdf(report, title=doc_title)
 
         # Save document to S3
         update_progress("☁️ Uploading document to S3...")
-        s3_key = generator.save_document(doc_buffer, report_type_enum, format="docx")
+        s3_key = generator.save_document(doc_buffer, report_type_enum, format="pdf")
 
         # Generate presigned URL
         download_url = generator.generate_presigned_url(s3_key, expiration=86400)  # 24 hours
