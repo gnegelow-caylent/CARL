@@ -435,6 +435,23 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Generate the Terraform code
         return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
 
+    if event.get("action") == "process_s3_config_async":
+        logger.info("Processing async S3 config submission")
+        slack = get_slack_service()
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        blueprint_name = event.get("blueprint_name")
+        config = event.get("config")
+
+        # Post confirmation message
+        slack.post_message(
+            channel_id,
+            text=f"✅ Configuration received! Generating {blueprint_name} with bucket name `{config.get('name')}`..."
+        )
+
+        # Generate the Terraform code
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -1382,6 +1399,13 @@ def handle_build_command(
     if needs_cidr and config is None and trigger_id:
         return show_vpc_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
 
+    # Check if this is an S3 blueprint that needs bucket name input
+    needs_bucket_name = "s3" in blueprint_name.lower()
+
+    # If S3 blueprint and no config provided, ask for bucket name via modal
+    if needs_bucket_name and config is None and trigger_id:
+        return show_s3_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
+
     builder = get_infrastructure_builder()
 
     try:
@@ -1555,6 +1579,79 @@ def show_vpc_config_modal(slack: SlackService, trigger_id: str, channel_id: str,
     return {"statusCode": 200, "body": ""}
 
 
+def show_s3_config_modal(slack: SlackService, trigger_id: str, channel_id: str, user_id: str, blueprint_name: str) -> dict:
+    """Show modal to collect S3 bucket configuration."""
+    import json as json_lib
+
+    modal = {
+        "type": "modal",
+        "callback_id": "s3_config_modal",
+        "private_metadata": json_lib.dumps({
+            "channel_id": channel_id,
+            "blueprint_name": blueprint_name
+        }),
+        "title": {
+            "type": "plain_text",
+            "text": "S3 Bucket Config"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Generate Code"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "bucket_name_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "bucket_name_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "my-data-bucket"
+                    },
+                    "initial_value": "my-data-bucket"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Bucket Name Prefix"
+                },
+                "hint": {
+                    "type": "plain_text",
+                    "text": "Bucket name prefix (lowercase, 3-63 chars). Account ID will be appended automatically."
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ *Note:* Your AWS account ID will be automatically appended to ensure global uniqueness.\n\n*Example:* `my-data-bucket` → `my-data-bucket-123456789012`"
+                    }
+                ]
+            }
+        ]
+    }
+
+    try:
+        # Open the modal using the Slack API
+        response = slack.client.views_open(
+            trigger_id=trigger_id,
+            view=modal
+        )
+        logger.info(f"S3 config modal opened: {response}")
+    except Exception as e:
+        logger.exception("Error opening S3 config modal")
+        slack.post_message(channel_id, text=f"❌ Error showing configuration form: {str(e)}\n\nUsing default configuration instead...")
+        # Fallback to default config
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, {"name": "my-data-bucket"}, trigger_id=None)
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_vpc_config_submission(payload: dict) -> dict:
     """Handle VPC configuration modal submission with validation."""
     import json as json_lib
@@ -1636,6 +1733,78 @@ def handle_vpc_config_submission(payload: dict) -> dict:
             handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
         except Exception as e2:
             logger.error(f"Error processing VPC config: {e2}")
+
+    # Return 200 immediately to close modal (must be within 3 seconds)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_s3_config_submission(payload: dict) -> dict:
+    """Handle S3 bucket configuration modal submission with validation."""
+    import json as json_lib
+    from utils.input_validation import validate_s3_bucket_name, sanitize_s3_bucket_name
+
+    slack = get_slack_service()
+
+    # Extract values from modal submission
+    view = payload.get("view", {})
+    values = view.get("state", {}).get("values", {})
+    private_metadata = json_lib.loads(view.get("private_metadata", "{}"))
+
+    channel_id = private_metadata.get("channel_id")
+    blueprint_name = private_metadata.get("blueprint_name")
+
+    # Extract input values
+    bucket_name = values.get("bucket_name_block", {}).get("bucket_name_input", {}).get("value", "my-data-bucket").strip()
+
+    # Validate inputs
+    errors = {}
+
+    # Validate bucket name
+    name_valid, name_error = validate_s3_bucket_name(bucket_name)
+    if not name_valid:
+        # Try to sanitize and suggest
+        sanitized = sanitize_s3_bucket_name(bucket_name)
+        errors["bucket_name_block"] = f"{name_error}. Suggestion: '{sanitized}'"
+
+    # If there are validation errors, return them to Slack
+    if errors:
+        return {
+            "response_action": "errors",
+            "errors": errors
+        }
+
+    # Sanitize the bucket name (in case it has minor issues)
+    bucket_name = sanitize_s3_bucket_name(bucket_name)
+
+    # Build configuration
+    config = {
+        "name": bucket_name
+    }
+
+    # Invoke async processing in background to avoid 3-second timeout
+    user_id = payload.get("user", {}).get("id", "")
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json_lib.dumps({
+                'action': 'process_s3_config_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'blueprint_name': blueprint_name,
+                'config': config
+            })
+        )
+        logger.info("Invoked async S3 config processing")
+    except Exception as e:
+        logger.error(f"Failed to invoke async processing: {e}")
+        # Fallback to synchronous if async fails
+        try:
+            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with bucket name `{bucket_name}`...")
+            handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+        except Exception as e2:
+            logger.error(f"Error processing S3 config: {e2}")
 
     # Return 200 immediately to close modal (must be within 3 seconds)
     return {"statusCode": 200, "body": ""}
@@ -1923,6 +2092,8 @@ def handle_interaction(payload: dict) -> dict:
         callback_id = payload.get("view", {}).get("callback_id", "")
         if callback_id == "vpc_config_modal":
             return handle_vpc_config_submission(payload)
+        elif callback_id == "s3_config_modal":
+            return handle_s3_config_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])

@@ -181,3 +181,95 @@ def validate_aws_region(region: str) -> Tuple[bool, Optional[str]]:
         return False, f"Invalid AWS region. Common regions: us-east-1, us-west-2, eu-west-1, etc."
 
     return True, None
+
+
+def validate_s3_bucket_name(name: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate S3 bucket name according to AWS naming rules.
+
+    Rules:
+    - 3-63 characters
+    - Lowercase letters, numbers, hyphens, and dots only
+    - Must start and end with lowercase letter or number
+    - No consecutive dots
+    - Not formatted as an IP address
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not name or not isinstance(name, str):
+        return False, "Bucket name is required"
+
+    name = name.strip().lower()
+
+    # Check length
+    if len(name) < 3 or len(name) > 63:
+        return False, "Bucket name must be 3-63 characters"
+
+    # Check format: lowercase letters, numbers, hyphens, dots
+    if not re.match(r'^[a-z0-9][a-z0-9.-]*[a-z0-9]$', name):
+        return False, "Bucket name must start and end with a letter or number, and contain only lowercase letters, numbers, hyphens, and dots"
+
+    # Check for consecutive dots
+    if '..' in name:
+        return False, "Bucket name cannot contain consecutive dots"
+
+    # Check for dot-dash patterns (AWS doesn't allow these in some contexts)
+    if '.-' in name or '-.' in name:
+        return False, "Bucket name cannot contain '.-' or '-.'"
+
+    # Check if it looks like an IP address
+    parts = name.split('.')
+    if len(parts) == 4 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
+        return False, "Bucket name cannot be formatted as an IP address"
+
+    return True, None
+
+
+def sanitize_s3_bucket_name(name: str) -> str:
+    """
+    Sanitize an S3 bucket name to make it valid.
+
+    - Convert to lowercase
+    - Replace spaces and underscores with hyphens
+    - Remove invalid characters
+    - Ensure starts and ends with letter or number
+    - Remove consecutive dots
+    """
+    if not name:
+        return "default-bucket"
+
+    # Convert to lowercase
+    name = name.lower().strip()
+
+    # Replace spaces and underscores with hyphens
+    name = re.sub(r'[\s_]+', '-', name)
+
+    # Remove any character that's not lowercase letter, number, hyphen, or dot
+    name = re.sub(r'[^a-z0-9.-]', '', name)
+
+    # Remove consecutive dots
+    name = re.sub(r'\.+', '.', name)
+
+    # Remove consecutive hyphens
+    name = re.sub(r'-+', '-', name)
+
+    # Remove dot-dash patterns
+    name = re.sub(r'\.-|-\.', '-', name)
+
+    # Ensure starts with letter or number
+    if name and not name[0].isalnum():
+        name = 'a' + name
+
+    # Ensure ends with letter or number (remove trailing dots/hyphens)
+    name = name.rstrip('.-')
+
+    # Ensure minimum length
+    if len(name) < 3:
+        return "default-bucket"
+
+    # Ensure maximum length
+    if len(name) > 63:
+        name = name[:63].rstrip('.-')
+
+    return name
