@@ -1,0 +1,186 @@
+name: Deploy CARL Features
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature:
+        description: 'Feature to deploy'
+        required: true
+        type: choice
+        options:
+          - monitoring
+          - bootstrap
+          - reporting
+          - foundation
+          - drift_detection
+          - auto_remediation
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      action:
+        description: 'Enable or disable feature'
+        required: true
+        type: choice
+        options:
+          - enable
+          - disable
+
+env:
+  TERRAFORM_VERSION: '1.6.0'
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy-feature:
+    name: Deploy Feature - ${{ inputs.feature }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', inputs.environment)] }}
+          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', inputs.environment)] }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          cd carl-infrastructure/core
+          terraform init
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd carl-infrastructure/core
+
+          # Set feature variable based on action
+          FEATURE_VALUE="false"
+          if [ "${{ inputs.action }}" = "enable" ]; then
+            FEATURE_VALUE="true"
+          fi
+
+          terraform plan \
+            -var="environment=${{ inputs.environment }}" \
+            -var="enable_${{ inputs.feature }}=${FEATURE_VALUE}" \
+            -out=tfplan \
+            -no-color
+        continue-on-error: true
+
+      - name: Terraform Apply
+        if: steps.plan.outcome == 'success'
+        run: |
+          cd carl-infrastructure/core
+          terraform apply tfplan
+
+      - name: Get Deployment Status
+        id: status
+        run: |
+          if [ "${{ steps.plan.outcome }}" = "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Feature ${{ inputs.feature }} successfully ${{ inputs.action }}d" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Deployment failed. Check logs for details." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify CARL (Success)
+        if: steps.status.outputs.status == 'success'
+        run: |
+          # Post deployment result back to CARL
+          # CARL will update DynamoDB and notify user in Slack
+
+          # Get API endpoint from Terraform outputs
+          API_ENDPOINT=$(cd carl-infrastructure/core && terraform output -raw api_endpoint)
+
+          # Notify CARL
+          curl -X POST "${API_ENDPOINT}/deployment-complete" \
+            -H "Content-Type: application/json" \
+            -H "X-CARL-Token: ${{ secrets.CARL_DEPLOYMENT_TOKEN }}" \
+            -d '{
+              "feature": "${{ inputs.feature }}",
+              "environment": "${{ inputs.environment }}",
+              "action": "${{ inputs.action }}",
+              "status": "success",
+              "workflow_run_id": "${{ github.run_id }}"
+            }'
+
+      - name: Notify CARL (Failure)
+        if: steps.status.outputs.status == 'failure'
+        run: |
+          # Post failure back to CARL
+          API_ENDPOINT=$(cd carl-infrastructure/core && terraform output -raw api_endpoint)
+
+          curl -X POST "${API_ENDPOINT}/deployment-complete" \
+            -H "Content-Type: application/json" \
+            -H "X-CARL-Token: ${{ secrets.CARL_DEPLOYMENT_TOKEN }}" \
+            -d '{
+              "feature": "${{ inputs.feature }}",
+              "environment": "${{ inputs.environment }}",
+              "action": "${{ inputs.action }}",
+              "status": "failure",
+              "workflow_run_id": "${{ github.run_id }}",
+              "error": "${{ steps.plan.outputs.stderr }}"
+            }'
+
+      - name: Output Deployment Summary
+        run: |
+          echo "### Deployment Summary 📦" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Feature:** ${{ inputs.feature }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.status.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify Slack (Prod Only)
+        if: inputs.environment == 'prod'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🔧 CARL Feature Deployment - ${{ inputs.feature }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*CARL Feature Deployment*\n\n${{ steps.status.outputs.message }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Feature:*\n${{ inputs.feature }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Action:*\n${{ inputs.action }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\n${{ inputs.environment }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ steps.status.outputs.status }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
