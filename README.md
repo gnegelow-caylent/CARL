@@ -290,36 +290,66 @@ CARL maps all features to SOC 2 Trust Services Criteria:
 ## Getting Started
 
 ### Prerequisites
-- AWS Account with Organizations (recommended)
+
+**AWS Requirements:**
+- AWS Account with admin access
+- AWS CLI configured
+- Terraform >= 1.0
+- **AWS Bedrock model access enabled** (Claude 3.5 Sonnet and Claude 3 Haiku)
+
+**Slack Requirements:**
 - Slack Workspace with admin access
-- Terraform >= 1.5.0
-- Python 3.11+
+- Ability to create Slack apps
 
-### Deployment
+**GitHub Requirements:**
+- GitHub repository for CARL code
+- GitHub Actions enabled
 
+### Quick Start (3 Commands!)
+
+**1. Run bootstrap script**
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/carl.git
-cd carl
-
-# Deploy infrastructure
-cd carl-infrastructure/environments/dev
-terraform init
-terraform apply
-
-# Note the outputs for Lambda configuration
-
-# Configure Slack App
-# 1. Create Slack App at api.slack.com
-# 2. Add Bot Token and Signing Secret to Secrets Manager
-# 3. Configure slash command: /carl -> API Gateway URL
-# 4. Enable Event Subscriptions for app_mention
-
-# Deploy application
-cd ../../carl-app
-pip install -r requirements.txt
-# Package and deploy Lambda (SAM, CDK, or manual)
+./bootstrap.sh
 ```
+
+This single script:
+- Creates S3 bucket for Terraform state
+- Deploys OIDC provider (no hardcoded AWS credentials!)
+- Creates IAM roles for deployment
+- Verifies Bedrock model access
+- Outputs GitHub secrets
+
+**2. Add GitHub secrets**
+
+The bootstrap script will output 4 AWS secrets. Add them to GitHub:
+```bash
+export GH_TOKEN=your_github_token
+gh secret set AWS_ROLE_ARN_DEV -b "arn:aws:iam::ACCOUNT:role/carl-deployer-dev" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_QA -b "arn:aws:iam::ACCOUNT:role/carl-deployer-qa" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_PROD -b "arn:aws:iam::ACCOUNT:role/carl-deployer-prod" -R your-org/CARL
+gh secret set AWS_REGION -b "us-east-1" -R your-org/CARL
+```
+
+**3. Add Slack secrets**
+
+Create a Slack app and add bot credentials:
+```bash
+gh secret set SLACK_BOT_TOKEN_DEV -b "xoxb-your-token" -R your-org/CARL
+gh secret set SLACK_SIGNING_SECRET_DEV -b "your-secret" -R your-org/CARL
+```
+
+**4. Deploy via GitHub Actions**
+```bash
+git checkout -b develop
+git push origin develop
+```
+
+That's it! GitHub Actions deploys everything automatically using OIDC.
+
+See detailed guides:
+- **[BOOTSTRAP.md](./BOOTSTRAP.md)** - Complete bootstrap guide
+- **[SLACK_SETUP.md](./SLACK_SETUP.md)** - Slack app configuration
+- **[OIDC_SETUP.md](./OIDC_SETUP.md)** - OIDC authentication details
 
 ### First Commands
 

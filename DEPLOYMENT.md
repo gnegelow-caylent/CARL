@@ -15,38 +15,110 @@ Complete guide for deploying CARL (Cloud Automated Risk & Compliance Logic).
 
 ## Quick Start
 
-Deploy CARL's minimal core in ~5 minutes:
+Deploy CARL in ~5 minutes using the automated bootstrap script:
 
 ### Prerequisites
+
+**AWS Requirements:**
 - AWS Account with admin access
 - AWS CLI configured (`aws configure`)
 - Terraform >= 1.0 installed
-- Slack workspace (optional, can add later)
+- **AWS Bedrock model access enabled** (Claude 3.5 Sonnet and Claude 3 Haiku)
 
-### 1. Clone Repository
+**Slack Requirements:**
+- Slack workspace with admin access
+- Slack app created (see [SLACK_SETUP.md](./SLACK_SETUP.md))
+
+**GitHub Requirements:**
+- GitHub repository with CARL code
+- GitHub Actions enabled
+
+### 1. Run Bootstrap Script
+
 ```bash
-git clone https://github.com/your-org/carl.git
-cd carl
+./bootstrap.sh
 ```
 
-### 2. Run Setup Script
+This automated script:
+- ✅ Creates S3 bucket for Terraform state
+- ✅ Deploys OIDC provider (no hardcoded credentials!)
+- ✅ Creates IAM roles: `carl-deployer-dev`, `carl-deployer-qa`, `carl-deployer-prod`
+- ✅ Verifies Bedrock model access
+- ✅ Outputs GitHub secrets to add
+
+**Bootstrap completes in ~2-3 minutes**
+
+### 2. Add GitHub Secrets
+
+Add the 6 secrets output by bootstrap:
+
+**AWS Secrets (4):**
 ```bash
-chmod +x setup-core.sh
-./setup-core.sh
+export GH_TOKEN=your_github_token
+gh secret set AWS_ROLE_ARN_DEV -b "arn:aws:iam::ACCOUNT:role/carl-deployer-dev"
+gh secret set AWS_ROLE_ARN_QA -b "arn:aws:iam::ACCOUNT:role/carl-deployer-qa"
+gh secret set AWS_ROLE_ARN_PROD -b "arn:aws:iam::ACCOUNT:role/carl-deployer-prod"
+gh secret set AWS_REGION -b "us-east-1"
 ```
 
-The script will ask:
-1. **Environment** (dev/qa/prod)
-2. **Slack credentials** (optional)
-3. **State backend** (remote/local)
-
-### 3. Test CARL
-Once deployed, test in Slack:
-```
-/carl hello
+**Slack Secrets (2):**
+```bash
+gh secret set SLACK_BOT_TOKEN_DEV -b "xoxb-your-bot-token"
+gh secret set SLACK_SIGNING_SECRET_DEV -b "your-signing-secret"
 ```
 
-CARL will ask what you want to do and deploy features based on your choice.
+### 3. Deploy via GitHub Actions
+
+```bash
+git checkout -b develop
+git push origin develop
+```
+
+GitHub Actions will:
+- Authenticate via OIDC (no credentials stored!)
+- Deploy CARL infrastructure via Terraform
+- Create Lambda functions, API Gateway, DynamoDB tables
+- Configure IAM roles and policies
+
+**Deployment takes ~5-10 minutes**
+
+### 4. Configure Slack Slash Commands
+
+After deployment, get the API Gateway URL and configure Slack:
+
+```bash
+cd carl-infrastructure/core
+terraform output slack_endpoint_url
+```
+
+In your Slack app settings:
+1. Go to "Slash Commands" → Create `/carl` command
+2. Set Request URL to: `https://your-api-gateway-url/slack/events`
+3. Go to "Event Subscriptions" → Enable events
+4. Set Request URL to same endpoint
+5. Subscribe to: `app_mention`, `message.channels`
+
+See [SLACK_SETUP.md](./SLACK_SETUP.md) for detailed Slack configuration.
+
+### 5. Test CARL
+
+In Slack:
+```
+/carl help
+/carl status
+/carl architect how do I build a VPC?
+```
+
+CARL is now live! 🎉
+
+---
+
+## Detailed Guides
+
+- **[BOOTSTRAP.md](./BOOTSTRAP.md)** - Complete bootstrap guide with troubleshooting
+- **[SLACK_SETUP.md](./SLACK_SETUP.md)** - Step-by-step Slack app setup
+- **[OIDC_SETUP.md](./OIDC_SETUP.md)** - Deep dive into OIDC authentication
+- **[.github/WORKFLOWS.md](./.github/WORKFLOWS.md)** - CI/CD pipeline details
 
 ---
 

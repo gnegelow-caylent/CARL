@@ -13,8 +13,11 @@ CARL uses Slack as its primary interface. Users interact with CARL through slash
 ## Prerequisites
 
 - Admin access to your Slack workspace
-- GitHub repository with CARL code deployed
+- GitHub repository with CARL code
 - AWS infrastructure deployed (or ready to deploy)
+- **AWS Bedrock model access enabled** (Claude 3.5 Sonnet and Claude 3 Haiku)
+  - Required for CARL's AI features to function
+  - Enable at: AWS Console → Bedrock → Model access
 
 ---
 
@@ -246,16 +249,35 @@ aws dynamodb list-tables --query "TableNames[?contains(@, 'carl')]"
 
 ### "Bedrock model access denied"
 
-CARL uses AWS Bedrock Claude models. Enable model access:
+**This is the most common deployment blocker!**
 
+CARL requires AWS Bedrock Claude models. The bootstrap script verifies model access, but if you skipped bootstrap or deployed manually, you must enable it:
+
+**Quick Fix:**
+```bash
+# Direct link (replace us-east-1 with your region)
+open "https://us-east-1.console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess"
+```
+
+**Manual Steps:**
 1. Go to AWS Bedrock console
-2. Select your region (must match CARL deployment region)
+2. Select your region (must match CARL deployment region: `us-east-1`)
 3. Click "Model access" in left sidebar
 4. Click "Enable specific models"
 5. Enable:
-   - Claude 3.5 Sonnet
-   - Claude 3 Haiku
+   - **Claude 3.5 Sonnet** (required for architecture recommendations)
+   - **Claude 3 Haiku** (required for simple queries)
 6. Click "Save changes"
+7. Access is typically granted instantly
+
+**Verify Access:**
+```bash
+aws bedrock list-foundation-models \
+  --region us-east-1 \
+  --query 'modelSummaries[?contains(modelId, `anthropic.claude-3-5-sonnet`)].modelId'
+```
+
+If models are listed, Bedrock access is working!
 
 ---
 
