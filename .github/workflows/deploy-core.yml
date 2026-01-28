@@ -3,8 +3,9 @@ name: Deploy CARL Core
 on:
   push:
     branches:
-      - main
-      - develop
+      - main      # Prod deployments
+      - develop   # Dev deployments
+      - qa        # QA deployments
     paths:
       - 'carl-infrastructure/core/**'
       - 'carl-app/src/**'
@@ -13,6 +14,7 @@ on:
     branches:
       - main
       - develop
+      - qa
     paths:
       - 'carl-infrastructure/core/**'
       - 'carl-app/src/**'
@@ -110,9 +112,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     needs: [validate, security]
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     strategy:
       matrix:
-        environment: [dev, qa]
+        include:
+          - environment: dev
+            role_arn_secret: AWS_ROLE_ARN_DEV
+          - environment: qa
+            role_arn_secret: AWS_ROLE_ARN_QA
     env:
       ENVIRONMENT: ${{ matrix.environment }}
     steps:
@@ -121,8 +131,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', matrix.environment)] }}
-          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', matrix.environment)] }}
+          role-to-assume: ${{ secrets[matrix.role_arn_secret] }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
@@ -169,11 +178,13 @@ jobs:
               body: output
             })
 
-  # Deploy to dev automatically
+  # Deploy to Dev
   deploy-dev:
     name: Deploy to Dev
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     needs: [validate, security]
     environment: dev
     permissions:
@@ -220,12 +231,14 @@ jobs:
           echo "**API Endpoint:** $(terraform output -raw api_endpoint)" >> $GITHUB_STEP_SUMMARY
           echo "**Lambda Function:** $(terraform output -raw lambda_function_name)" >> $GITHUB_STEP_SUMMARY
 
-  # Deploy to QA (requires approval)
+  # Deploy to QA
   deploy-qa:
     name: Deploy to QA
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [deploy-dev]
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/qa') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'qa')
+    needs: [validate, security]
     environment: qa
     permissions:
       id-token: write
@@ -262,11 +275,13 @@ jobs:
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_QA }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_QA }}"
 
-  # Deploy to Prod (requires manual approval)
+  # Deploy to Prod
   deploy-prod:
     name: Deploy to Prod
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
     needs: [validate, security]
     environment: prod
     permissions:
