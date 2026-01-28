@@ -156,16 +156,19 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     body = event.get("body", "")
     is_base64 = event.get("isBase64Encoded", False)
 
+    # Log all headers for debugging
+    logger.info(f"All headers: {json.dumps(headers)}")
+
     if is_base64:
         import base64
         body = base64.b64decode(body).decode("utf-8")
 
     # Parse body first to check if it's a URL verification request
     # URL verification doesn't include valid Slack signatures, so check this first
-    content_type = headers.get("content-type", "").lower()
-    logger.info(f"Content-Type: {content_type}, Body length: {len(body)}")
+    # Try to parse as JSON regardless of Content-Type header (API Gateway may not pass it)
+    logger.info(f"Body length: {len(body)}")
 
-    if "application/json" in content_type and body:
+    if body:
         try:
             payload = json.loads(body)
             request_type = payload.get("type", "")
