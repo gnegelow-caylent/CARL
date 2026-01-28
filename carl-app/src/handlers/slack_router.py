@@ -10,6 +10,7 @@ import json
 import os
 import time
 from typing import Any
+from urllib.parse import parse_qs
 
 from services.bedrock_service import BedrockService
 from services.findings_service import FindingsService
@@ -202,18 +203,23 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return {"statusCode": 401, "body": "Invalid signature"}
 
     # Parse body based on content type
-    content_type = headers.get("content-type", "")
+    content_type = headers.get("content-type", "").lower()
+    logger.info(f"Content-Type for body parsing: {content_type}")
+
     if "application/json" in content_type:
         payload = json.loads(body)
+        logger.info(f"Parsed as JSON: {list(payload.keys())}")
     elif "application/x-www-form-urlencoded" in content_type:
-        from urllib.parse import parse_qs
         parsed = parse_qs(body)
+        logger.info(f"Parsed as URL-encoded, keys: {list(parsed.keys())}")
         # Check if it's an interaction payload
         if "payload" in parsed:
             payload = json.loads(parsed["payload"][0])
         else:
             payload = {k: v[0] for k, v in parsed.items()}
+        logger.info(f"Final payload keys: {list(payload.keys())}")
     else:
+        logger.warning(f"Unknown content type: {content_type}, attempting JSON parse")
         payload = json.loads(body) if body else {}
 
     # Route based on request type
