@@ -2054,30 +2054,11 @@ def handle_report_command_sync(
         else:
             report_type_enum = None
 
-        # Step 4: Generate PDF document
-        update_progress("📄 Creating PDF document...")
+        # Step 4: Save markdown report to S3
+        update_progress("☁️ Uploading report to S3...")
 
-        from utils.document_generator import DocumentGenerator
-        doc_gen = DocumentGenerator()
-
-        if report_type == "executive":
-            audit_period = f"{start_date} to {end_date}"
-            doc_buffer = doc_gen.create_executive_summary_pdf(
-                report,
-                organization_name="Your Organization",
-                audit_period=audit_period
-            )
-        else:
-            doc_title = {
-                "executive": "Executive Summary",
-                "full": "Full Audit Report",
-                "control": f"Control Report: {control_id}"
-            }.get(report_type, "Compliance Report")
-            doc_buffer = doc_gen.markdown_to_pdf(report, title=doc_title)
-
-        # Save document to S3
-        update_progress("☁️ Uploading document to S3...")
-        s3_key = generator.save_document(doc_buffer, report_type_enum, format="pdf")
+        # Save as markdown file
+        s3_key = generator.save_report(report, report_type_enum)
 
         # Generate presigned URL
         download_url = generator.generate_presigned_url(s3_key, expiration=86400)  # 24 hours
@@ -2098,12 +2079,15 @@ def handle_report_command_sync(
 **Audit Period:** {start_date} to {end_date}
 **Environment Scan:** {scan_summary}
 
-📥 **Download Report:**
+📥 **Download Report (Markdown):**
 {download_url}
 
 _Link expires in 24 hours_
 
-The full report has been generated as a Word document and is ready for download."""
+The report is in Markdown format - you can:
+• View directly in your browser
+• Open in any text editor
+• Convert to PDF using tools like pandoc or online converters"""
 
         slack.post_message(channel_id, text=summary_text)
 
