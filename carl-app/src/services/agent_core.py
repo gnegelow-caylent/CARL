@@ -56,7 +56,8 @@ class AgentCore:
         model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         system_instructions: str = "",
         max_turns: int = 10,
-        region: str = "us-east-1"
+        region: str = "us-east-1",
+        progress_callback: Callable[[str], None] = None
     ):
         self.bedrock = boto3.client("bedrock-runtime", region_name=region)
         self.model_id = model_id
@@ -64,6 +65,7 @@ class AgentCore:
         self.max_turns = max_turns
         self.tools = []
         self.tool_map = {}
+        self.progress_callback = progress_callback
 
     def add_tool(self, tool: Tool):
         """Register a tool that the agent can call."""
@@ -108,6 +110,10 @@ class AgentCore:
         for turn in range(self.max_turns):
             logger.info(f"[Turn {turn + 1}] Agent thinking...")
 
+            # Report progress
+            if self.progress_callback:
+                self.progress_callback(f"🔄 Turn {turn + 1}: Analyzing...")
+
             try:
                 # Call Bedrock with tools available
                 request = {
@@ -134,11 +140,24 @@ class AgentCore:
                 if stop_reason == "end_turn":
                     # Agent is done - return final response
                     logger.info(f"[Turn {turn + 1}] Agent finished")
+                    if self.progress_callback:
+                        self.progress_callback(f"✅ Analysis complete, generating recommendation...")
                     return self._extract_text_response(output_message)
 
                 elif stop_reason == "tool_use":
                     # Agent wants to call tool(s)
                     logger.info(f"[Turn {turn + 1}] Agent calling tools")
+
+                    # Collect tool names for progress update
+                    tool_names = []
+                    for content_block in output_message["content"]:
+                        if "toolUse" in content_block:
+                            tool_names.append(content_block["toolUse"]["name"])
+
+                    # Report progress
+                    if self.progress_callback and tool_names:
+                        tools_str = ", ".join(tool_names)
+                        self.progress_callback(f"🔧 Turn {turn + 1}: Calling {len(tool_names)} tool(s) ({tools_str})")
 
                     # Execute all requested tools
                     tool_results = []
@@ -252,12 +271,14 @@ class Agent:
         tools: list[Tool] = None,
         instructions: str = "",
         model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        max_turns: int = 10
+        max_turns: int = 10,
+        progress_callback: Callable[[str], None] = None
     ):
         self.core = AgentCore(
             model_id=model_id,
             system_instructions=instructions,
-            max_turns=max_turns
+            max_turns=max_turns,
+            progress_callback=progress_callback
         )
 
         # Register tools

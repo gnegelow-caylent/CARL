@@ -1597,11 +1597,38 @@ def handle_architect_command_sync(
 
         logger.info(f"Processing architect question: {question[:100]}")
 
+        # Post initial status message and get timestamp for updates
+        status_response = slack.post_message(
+            channel_id,
+            text=f"🏗️ **Analyzing:** _{question}_\n\n🔄 Initializing agent..."
+        )
+        status_ts = status_response.get("ts") if status_response else None
+
+        # Create progress callback to update Slack message
+        def update_progress(status: str):
+            """Update the status message in Slack."""
+            if status_ts:
+                try:
+                    slack.update_message(
+                        channel_id,
+                        status_ts,
+                        text=f"🏗️ **Analyzing:** _{question}_\n\n{status}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update progress: {e}")
+
         # Get the agentic architect (ONE agent with multiple tools)
         architect = get_agentic_architect()
 
-        # Agent executes autonomously (decides which tools to call)
-        response = architect.answer_question(question)
+        # Agent executes autonomously with progress updates
+        response = architect.answer_question(question, progress_callback=update_progress)
+
+        # Delete the status message (cleanup)
+        if status_ts:
+            try:
+                slack.delete_message(channel_id, status_ts)
+            except Exception as e:
+                logger.warning(f"Failed to delete status message: {e}")
 
         # Split long responses
         if len(response) > 3000:

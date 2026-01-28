@@ -119,7 +119,7 @@ class AgenticArchitect:
 
         logger.info(f"Architect Agent ready with {len(tools)} tools")
 
-    def answer_question(self, question: str) -> str:
+    def answer_question(self, question: str, progress_callback=None) -> str:
         """
         Answer any AWS architecture question with autonomous tool calling.
 
@@ -142,6 +142,7 @@ class AgenticArchitect:
 
         Args:
             question: User's architecture question
+            progress_callback: Optional callback function to report progress
 
         Returns:
             Comprehensive architecture recommendation
@@ -149,7 +150,25 @@ class AgenticArchitect:
         logger.info(f"Architect Agent processing question: {question[:100]}...")
 
         try:
-            response = self.agent.execute(question)
+            # Create agent with progress callback for this specific question
+            tools = []
+            for tool_def in ARCHITECT_TOOLS:
+                tools.append(Tool(
+                    name=tool_def["name"],
+                    description=tool_def["description"],
+                    function=tool_def["function"],
+                    input_schema=tool_def["input_schema"]
+                ))
+
+            agent = Agent(
+                tools=tools,
+                instructions=ARCHITECT_AGENT_INSTRUCTIONS,
+                model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                max_turns=10,
+                progress_callback=progress_callback
+            )
+
+            response = agent.execute(question)
             return response
 
         except Exception as e:
