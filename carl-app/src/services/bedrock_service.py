@@ -95,24 +95,30 @@ Environment scan results:
 
 Question: {question}
 
-Instructions:
-- Be direct and actionable
-- Use bullet points, not paragraphs
-- Limit explanations to 1 sentence per item
-- Format: Issue → Fix (no "why it matters" sections)
-- Group by severity: Critical, High, Medium
-- Include AWS console path or CLI command for each fix
-- Keep total response under 800 words
-- No introductions, summaries, or closing statements
+CRITICAL FORMATTING RULES (Slack markdown):
+- Use *text* for bold (single asterisk), NOT **text**
+- NO markdown headers (#, ##) - use *Section Name* on its own line instead
+- NO horizontal rules (---) - use blank lines to separate sections
+- Each bullet must start on a new line with proper spacing
+- Keep explanations to ONE sentence per bullet
 
 Example format:
-## Critical Issues
-- **Issue name**: Fix description (AWS Console → Path → Action)
 
-## High Priority
-- **Issue name**: CLI command or console steps
+*Compliance Status: NOT COMPLIANT*
 
-Start with most critical issues first."""
+*Critical Issues (Fix Immediately)*
+• *No CloudTrail enabled*: Enable CloudTrail to log all API activity (AWS Console → CloudTrail → Create trail → All regions → Enable)
+• *Root MFA disabled*: Enable MFA on root account immediately (AWS Console → My Security Credentials → MFA → Activate MFA)
+
+*High Priority Issues*
+• *1 user without MFA (username)*: Enable MFA for this user (AWS Console → IAM → Users → username → Security credentials → Assign MFA)
+• *No password policy*: Create password policy (AWS Console → IAM → Account settings → Password policy)
+
+*Immediate Action Plan*
+Today: Enable CloudTrail, Enable root MFA
+This week: Fix all MFA gaps, Create password policy
+
+Keep total response under 800 words. No introductions or closings. Start with most critical issues."""
 
         return self.invoke_model(prompt, max_tokens=1024)
 
@@ -120,25 +126,32 @@ Start with most critical issues first."""
         """Explain a security finding in plain language."""
         prompt = f"""Explain this security finding briefly:
 
-**Finding:** {finding.get('title', 'Unknown')}
-**Severity:** {finding.get('severity', 'Unknown')}
-**Resource:** {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
-**Description:** {finding.get('description', 'No description')}
-**SOC 2 Controls:** {', '.join(finding.get('control_ids', []))}
+*Finding:* {finding.get('title', 'Unknown')}
+*Severity:* {finding.get('severity', 'Unknown')}
+*Resource:* {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
+*Description:* {finding.get('description', 'No description')}
+*SOC 2 Controls:* {', '.join(finding.get('control_ids', []))}
+
+SLACK FORMATTING RULES:
+- Use *text* for bold (single asterisk), NOT **text**
+- NO markdown headers (#, ##) - use *Section Name* instead
+- NO horizontal rules (---)
+- Use bullet points with •
 
 Format (max 300 words):
-## What This Means
+
+*What This Means*
 [1-2 sentences]
 
-## Security Risk
+*Security Risk*
 [1 sentence]
 
-## How to Fix
-- Step 1
-- Step 2
-- Step 3
+*How to Fix*
+• Step 1
+• Step 2
+• Step 3
 
-## SOC 2 Impact
+*SOC 2 Impact*
 [1 sentence about which control this affects]"""
 
         return self.invoke_model(prompt, max_tokens=512)
@@ -147,23 +160,28 @@ Format (max 300 words):
         """Suggest remediation steps for a finding."""
         prompt = f"""Fix this AWS security issue:
 
-**Issue:** {finding.get('title', 'Unknown')}
-**Resource:** {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
-**Problem:** {finding.get('description', 'Unknown')}
+*Issue:* {finding.get('title', 'Unknown')}
+*Resource:* {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
+*Problem:* {finding.get('description', 'Unknown')}
+
+SLACK FORMATTING RULES:
+- Use *text* for bold (single asterisk), NOT **text**
+- NO markdown headers (#, ##) - use *Section Name* instead
+- Code blocks OK with ```
 
 Provide (max 400 words):
 
-## AWS Console Steps
+*AWS Console Steps*
 1. [Step 1]
 2. [Step 2]
 3. [Step 3]
 
-## AWS CLI
+*AWS CLI*
 ```bash
 # Command to fix
 ```
 
-## Verify
+*Verify*
 ```bash
 # Command to verify fix
 ```
@@ -178,25 +196,31 @@ Keep it brief and actionable."""
         """Generate an executive summary of compliance status."""
         prompt = f"""Executive summary (max 250 words):
 
-**Findings:**
-- Critical: {summary.get('critical', 0)}
-- High: {summary.get('high', 0)}
-- Medium: {summary.get('medium', 0)}
-- Low: {summary.get('low', 0)}
+*Findings:*
+• Critical: {summary.get('critical', 0)}
+• High: {summary.get('high', 0)}
+• Medium: {summary.get('medium', 0)}
+• Low: {summary.get('low', 0)}
 
-**Top 5 Issues:**
+*Top 5 Issues:*
 {json.dumps(findings[:5], indent=2)}
 
+SLACK FORMATTING RULES:
+- Use *text* for bold (single asterisk), NOT **text**
+- NO markdown headers (#, ##) - use *Section Name* instead
+- NO horizontal rules (---)
+
 Format:
-## Status
+
+*Status*
 [1-2 sentences: overall compliance posture]
 
-## Key Risks
-- [Risk area 1]
-- [Risk area 2]
-- [Risk area 3]
+*Key Risks*
+• [Risk area 1]
+• [Risk area 2]
+• [Risk area 3]
 
-## Next Steps
+*Next Steps*
 1. [Priority 1]
 2. [Priority 2]
 3. [Priority 3]

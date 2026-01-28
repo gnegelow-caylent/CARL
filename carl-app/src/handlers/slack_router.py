@@ -1556,8 +1556,9 @@ def show_vpc_config_modal(slack: SlackService, trigger_id: str, channel_id: str,
 
 
 def handle_vpc_config_submission(payload: dict) -> dict:
-    """Handle VPC configuration modal submission."""
+    """Handle VPC configuration modal submission with validation."""
     import json as json_lib
+    from utils.input_validation import validate_cidr, validate_resource_name, sanitize_resource_name, validate_environment
 
     slack = get_slack_service()
 
@@ -1570,15 +1571,45 @@ def handle_vpc_config_submission(payload: dict) -> dict:
     blueprint_name = private_metadata.get("blueprint_name")
 
     # Extract input values
-    vpc_cidr = values.get("vpc_cidr_block", {}).get("vpc_cidr_input", {}).get("value", "10.0.0.0/16")
-    vpc_name = values.get("vpc_name_block", {}).get("vpc_name_input", {}).get("value", "main")
+    vpc_cidr = values.get("vpc_cidr_block", {}).get("vpc_cidr_input", {}).get("value", "10.0.0.0/16").strip()
+    vpc_name = values.get("vpc_name_block", {}).get("vpc_name_input", {}).get("value", "main").strip()
     environment = values.get("environment_block", {}).get("environment_input", {}).get("selected_option", {}).get("value", "prod")
+
+    # Validate inputs
+    errors = {}
+
+    # Validate CIDR
+    cidr_valid, cidr_error = validate_cidr(vpc_cidr)
+    if not cidr_valid:
+        errors["vpc_cidr_block"] = cidr_error
+
+    # Validate VPC name
+    name_valid, name_error = validate_resource_name(vpc_name, "VPC")
+    if not name_valid:
+        # Try to sanitize and suggest
+        sanitized = sanitize_resource_name(vpc_name)
+        errors["vpc_name_block"] = f"{name_error}. Suggestion: '{sanitized}'"
+
+    # Validate environment
+    env_valid, env_error = validate_environment(environment)
+    if not env_valid:
+        errors["environment_block"] = env_error
+
+    # If there are validation errors, return them to Slack
+    if errors:
+        return {
+            "response_action": "errors",
+            "errors": errors
+        }
+
+    # Sanitize the VPC name (in case it has minor issues)
+    vpc_name = sanitize_resource_name(vpc_name)
 
     # Build configuration
     config = {
         "name": vpc_name,
         "environment": environment,
-        "cidr": vpc_cidr  # Use "cidr" key to match what infrastructure_builder expects
+        "cidr": vpc_cidr
     }
 
     # Invoke async processing in background to avoid 3-second timeout
