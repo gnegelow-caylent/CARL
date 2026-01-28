@@ -88,79 +88,122 @@ class BedrockService:
 
     def ask_compliance_question(self, question: str, context: str = "") -> str:
         """Answer a compliance-related question."""
-        prompt = f"""Context about the current environment:
+        prompt = f"""You are a compliance assistant. Answer clearly and concisely.
+
+Environment scan results:
 {context}
 
-User question: {question}
+Question: {question}
 
-Please provide a helpful, concise answer based on the context and your knowledge of AWS compliance and SOC 2."""
+Instructions:
+- Be direct and actionable
+- Use bullet points, not paragraphs
+- Limit explanations to 1 sentence per item
+- Format: Issue → Fix (no "why it matters" sections)
+- Group by severity: Critical, High, Medium
+- Include AWS console path or CLI command for each fix
+- Keep total response under 800 words
+- No introductions, summaries, or closing statements
 
-        return self.invoke_model(prompt)
+Example format:
+## Critical Issues
+- **Issue name**: Fix description (AWS Console → Path → Action)
+
+## High Priority
+- **Issue name**: CLI command or console steps
+
+Start with most critical issues first."""
+
+        return self.invoke_model(prompt, max_tokens=1024)
 
     def explain_finding(self, finding: dict[str, Any]) -> str:
         """Explain a security finding in plain language."""
-        prompt = f"""Please explain this security finding:
+        prompt = f"""Explain this security finding briefly:
 
-Finding Details:
-- Title: {finding.get('title', 'Unknown')}
-- Severity: {finding.get('severity', 'Unknown')}
-- Source: {finding.get('source', 'Unknown')}
-- Resource: {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
-- Description: {finding.get('description', 'No description')}
-- SOC 2 Controls: {', '.join(finding.get('control_ids', []))}
+**Finding:** {finding.get('title', 'Unknown')}
+**Severity:** {finding.get('severity', 'Unknown')}
+**Resource:** {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
+**Description:** {finding.get('description', 'No description')}
+**SOC 2 Controls:** {', '.join(finding.get('control_ids', []))}
 
-Provide:
-1. A plain-language explanation of what this means
-2. The potential security risk if not addressed
-3. Specific remediation steps for AWS
-4. Any relevant SOC 2 compliance implications"""
+Format (max 300 words):
+## What This Means
+[1-2 sentences]
 
-        return self.invoke_model(prompt)
+## Security Risk
+[1 sentence]
+
+## How to Fix
+- Step 1
+- Step 2
+- Step 3
+
+## SOC 2 Impact
+[1 sentence about which control this affects]"""
+
+        return self.invoke_model(prompt, max_tokens=512)
 
     def suggest_remediation(self, finding: dict[str, Any]) -> str:
         """Suggest remediation steps for a finding."""
-        prompt = f"""Suggest remediation for this AWS security finding:
+        prompt = f"""Fix this AWS security issue:
 
-Finding:
-- Title: {finding.get('title', 'Unknown')}
-- Resource Type: {finding.get('resource_type', 'Unknown')}
-- Resource ID: {finding.get('resource_id', 'Unknown')}
-- Current Issue: {finding.get('description', 'Unknown')}
+**Issue:** {finding.get('title', 'Unknown')}
+**Resource:** {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
+**Problem:** {finding.get('description', 'Unknown')}
 
-Provide step-by-step remediation instructions using:
-1. AWS Console steps (for manual remediation)
-2. AWS CLI commands (for automation)
-3. Any Terraform/CloudFormation considerations
-4. Post-remediation verification steps
+Provide (max 400 words):
 
-Be specific and actionable."""
+## AWS Console Steps
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
 
-        return self.invoke_model(prompt, max_tokens=2048)
+## AWS CLI
+```bash
+# Command to fix
+```
+
+## Verify
+```bash
+# Command to verify fix
+```
+
+Keep it brief and actionable."""
+
+        return self.invoke_model(prompt, max_tokens=768)
 
     def generate_executive_summary(
         self, summary: dict[str, Any], findings: list[dict]
     ) -> str:
         """Generate an executive summary of compliance status."""
-        prompt = f"""Generate a brief executive summary of the compliance status:
+        prompt = f"""Executive summary (max 250 words):
 
-Compliance Summary:
-- Critical Findings: {summary.get('critical', 0)}
-- High Findings: {summary.get('high', 0)}
-- Medium Findings: {summary.get('medium', 0)}
-- Low Findings: {summary.get('low', 0)}
-- Total Open: {summary.get('total', 0)}
+**Findings:**
+- Critical: {summary.get('critical', 0)}
+- High: {summary.get('high', 0)}
+- Medium: {summary.get('medium', 0)}
+- Low: {summary.get('low', 0)}
 
-Recent High-Priority Findings:
+**Top 5 Issues:**
 {json.dumps(findings[:5], indent=2)}
 
-Write a 2-3 paragraph executive summary covering:
-1. Overall compliance posture
-2. Key risk areas requiring attention
-3. Recommended priorities for remediation
+Format:
+## Status
+[1-2 sentences: overall compliance posture]
 
-Keep it concise and business-focused."""
+## Key Risks
+- [Risk area 1]
+- [Risk area 2]
+- [Risk area 3]
 
-        return self.invoke_model(prompt)
+## Next Steps
+1. [Priority 1]
+2. [Priority 2]
+3. [Priority 3]
+
+Be direct. No fluff."""
+
+        return self.invoke_model(prompt, max_tokens=512)
 
     def analyze_risk(self, findings: list[dict]) -> str:
         """Analyze risk across multiple findings."""
