@@ -1042,49 +1042,39 @@ def handle_setup_command(
                  "Ready to configure CARL for your team!"
         )
 
-        # Enable critical security services if not already enabled
-        slack.post_message(
-            channel_id,
-            text="🔧 *Checking Critical Security Services*\n\n"
-                 "Verifying Security Hub and AWS Config are enabled..."
-        )
-
+        # Check critical security services status (non-blocking)
         try:
             from services.security_services_enabler import SecurityServicesEnabler
 
             enabler = SecurityServicesEnabler()
-            security_results = enabler.check_and_enable_all()
+            sh_status = enabler.check_security_hub_status()
+            config_status = enabler.check_config_status()
 
-            # Format results
-            sh_status = security_results["security_hub"]["status"]
-            config_status = security_results["config"]["status"]
+            security_text = "🔧 *Security Services Status:*\n\n"
 
-            security_text = "*Security Services Status:*\n"
-
-            if sh_status == "already_enabled":
-                security_text += "✅ *Security Hub:* Already enabled\n"
-            elif sh_status == "enabled":
-                security_text += "✅ *Security Hub:* Enabled successfully\n"
+            if sh_status.get("enabled"):
+                security_text += "✅ *Security Hub:* Enabled\n"
             else:
-                security_text += f"⚠️ *Security Hub:* Failed to enable - {security_results['security_hub']['details'].get('error', 'Unknown error')}\n"
+                security_text += "⚠️ *Security Hub:* Not enabled\n"
 
-            if config_status == "already_enabled":
-                security_text += "✅ *AWS Config:* Already enabled\n"
-            elif config_status == "enabled":
-                security_text += "✅ *AWS Config:* Enabled successfully\n"
+            if config_status.get("enabled"):
+                security_text += "✅ *AWS Config:* Enabled\n"
             else:
-                security_text += f"⚠️ *AWS Config:* Failed to enable - {security_results['config']['details'].get('error', 'Unknown error')}\n"
+                security_text += "⚠️ *AWS Config:* Not enabled\n"
+
+            # Add instructions if not enabled
+            if not sh_status.get("enabled") or not config_status.get("enabled"):
+                security_text += "\n*Next Steps:*\n"
+                if not sh_status.get("enabled"):
+                    security_text += "• Enable Security Hub: https://console.aws.amazon.com/securityhub/\n"
+                if not config_status.get("enabled"):
+                    security_text += "• Enable AWS Config: https://console.aws.amazon.com/config/\n"
+                security_text += "\nThese services are critical for comprehensive compliance monitoring."
 
             slack.post_message(channel_id, text=security_text)
 
         except Exception as e:
-            logger.error(f"Failed to enable security services: {e}", exc_info=True)
-            slack.post_message(
-                channel_id,
-                text=f"⚠️ *Warning:* Could not enable security services automatically.\n\n"
-                     f"Error: {str(e)}\n\n"
-                     f"You may need to enable Security Hub and AWS Config manually."
-            )
+            logger.error(f"Failed to check security services: {e}", exc_info=True)
 
         # Show setup modal if trigger_id available
         if trigger_id:
