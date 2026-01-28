@@ -1,23 +1,93 @@
 # GitHub Secrets Setup Guide
 
-Step-by-step guide to configure GitHub secrets for CARL deployment.
+**DEPRECATED:** This guide uses the legacy AWS access key approach. For new deployments, use the modern OIDC approach documented in [BOOTSTRAP.md](BOOTSTRAP.md).
 
 ---
 
-## Quick Start (Minimal Secrets)
+## Modern Approach (Recommended)
 
-To deploy CARL to dev environment, you only need these 4 secrets:
+Use the bootstrap script and OIDC authentication:
+
+```bash
+./bootstrap.sh
+```
+
+This creates:
+- S3 state bucket
+- OIDC provider
+- IAM roles (no access keys!)
+- Backend configurations
+
+Then add **6 GitHub secrets** (no AWS keys stored!):
 
 ```
-AWS_ACCESS_KEY_ID_DEV
-AWS_SECRET_ACCESS_KEY_DEV
+AWS_ROLE_ARN_DEV
+AWS_ROLE_ARN_QA
+AWS_ROLE_ARN_PROD
+AWS_REGION
 SLACK_BOT_TOKEN_DEV
 SLACK_SIGNING_SECRET_DEV
 ```
 
+See [BOOTSTRAP.md](BOOTSTRAP.md) for complete instructions.
+
 ---
 
-## Step 1: Create AWS IAM User for Deployment
+## Quick Reference: All GitHub Secrets
+
+### AWS Secrets (4 - from bootstrap)
+
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `AWS_ROLE_ARN_DEV` | Dev deployer role ARN | `arn:aws:iam::403802364021:role/carl-deployer-dev` |
+| `AWS_ROLE_ARN_QA` | QA deployer role ARN | `arn:aws:iam::403802364021:role/carl-deployer-qa` |
+| `AWS_ROLE_ARN_PROD` | Prod deployer role ARN | `arn:aws:iam::403802364021:role/carl-deployer-prod` |
+| `AWS_REGION` | AWS region | `us-east-1` |
+
+### Slack Secrets (6 - required for CARL to function)
+
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `SLACK_BOT_TOKEN_DEV` | Dev bot token | `xoxb-141542311302-...` |
+| `SLACK_SIGNING_SECRET_DEV` | Dev signing secret | `17d614f64958045b1...` |
+| `SLACK_BOT_TOKEN_QA` | QA bot token | `xoxb-...` |
+| `SLACK_SIGNING_SECRET_QA` | QA signing secret | `...` |
+| `SLACK_BOT_TOKEN_PROD` | Prod bot token | `xoxb-...` |
+| `SLACK_SIGNING_SECRET_PROD` | Prod signing secret | `...` |
+
+### Optional Secrets (1)
+
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `SLACK_WEBHOOK_URL` | Deployment notifications | `https://hooks.slack.com/services/...` |
+
+---
+
+## Quick Setup with GitHub CLI
+
+```bash
+export GH_TOKEN=your_github_token
+
+# AWS secrets (from bootstrap output)
+gh secret set AWS_ROLE_ARN_DEV -b "arn:aws:iam::ACCOUNT:role/carl-deployer-dev" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_QA -b "arn:aws:iam::ACCOUNT:role/carl-deployer-qa" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_PROD -b "arn:aws:iam::ACCOUNT:role/carl-deployer-prod" -R your-org/CARL
+gh secret set AWS_REGION -b "us-east-1" -R your-org/CARL
+
+# Slack secrets (from Slack app configuration)
+gh secret set SLACK_BOT_TOKEN_DEV -b "xoxb-your-token" -R your-org/CARL
+gh secret set SLACK_SIGNING_SECRET_DEV -b "your-secret" -R your-org/CARL
+```
+
+See [SLACK_SETUP.md](SLACK_SETUP.md) for Slack configuration details.
+
+---
+
+## Legacy Approach (Access Keys)
+
+**WARNING:** This approach is deprecated. Use OIDC instead.
+
+### Step 1: Create AWS IAM User for Deployment (DEPRECATED)
 
 ### 1.1 Create IAM User
 
@@ -54,9 +124,9 @@ aws iam create-access-key --user-name carl-deployer-dev
 
 ---
 
-## Step 2: Get Slack Credentials (Optional for Initial Deploy)
+## Step 2: Get Slack Credentials
 
-### 2.1 Create Slack App (Skip if Testing Without Slack First)
+### 2.1 Create Slack App
 
 1. Go to https://api.slack.com/apps
 2. Click "Create New App" → "From scratch"

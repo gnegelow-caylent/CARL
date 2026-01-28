@@ -118,17 +118,64 @@ Is this correct? (y/n) y
 
 **Time:** ~2-3 minutes
 
-### Step 3: Add GitHub Secrets
+### Step 3: Add AWS GitHub Secrets
+
+The bootstrap script will output the AWS role ARNs. Add these to GitHub:
 
 1. Go to: https://github.com/gnegelow-caylent/CARL/settings/secrets/actions
 2. Click "New repository secret"
-3. Add the 4 secrets shown in bootstrap output:
+3. Add the 4 AWS secrets shown in bootstrap output:
    - `AWS_ROLE_ARN_DEV`
    - `AWS_ROLE_ARN_QA`
    - `AWS_ROLE_ARN_PROD`
    - `AWS_REGION`
 
-### Step 4: Deploy CARL
+Or use the GitHub CLI:
+```bash
+export GH_TOKEN=your_github_token
+gh secret set AWS_ROLE_ARN_DEV -b "arn:aws:iam::ACCOUNT_ID:role/carl-deployer-dev" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_QA -b "arn:aws:iam::ACCOUNT_ID:role/carl-deployer-qa" -R your-org/CARL
+gh secret set AWS_ROLE_ARN_PROD -b "arn:aws:iam::ACCOUNT_ID:role/carl-deployer-prod" -R your-org/CARL
+gh secret set AWS_REGION -b "us-east-1" -R your-org/CARL
+```
+
+### Step 4: Configure Slack App
+
+CARL requires a Slack app to function. Create one for each environment:
+
+**Create Slack App:**
+1. Go to: https://api.slack.com/apps
+2. Click "Create New App" → "From scratch"
+3. App Name: `CARL-dev` (or `CARL` for single environment)
+4. Workspace: Select your Slack workspace
+5. Click "Create App"
+
+**Configure OAuth & Permissions:**
+1. Click "OAuth & Permissions" in the left sidebar
+2. Scroll to "Redirect URLs" → Click "Add New Redirect URL"
+3. Enter: `https://slack.com/oauth/redirect` (temporary, will update after deployment)
+4. Click "Save URLs"
+5. Scroll to "Scopes" → "Bot Token Scopes"
+6. Add scope: `chat:write`
+7. Scroll to top → Click "Install to Workspace"
+8. Click "Allow"
+9. Copy the "Bot User OAuth Token" (starts with `xoxb-`)
+
+**Get Signing Secret:**
+1. Click "Basic Information" in the left sidebar
+2. Scroll to "App Credentials"
+3. Copy the "Signing Secret"
+
+**Add Slack Secrets to GitHub:**
+```bash
+export GH_TOKEN=your_github_token
+gh secret set SLACK_BOT_TOKEN_DEV -b "xoxb-your-token" -R your-org/CARL
+gh secret set SLACK_SIGNING_SECRET_DEV -b "your-signing-secret" -R your-org/CARL
+```
+
+For multiple environments, repeat for `_QA` and `_PROD` suffixes.
+
+### Step 5: Deploy CARL
 
 ```bash
 git checkout -b develop
