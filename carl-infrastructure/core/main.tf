@@ -357,7 +357,8 @@ resource "aws_iam_role_policy" "dynamodb" {
           "dynamodb:Scan",
           "dynamodb:DeleteItem",
           "dynamodb:BatchGetItem",
-          "dynamodb:BatchWriteItem"
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DescribeTable"
         ]
         Resource = [
           aws_dynamodb_table.config.arn,
