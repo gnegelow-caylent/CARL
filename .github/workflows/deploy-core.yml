@@ -206,8 +206,11 @@ jobs:
 
       - name: Package Lambda
         run: |
+          # Install dependencies
+          pip install -r carl-app/requirements.txt -t carl-app/src/
+          # Package everything
           cd carl-app/src
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*"
+          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
         run: |
@@ -259,8 +262,11 @@ jobs:
 
       - name: Package Lambda
         run: |
+          # Install dependencies
+          pip install -r carl-app/requirements.txt -t carl-app/src/
+          # Package everything
           cd carl-app/src
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*"
+          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
         run: |
@@ -303,8 +309,11 @@ jobs:
 
       - name: Package Lambda
         run: |
+          # Install dependencies
+          pip install -r carl-app/requirements.txt -t carl-app/src/
+          # Package everything
           cd carl-app/src
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*"
+          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
         run: |
