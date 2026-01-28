@@ -36,9 +36,9 @@ class CodeUploader:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M")
         blueprint_short = blueprint_name.replace("/", "-")
 
-        # 1. Create branch
+        # 1. Create branch (uses default branch, initializes repo if empty)
         branch_name = f"feature/u{user_id}-{blueprint_short}-{timestamp}"
-        self.github.create_branch(branch_name, base_branch="develop")
+        self.github.create_branch(branch_name, base_branch=None)
 
         # 2. Prepare files
         deployment_path = f"deployments/users/{user_id}/{blueprint_short}/{timestamp}"
@@ -52,10 +52,11 @@ class CodeUploader:
         commit_message = self._format_commit_message(user_id, blueprint_name, metadata)
         commit_sha = self.github.commit_files(branch_name, files, commit_message)
 
-        # 4. Create PR
+        # 4. Create PR (target default branch)
         pr_title = f"Deploy {blueprint_name}"
         pr_body = self._format_pr_body(blueprint_name, metadata)
-        pr = self.github.create_pull_request(pr_title, pr_body, branch_name, base="develop")
+        base_branch = self.github.get_default_branch()
+        pr = self.github.create_pull_request(pr_title, pr_body, branch_name, base=base_branch)
 
         # 5. Post to Slack channel (summary)
         summary_msg = self.slack.post_message(

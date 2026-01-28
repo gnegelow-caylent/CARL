@@ -38,8 +38,80 @@ class GitHubService:
             "X-GitHub-Api-Version": "2022-11-28"
         }
 
-    def create_branch(self, branch_name: str, base_branch: str = "develop") -> dict:
-        """Create a new branch from base branch."""
+    def is_repository_empty(self) -> bool:
+        """Check if repository is empty (no commits)."""
+        repo_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
+        resp = requests.get(repo_url, headers=self._get_headers(), timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("size", 0) == 0
+
+    def get_default_branch(self) -> str:
+        """Get the repository's default branch name."""
+        repo_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
+        resp = requests.get(repo_url, headers=self._get_headers(), timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("default_branch", "main")
+
+    def initialize_repository(self, initial_message: str = "Initial commit") -> str:
+        """
+        Initialize an empty repository with a README.
+
+        Returns:
+            SHA of the initial commit
+        """
+        # Create initial README content
+        readme_content = f"# {self.repo_name}\n\nInfrastructure deployments managed by CARL.\n"
+
+        # Create blob for README
+        blob_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/blobs"
+        blob_payload = {"content": readme_content, "encoding": "utf-8"}
+        blob_resp = requests.post(blob_url, headers=self._get_headers(), json=blob_payload, timeout=10)
+        blob_resp.raise_for_status()
+        blob_sha = blob_resp.json()["sha"]
+
+        # Create tree
+        tree_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/trees"
+        tree_payload = {
+            "tree": [{"path": "README.md", "mode": "100644", "type": "blob", "sha": blob_sha}]
+        }
+        tree_resp = requests.post(tree_url, headers=self._get_headers(), json=tree_payload, timeout=10)
+        tree_resp.raise_for_status()
+        tree_sha = tree_resp.json()["sha"]
+
+        # Create commit
+        commit_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/commits"
+        commit_payload = {"message": initial_message, "tree": tree_sha}
+        commit_resp = requests.post(commit_url, headers=self._get_headers(), json=commit_payload, timeout=10)
+        commit_resp.raise_for_status()
+        commit_sha = commit_resp.json()["sha"]
+
+        # Create default branch reference
+        default_branch = self.get_default_branch()
+        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs"
+        ref_payload = {"ref": f"refs/heads/{default_branch}", "sha": commit_sha}
+        ref_resp = requests.post(ref_url, headers=self._get_headers(), json=ref_payload, timeout=10)
+        ref_resp.raise_for_status()
+
+        return commit_sha
+
+    def create_branch(self, branch_name: str, base_branch: str = None) -> dict:
+        """
+        Create a new branch from base branch.
+
+        Args:
+            branch_name: Name of the new branch
+            base_branch: Base branch to branch from. If None, uses default branch.
+                        If repository is empty, initializes it first.
+        """
+        # Check if repository is empty
+        if self.is_repository_empty():
+            # Initialize repository with first commit
+            self.initialize_repository("chore: Initialize infrastructure repository")
+
+        # Use default branch if not specified
+        if base_branch is None:
+            base_branch = self.get_default_branch()
+
         # Get base branch SHA
         ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{base_branch}"
         ref_resp = requests.get(ref_url, headers=self._get_headers(), timeout=10)
