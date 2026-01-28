@@ -566,6 +566,74 @@ resource "aws_iam_role_policy" "aws_scanner" {
   })
 }
 
+# Security Hub and AWS Config enablement permissions
+resource "aws_iam_role_policy" "security_services" {
+  name = "security-services-enablement"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "securityhub:EnableSecurityHub",
+          "securityhub:DescribeHub",
+          "securityhub:GetFindings",
+          "securityhub:BatchImportFindings",
+          "securityhub:BatchUpdateFindings"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "config:PutConfigurationRecorder",
+          "config:PutDeliveryChannel",
+          "config:StartConfigurationRecorder",
+          "config:DescribeConfigurationRecorders",
+          "config:DescribeConfigurationRecorderStatus",
+          "config:DescribeDeliveryChannels"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:PutBucketPolicy",
+          "s3:PutBucketVersioning",
+          "s3:GetBucketAcl",
+          "s3:ListBucket"
+        ]
+        Resource = "arn:aws:s3:::aws-config-*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:GetRole",
+          "iam:AttachRolePolicy",
+          "iam:PassRole"
+        ]
+        Resource = [
+          "arn:aws:iam::${local.account_id}:role/AWSConfigRole"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateServiceLinkedRole"
+        ]
+        Resource = [
+          "arn:aws:iam::${local.account_id}:role/aws-service-role/config.amazonaws.com/*",
+          "arn:aws:iam::${local.account_id}:role/aws-service-role/securityhub.amazonaws.com/*"
+        ]
+      }
+    ]
+  })
+}
+
 # 3. Lambda Function (CARL's Brain)
 # Note: Lambda package is created by GitHub Actions workflow with dependencies
 # The workflow installs requirements.txt into src/ before zipping

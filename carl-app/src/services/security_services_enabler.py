@@ -225,7 +225,7 @@ class SecurityServicesEnabler:
                     # Attach AWS managed policy for Config
                     self.iam.attach_role_policy(
                         RoleName=role_name,
-                        PolicyArn="arn:aws:iam::aws:policy/service-role/ConfigRole"
+                        PolicyArn="arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
                     )
 
                     logger.info(f"Created Config role: {role_arn}")
