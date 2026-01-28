@@ -39,46 +39,46 @@ locals {
   # Cost-optimized settings based on sizing profile
   sizing_config = {
     minimal = {
-      lambda_memory                = 128
-      lambda_timeout               = 30
-      lambda_reserved_concurrency  = -1  # No reservation
-      dynamodb_billing_mode        = "PAY_PER_REQUEST"
-      dynamodb_read_capacity       = 0
-      dynamodb_write_capacity      = 0
-      s3_lifecycle_enabled         = true
-      s3_intelligent_tiering       = false
-      bedrock_model                = "anthropic.claude-3-haiku-20240307-v1:0"
-      bedrock_cache_ttl_seconds    = 3600  # 1 hour cache
-      enable_xray                  = false
-      cloudwatch_retention_days    = 7
+      lambda_memory               = 128
+      lambda_timeout              = 30
+      lambda_reserved_concurrency = -1 # No reservation
+      dynamodb_billing_mode       = "PAY_PER_REQUEST"
+      dynamodb_read_capacity      = 0
+      dynamodb_write_capacity     = 0
+      s3_lifecycle_enabled        = true
+      s3_intelligent_tiering      = false
+      bedrock_model               = "anthropic.claude-3-haiku-20240307-v1:0"
+      bedrock_cache_ttl_seconds   = 3600 # 1 hour cache
+      enable_xray                 = false
+      cloudwatch_retention_days   = 7
     }
     moderate = {
-      lambda_memory                = 512
-      lambda_timeout               = 60
-      lambda_reserved_concurrency  = -1  # No reservation (pay per use)
-      dynamodb_billing_mode        = "PAY_PER_REQUEST"
-      dynamodb_read_capacity       = 0
-      dynamodb_write_capacity      = 0
-      s3_lifecycle_enabled         = true
-      s3_intelligent_tiering       = true
-      bedrock_model                = "anthropic.claude-3-haiku-20240307-v1:0"  # Start with Haiku
-      bedrock_cache_ttl_seconds    = 1800  # 30 min cache
-      enable_xray                  = true
-      cloudwatch_retention_days    = 14
+      lambda_memory               = 512
+      lambda_timeout              = 60
+      lambda_reserved_concurrency = -1 # No reservation (pay per use)
+      dynamodb_billing_mode       = "PAY_PER_REQUEST"
+      dynamodb_read_capacity      = 0
+      dynamodb_write_capacity     = 0
+      s3_lifecycle_enabled        = true
+      s3_intelligent_tiering      = true
+      bedrock_model               = "anthropic.claude-3-haiku-20240307-v1:0" # Start with Haiku
+      bedrock_cache_ttl_seconds   = 1800                                     # 30 min cache
+      enable_xray                 = true
+      cloudwatch_retention_days   = 14
     }
     standard = {
-      lambda_memory                = 1024
-      lambda_timeout               = 120
-      lambda_reserved_concurrency  = 10
-      dynamodb_billing_mode        = "PROVISIONED"
-      dynamodb_read_capacity       = 5
-      dynamodb_write_capacity      = 5
-      s3_lifecycle_enabled         = true
-      s3_intelligent_tiering       = true
-      bedrock_model                = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-      bedrock_cache_ttl_seconds    = 900  # 15 min cache
-      enable_xray                  = true
-      cloudwatch_retention_days    = 30
+      lambda_memory               = 1024
+      lambda_timeout              = 120
+      lambda_reserved_concurrency = 10
+      dynamodb_billing_mode       = "PROVISIONED"
+      dynamodb_read_capacity      = 5
+      dynamodb_write_capacity     = 5
+      s3_lifecycle_enabled        = true
+      s3_intelligent_tiering      = true
+      bedrock_model               = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+      bedrock_cache_ttl_seconds   = 900 # 15 min cache
+      enable_xray                 = true
+      cloudwatch_retention_days   = 30
     }
   }
 
@@ -116,11 +116,11 @@ module "dynamodb" {
 module "s3" {
   source = "./modules/s3"
 
-  environment            = var.environment
-  name_prefix            = local.name_prefix
-  enable_lifecycle       = local.config.s3_lifecycle_enabled
+  environment             = var.environment
+  name_prefix             = local.name_prefix
+  enable_lifecycle        = local.config.s3_lifecycle_enabled
   enable_intelligent_tier = local.config.s3_intelligent_tiering
-  enable_versioning      = var.environment == "prod"
+  enable_versioning       = var.environment == "prod"
 
   # Cost optimization: Transition old data to cheaper storage
   lifecycle_rules = var.enable_cost_optimization ? [
@@ -130,7 +130,7 @@ module "s3" {
       transitions = [
         {
           days          = 30
-          storage_class = "STANDARD_IA"  # Cheaper after 30 days
+          storage_class = "STANDARD_IA" # Cheaper after 30 days
         },
         {
           days          = 90
@@ -147,10 +147,10 @@ module "s3" {
 module "lambda" {
   source = "./modules/lambda"
 
-  environment      = var.environment
-  name_prefix      = local.name_prefix
-  memory_size      = local.config.lambda_memory
-  timeout          = local.config.lambda_timeout
+  environment          = var.environment
+  name_prefix          = local.name_prefix
+  memory_size          = local.config.lambda_memory
+  timeout              = local.config.lambda_timeout
   reserved_concurrency = local.config.lambda_reserved_concurrency
 
   # Environment variables with cost optimization settings
@@ -158,37 +158,37 @@ module "lambda" {
     ENVIRONMENT = var.environment
 
     # Bedrock configuration - Cost optimized
-    BEDROCK_MODEL_ID           = local.bedrock_models.haiku  # Default to cheapest
-    BEDROCK_FALLBACK_MODEL_ID  = local.bedrock_models.sonnet # Upgrade for complex queries
-    BEDROCK_ENABLE_CACHING     = var.enable_bedrock_caching ? "true" : "false"
-    BEDROCK_CACHE_TTL_SECONDS  = tostring(local.config.bedrock_cache_ttl_seconds)
+    BEDROCK_MODEL_ID          = local.bedrock_models.haiku  # Default to cheapest
+    BEDROCK_FALLBACK_MODEL_ID = local.bedrock_models.sonnet # Upgrade for complex queries
+    BEDROCK_ENABLE_CACHING    = var.enable_bedrock_caching ? "true" : "false"
+    BEDROCK_CACHE_TTL_SECONDS = tostring(local.config.bedrock_cache_ttl_seconds)
 
     # Model selection rules (cost optimization)
     # Use Haiku for: status, findings, simple queries
     # Use Sonnet for: architect, recommend, complex analysis
-    BEDROCK_HAIKU_COMMANDS = "status,findings,evidence,drift"
+    BEDROCK_HAIKU_COMMANDS  = "status,findings,evidence,drift"
     BEDROCK_SONNET_COMMANDS = "architect,recommend,foundation"
 
     # DynamoDB tables
-    FINDINGS_TABLE    = module.dynamodb.findings_table_name
-    EVIDENCE_TABLE    = module.dynamodb.evidence_table_name
-    EXCEPTIONS_TABLE  = module.dynamodb.exceptions_table_name
-    DRIFT_TABLE       = module.dynamodb.drift_table_name
-    BOOTSTRAP_TABLE   = module.dynamodb.bootstrap_table_name
-    FEEDBACK_TABLE    = module.dynamodb.feedback_table_name
+    FINDINGS_TABLE   = module.dynamodb.findings_table_name
+    EVIDENCE_TABLE   = module.dynamodb.evidence_table_name
+    EXCEPTIONS_TABLE = module.dynamodb.exceptions_table_name
+    DRIFT_TABLE      = module.dynamodb.drift_table_name
+    BOOTSTRAP_TABLE  = module.dynamodb.bootstrap_table_name
+    FEEDBACK_TABLE   = module.dynamodb.feedback_table_name
 
     # S3 buckets
     EVIDENCE_BUCKET = module.s3.evidence_bucket_name
     REPORTS_BUCKET  = module.s3.reports_bucket_name
 
     # Slack
-    SLACK_ENABLED       = var.enable_slack ? "true" : "false"
-    SLACK_BOT_TOKEN_SSM = var.enable_slack ? aws_ssm_parameter.slack_bot_token[0].name : ""
+    SLACK_ENABLED            = var.enable_slack ? "true" : "false"
+    SLACK_BOT_TOKEN_SSM      = var.enable_slack ? aws_ssm_parameter.slack_bot_token[0].name : ""
     SLACK_SIGNING_SECRET_SSM = var.enable_slack ? aws_ssm_parameter.slack_signing_secret[0].name : ""
 
     # Cost optimization flags
     ENABLE_RESPONSE_CACHING = "true"
-    CACHE_REDIS_ENABLED     = "false"  # Use in-memory cache for cost savings
+    CACHE_REDIS_ENABLED     = "false" # Use in-memory cache for cost savings
   }
 
   # DynamoDB table ARNs for IAM permissions
@@ -227,10 +227,10 @@ module "lambda" {
 module "api_gateway" {
   source = "./modules/api-gateway"
 
-  environment  = var.environment
-  name_prefix  = local.name_prefix
-  lambda_arn   = module.lambda.function_arn
-  lambda_name  = module.lambda.function_name
+  environment = var.environment
+  name_prefix = local.name_prefix
+  lambda_arn  = module.lambda.function_arn
+  lambda_name = module.lambda.function_name
 
   # Use HTTP API for cost savings (cheaper than REST API)
   # HTTP API: $1.00 per million requests

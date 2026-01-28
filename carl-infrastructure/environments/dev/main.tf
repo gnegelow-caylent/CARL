@@ -11,7 +11,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "carl-terraform-state"  # Update after bootstrap
+    bucket         = "carl-terraform-state" # Update after bootstrap
     key            = "dev/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "carl-terraform-locks"
@@ -43,7 +43,7 @@ module "foundation" {
   slack_bot_token      = var.slack_bot_token
   slack_signing_secret = var.slack_signing_secret
 
-  evidence_retention_days = 90  # Shorter for dev
+  evidence_retention_days = 90 # Shorter for dev
 }
 
 # -----------------------------------------------------------------------------
@@ -57,15 +57,15 @@ module "scanning" {
   foundation_outputs = module.foundation
 
   # AWS Config
-  create_config_recorder     = true
+  create_config_recorder       = true
   enable_soc2_conformance_pack = true
 
   # Security Services
-  enable_security_hub  = true
-  enable_cis_benchmark = true
-  enable_guardduty     = true
-  enable_inspector     = true
-  enable_macie         = false  # Disable in dev to save costs
+  enable_security_hub    = true
+  enable_cis_benchmark   = true
+  enable_guardduty       = true
+  enable_inspector       = true
+  enable_macie           = false # Disable in dev to save costs
   enable_access_analyzer = true
 
   # GuardDuty - minimal for dev

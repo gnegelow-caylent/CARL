@@ -37,7 +37,7 @@ locals {
 # 1. Configuration Table (stores what features are enabled)
 resource "aws_dynamodb_table" "config" {
   name         = "${local.name_prefix}-config"
-  billing_mode = "PAY_PER_REQUEST"  # No fixed cost, pay only for what you use
+  billing_mode = "PAY_PER_REQUEST" # No fixed cost, pay only for what you use
   hash_key     = "pk"
   range_key    = "sk"
 
@@ -194,14 +194,14 @@ data "archive_file" "lambda" {
 resource "aws_lambda_function" "carl" {
   filename         = data.archive_file.lambda.output_path
   function_name    = "${local.name_prefix}-api"
-  role            = aws_iam_role.lambda.arn
-  handler         = "handlers.slack_router.lambda_handler"
+  role             = aws_iam_role.lambda.arn
+  handler          = "handlers.slack_router.lambda_handler"
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  runtime         = "python3.11"
+  runtime          = "python3.11"
 
   # COST OPTIMIZATION: Start small, Lambda auto-scales
-  memory_size = 512  # Enough for Bedrock calls
-  timeout     = 30   # Most queries under 10s
+  memory_size = 512 # Enough for Bedrock calls
+  timeout     = 30  # Most queries under 10s
 
   environment {
     variables = {
@@ -215,7 +215,7 @@ resource "aws_lambda_function" "carl" {
       BEDROCK_REGION   = local.region
 
       # Slack
-      SLACK_BOT_TOKEN_SSM     = "/${var.environment}/carl/slack/bot-token"
+      SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
 
       # Feature flags (all disabled initially)
@@ -237,7 +237,7 @@ resource "aws_lambda_function" "carl" {
 # CloudWatch Logs (cost optimization: 7-day retention)
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${aws_lambda_function.carl.function_name}"
-  retention_in_days = 7  # Minimal cost
+  retention_in_days = 7 # Minimal cost
 
   tags = var.tags
 }

@@ -546,13 +546,13 @@ resource "aws_lambda_function" "findings_processor" {
 
   environment {
     variables = {
-      ENVIRONMENT         = var.environment
-      FINDINGS_TABLE      = var.foundation_outputs.findings_table_name
-      PREFERENCES_TABLE   = var.foundation_outputs.preferences_table_name
-      EVIDENCE_BUCKET     = var.foundation_outputs.evidence_bucket_name
-      SLACK_SECRET_ARN    = var.foundation_outputs.slack_bot_token_secret_arn
-      EVENT_BUS_NAME      = var.foundation_outputs.event_bus_name
-      LOG_LEVEL           = var.log_level
+      ENVIRONMENT       = var.environment
+      FINDINGS_TABLE    = var.foundation_outputs.findings_table_name
+      PREFERENCES_TABLE = var.foundation_outputs.preferences_table_name
+      EVIDENCE_BUCKET   = var.foundation_outputs.evidence_bucket_name
+      SLACK_SECRET_ARN  = var.foundation_outputs.slack_bot_token_secret_arn
+      EVENT_BUS_NAME    = var.foundation_outputs.event_bus_name
+      LOG_LEVEL         = var.log_level
     }
   }
 

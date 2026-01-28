@@ -247,10 +247,10 @@ resource "aws_lambda_function" "scanner" {
 
   environment {
     variables = {
-      FINDINGS_TABLE   = aws_dynamodb_table.findings.name
-      EVIDENCE_TABLE   = aws_dynamodb_table.evidence.name
-      EVIDENCE_BUCKET  = aws_s3_bucket.evidence.id
-      ENVIRONMENT      = var.environment
+      FINDINGS_TABLE  = aws_dynamodb_table.findings.name
+      EVIDENCE_TABLE  = aws_dynamodb_table.evidence.name
+      EVIDENCE_BUCKET = aws_s3_bucket.evidence.id
+      ENVIRONMENT     = var.environment
     }
   }
 
@@ -337,7 +337,7 @@ resource "aws_iam_role_policy" "scanner_policy" {
 resource "aws_cloudwatch_event_rule" "daily_scan" {
   name                = "${var.project_name}-${var.environment}-daily-scan"
   description         = "Trigger daily compliance scan"
-  schedule_expression = "cron(0 2 * * ? *)"  # 2 AM UTC daily
+  schedule_expression = "cron(0 2 * * ? *)" # 2 AM UTC daily
 
   tags = var.tags
 }

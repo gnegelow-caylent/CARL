@@ -47,13 +47,13 @@ resource "aws_dynamodb_table" "bootstrap_tracking" {
 
 # Lambda for bootstrap orchestration
 resource "aws_lambda_function" "bootstrap_orchestrator" {
-  filename         = var.lambda_package_path
-  function_name    = "${var.project_name}-${var.environment}-bootstrap"
-  role             = aws_iam_role.bootstrap_role.arn
-  handler          = "services.bootstrap.bootstrap_orchestrator.lambda_handler"
-  runtime          = "python3.11"
-  timeout          = 900  # 15 minutes for long operations
-  memory_size      = 1024
+  filename      = var.lambda_package_path
+  function_name = "${var.project_name}-${var.environment}-bootstrap"
+  role          = aws_iam_role.bootstrap_role.arn
+  handler       = "services.bootstrap.bootstrap_orchestrator.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 900 # 15 minutes for long operations
+  memory_size   = 1024
 
   environment {
     variables = {
