@@ -199,12 +199,15 @@ resource "aws_lambda_function" "carl" {
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda.arn
   handler          = "handlers.slack_router.lambda_handler"
-  source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : null
+  source_code_hash = filebase64sha256(local.lambda_zip_path)
   runtime          = "python3.11"
 
   # COST OPTIMIZATION: Start small, Lambda auto-scales
   memory_size = 512 # Enough for Bedrock calls
   timeout     = 30  # Most queries under 10s
+
+  # Force update when code changes
+  publish = true
 
   environment {
     variables = {
