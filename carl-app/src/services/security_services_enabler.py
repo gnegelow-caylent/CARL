@@ -236,7 +236,12 @@ class SecurityServicesEnabler:
 
             # Create configuration recorder
             recorder_name = "default"
-            try:
+
+            # Check if recorder already exists
+            existing_recorders = self.config.describe_configuration_recorders()
+            recorder_exists = any(r["name"] == recorder_name for r in existing_recorders.get("ConfigurationRecorders", []))
+
+            if not recorder_exists:
                 self.config.put_configuration_recorder(
                     ConfigurationRecorder={
                         "name": recorder_name,
@@ -248,11 +253,14 @@ class SecurityServicesEnabler:
                     }
                 )
                 logger.info("Created configuration recorder")
-            except Exception as e:
-                logger.warning(f"Configuration recorder may already exist: {e}")
+            else:
+                logger.info("Configuration recorder already exists")
 
             # Create delivery channel
-            try:
+            existing_channels = self.config.describe_delivery_channels()
+            channel_exists = any(c["name"] == "default" for c in existing_channels.get("DeliveryChannels", []))
+
+            if not channel_exists:
                 self.config.put_delivery_channel(
                     DeliveryChannel={
                         "name": "default",
@@ -263,10 +271,10 @@ class SecurityServicesEnabler:
                     }
                 )
                 logger.info("Created delivery channel")
-            except Exception as e:
-                logger.warning(f"Delivery channel may already exist: {e}")
+            else:
+                logger.info("Delivery channel already exists")
 
-            # Start configuration recorder
+            # Start configuration recorder (safe to call even if already started)
             self.config.start_configuration_recorder(
                 ConfigurationRecorderName=recorder_name
             )
