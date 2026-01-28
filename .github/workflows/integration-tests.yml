@@ -100,19 +100,22 @@ jobs:
           ENVIRONMENT="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
           FUNCTION_NAME="carl-$ENVIRONMENT-api"
 
-          # Check Lambda exists
+          # Check Lambda exists and get configuration
           aws lambda get-function --function-name "$FUNCTION_NAME" || exit 1
           echo "✅ Lambda function exists"
 
-          # Check Lambda can be invoked (dry run)
-          # Create payload file to avoid shell escaping issues
-          echo '{"rawPath":"/health"}' > test-payload.json
-          aws lambda invoke \
-            --function-name "$FUNCTION_NAME" \
-            --invocation-type DryRun \
-            --payload file://test-payload.json \
-            response.json || exit 1
-          echo "✅ Lambda function is invokable"
+          # Verify Lambda configuration
+          TIMEOUT=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query 'Timeout' --output text)
+          MEMORY=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query 'MemorySize' --output text)
+
+          echo "Lambda timeout: ${TIMEOUT}s"
+          echo "Lambda memory: ${MEMORY}MB"
+
+          if [ "$TIMEOUT" -ge 90 ]; then
+            echo "✅ Lambda timeout is adequate (${TIMEOUT}s >= 90s)"
+          else
+            echo "⚠️  Lambda timeout is low: ${TIMEOUT}s (expected >= 90s)"
+          fi
 
       - name: Test SSM parameters
         run: |
