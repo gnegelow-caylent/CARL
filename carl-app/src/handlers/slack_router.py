@@ -461,11 +461,8 @@ def handle_ask_command(
             })
         }
 
-    # Respond immediately to Slack (prevents timeout)
-    response_payload = {
-        "response_type": "in_channel",
-        "text": f"🤔 Thinking about: _{question}_..."
-    }
+    # Post "Thinking..." message via Slack API (not in HTTP response)
+    slack.post_message(channel_id, text=f"🤔 Thinking about: _{question}_...")
 
     # Invoke async processing in background
     try:
@@ -485,11 +482,8 @@ def handle_ask_command(
         # Fallback to synchronous if async fails
         return handle_ask_command_sync(slack, channel_id, user_id, question)
 
-    # Return immediately to Slack
-    return {
-        "statusCode": 200,
-        "body": json.dumps(response_payload)
-    }
+    # Return empty 200 OK immediately to Slack (prevents timeout)
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_ask_command_sync(
@@ -500,20 +494,49 @@ def handle_ask_command_sync(
     bedrock = get_bedrock_service()
     findings_service = get_findings_service()
 
-    # Build context from recent findings
+    # Check if question is about bad practices or environment scanning
+    question_lower = question.lower()
+    should_scan = any(keyword in question_lower for keyword in [
+        'bad practice', 'misconfiguration', 'security issue',
+        'vulnerability', 'my environment', 'my aws', 'scan',
+        'check my', 'what\'s wrong', 'issues in my'
+    ])
+
+    context = ""
+
+    if should_scan:
+        # Perform live AWS environment scan
+        try:
+            from services.aws_scanner import AWSScanner
+            scanner = AWSScanner()
+            scan_results = scanner.scan_environment()
+            scan_summary = scanner.get_summary(scan_results)
+
+            context = f"""
+LIVE AWS ENVIRONMENT SCAN RESULTS:
+{scan_summary}
+
+This is real data from the user's AWS account, scanned moments ago.
+"""
+            logger.info("Performed live AWS environment scan")
+        except Exception as e:
+            logger.error(f"Failed to scan AWS environment: {e}")
+            context = f"Note: Could not scan AWS environment: {str(e)}\n\n"
+
+    # Add Security Hub findings if available
     summary = findings_service.get_compliance_summary()
     recent_findings = findings_service.get_recent_findings(limit=5)
 
-    context = f"""
-    Current compliance summary:
-    - Critical findings: {summary.get('critical', 0)}
-    - High findings: {summary.get('high', 0)}
-    - Medium findings: {summary.get('medium', 0)}
-    - Low findings: {summary.get('low', 0)}
+    context += f"""
+Security Hub compliance summary:
+- Critical findings: {summary.get('critical', 0)}
+- High findings: {summary.get('high', 0)}
+- Medium findings: {summary.get('medium', 0)}
+- Low findings: {summary.get('low', 0)}
 
-    Recent findings:
-    {json.dumps(recent_findings, indent=2)}
-    """
+Recent Security Hub findings:
+{json.dumps(recent_findings, indent=2)}
+"""
 
     response = bedrock.ask_compliance_question(question, context)
 

@@ -195,6 +195,55 @@ resource "aws_iam_role_policy" "deploy_features" {
   })
 }
 
+# AWS environment scanning permissions (read-only)
+resource "aws_iam_role_policy" "aws_scanner" {
+  name = "aws-scanner"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          # IAM read-only
+          "iam:GetAccountSummary",
+          "iam:GetAccountPasswordPolicy",
+          "iam:ListUsers",
+          "iam:ListMFADevices",
+          "iam:ListAccessKeys",
+          # CloudTrail read-only
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:LookupEvents",
+          # EC2/VPC read-only
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeFlowLogs",
+          "ec2:GetEbsEncryptionByDefault",
+          "ec2:DescribeVolumes",
+          # S3 read-only
+          "s3:ListAllMyBuckets",
+          "s3:GetBucketAcl",
+          "s3:GetBucketEncryption",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketPublicAccessBlock",
+          # KMS read-only
+          "kms:ListKeys",
+          "kms:DescribeKey",
+          # RDS read-only
+          "rds:DescribeDBInstances",
+          "rds:DescribeDBClusters",
+          # STS (for account ID)
+          "sts:GetCallerIdentity"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # 3. Lambda Function (CARL's Brain)
 # Note: Lambda package is created by GitHub Actions workflow with dependencies
 # The workflow installs requirements.txt into src/ before zipping
