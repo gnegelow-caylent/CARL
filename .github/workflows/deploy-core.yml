@@ -215,12 +215,22 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies into src/ directory
+          # Install dependencies into a temporary directory with Lambda-compatible binaries
           # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
           # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          pip install -r carl-app/requirements.txt -t carl-app/src/
+          mkdir -p carl-app/package
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --target carl-app/package \
+            --implementation cp \
+            --python-version 3.11 \
+            --only-binary=:all: \
+            --upgrade \
+            -r carl-app/requirements.txt
+          # Copy source code into package
+          cp -r carl-app/src/* carl-app/package/
           # Package everything including dependencies
-          cd carl-app/src
+          cd carl-app/package
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
@@ -285,12 +295,22 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies into src/ directory
+          # Install dependencies into a temporary directory with Lambda-compatible binaries
           # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
           # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          pip install -r carl-app/requirements.txt -t carl-app/src/
+          mkdir -p carl-app/package
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --target carl-app/package \
+            --implementation cp \
+            --python-version 3.11 \
+            --only-binary=:all: \
+            --upgrade \
+            -r carl-app/requirements.txt
+          # Copy source code into package
+          cp -r carl-app/src/* carl-app/package/
           # Package everything including dependencies
-          cd carl-app/src
+          cd carl-app/package
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
@@ -334,12 +354,22 @@ jobs:
 
       - name: Package Lambda
         run: |
-          # Install dependencies into src/ directory
+          # Install dependencies into a temporary directory with Lambda-compatible binaries
           # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
           # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          pip install -r carl-app/requirements.txt -t carl-app/src/
+          mkdir -p carl-app/package
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --target carl-app/package \
+            --implementation cp \
+            --python-version 3.11 \
+            --only-binary=:all: \
+            --upgrade \
+            -r carl-app/requirements.txt
+          # Copy source code into package
+          cp -r carl-app/src/* carl-app/package/
           # Package everything including dependencies
-          cd carl-app/src
+          cd carl-app/package
           zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
 
       - name: Terraform Init
