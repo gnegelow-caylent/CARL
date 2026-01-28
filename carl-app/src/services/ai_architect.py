@@ -44,8 +44,8 @@ from knowledge.aws_pricing import (
 
 logger = get_logger(__name__)
 
-# Use Sonnet 4.5 for complex architectural reasoning
-ARCHITECT_MODEL_ID = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+# Use Sonnet 4.5 for complex architectural reasoning (inference profile)
+ARCHITECT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 ARCHITECT_SYSTEM_PROMPT = """You are CARL's AI Architecture Advisor - an expert AWS Solutions Architect with deep knowledge of:
 - AWS Well-Architected Framework (all 6 pillars)
@@ -463,7 +463,7 @@ Summarize in one sentence what should be remembered for future recommendations o
             }
 
             response = self.bedrock.invoke_model(
-                modelId="anthropic.claude-haiku-4-5-20251001-v1:0",  # Use Haiku 4.5 for this
+                modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",  # Use Haiku 4.5 inference profile
                 body=json.dumps(body),
                 contentType="application/json",
                 accept="application/json",
