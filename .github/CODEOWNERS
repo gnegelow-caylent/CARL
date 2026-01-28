@@ -1,0 +1,26 @@
+# CARL Code Owners
+# These owners will be automatically requested for review when someone opens a pull request.
+
+# Default owners for everything in the repo
+*                                   @gnegelow-caylent
+
+# Infrastructure code
+/carl-infrastructure/**             @gnegelow-caylent
+*.tf                                @gnegelow-caylent
+*.tfvars                            @gnegelow-caylent
+
+# Python application code
+/carl-app/**                        @gnegelow-caylent
+*.py                                @gnegelow-caylent
+
+# GitHub Actions workflows
+/.github/workflows/**               @gnegelow-caylent
+
+# Documentation
+*.md                                @gnegelow-caylent
+/docs/**                            @gnegelow-caylent
+
+# Configuration files
+.pylintrc                           @gnegelow-caylent
+requirements*.txt                   @gnegelow-caylent
+pyproject.toml                      @gnegelow-caylent

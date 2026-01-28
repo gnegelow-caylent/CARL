@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREVIOUS_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges)
+          else
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+          fi
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build Lambda package
+        run: |
+          cd carl-app
+          pip install -r requirements.txt -t src/
+          cd src
+          zip -r ../../lambda-${{ steps.version.outputs.version }}.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: CARL ${{ steps.version.outputs.tag }}
+          body: |
+            ## CARL Release ${{ steps.version.outputs.version }}
+
+            ### Changes in this release
+            ${{ steps.changelog.outputs.changelog }}
+
+            ### Deployment
+
+            ```bash
+            # Download Lambda package
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/lambda-${{ steps.version.outputs.version }}.zip
+
+            # Deploy with Terraform
+            cd carl-infrastructure/core
+            terraform init
+            terraform apply -var="environment=prod"
+            ```
+
+            ### Documentation
+            - [Deployment Guide](https://github.com/${{ github.repository }}/blob/main/DEPLOYMENT.md)
+            - [Cost Optimization](https://github.com/${{ github.repository }}/blob/main/COST_OPTIMIZATION.md)
+            - [Architecture](https://github.com/${{ github.repository }}/blob/main/ARCHITECTURE.md)
+
+            ---
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/...HEAD
+          files: |
+            lambda-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+
+      - name: Notify Slack
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚀 CARL ${{ steps.version.outputs.tag }} Released!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*CARL Release ${{ steps.version.outputs.version }}*\n\n✅ New version is available!"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ steps.version.outputs.tag }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Author:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "<https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}|View Release>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

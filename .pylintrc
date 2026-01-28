@@ -1,0 +1,16 @@
+[MASTER]
+ignore=CVS,.git,__pycache__,venv,env
+
+[MESSAGES CONTROL]
+disable=C0111,C0103,R0903,R0913,W0212,W0511
+
+[FORMAT]
+max-line-length=120
+indent-string='    '
+
+[BASIC]
+good-names=i,j,k,ex,pk,sk,_
+
+[DESIGN]
+max-args=10
+max-attributes=10
