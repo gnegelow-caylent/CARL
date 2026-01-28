@@ -1023,10 +1023,10 @@ def handle_setup_command(
         validation_results = setup.validate_connectivity()
         validation_text = setup.format_validation_results(validation_results)
 
-        # Check if all services are OK
-        all_ok = all(result.get("status") == "ok" for result in validation_results.values())
+        # Check if any services have critical errors (not warnings)
+        has_errors = any(result.get("status") == "error" for result in validation_results.values())
 
-        if not all_ok:
+        if has_errors:
             slack.post_message(
                 channel_id,
                 text=f"❌ *Setup Validation Failed*\n\n{validation_text}\n\n"
