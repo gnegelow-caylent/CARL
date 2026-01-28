@@ -21,7 +21,9 @@ from services.architecture_advisor import ArchitectureAdvisor
 from services.infrastructure_builder import InfrastructureBuilder
 from services.cost_estimator import CostEstimator, format_cost_estimate
 from services.foundation import DecisionEngine, FoundationBuilder
-from utils.aws_client import get_parameter
+from services.github_service import GitHubService
+from services.code_uploader import CodeUploader
+from utils.aws_client import get_parameter, get_secret
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,6 +32,9 @@ logger = get_logger(__name__)
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
 SLACK_BOT_TOKEN_SSM = os.environ.get("SLACK_BOT_TOKEN_SSM", "")
 SLACK_SIGNING_SECRET_SSM = os.environ.get("SLACK_SIGNING_SECRET_SSM", "")
+GITHUB_INFRA_TOKEN_SECRET = os.environ.get("GITHUB_INFRA_TOKEN_SECRET", "/carl/dev/github-infra-token")
+GITHUB_INFRA_OWNER = os.environ.get("GITHUB_INFRA_OWNER", "your-org")
+GITHUB_INFRA_REPO = os.environ.get("GITHUB_INFRA_REPO", "carl-infrastructure-deployments")
 
 # Lazy-loaded services
 _slack_service: SlackService | None = None
@@ -40,6 +45,7 @@ _infrastructure_builder: InfrastructureBuilder | None = None
 _cost_estimator: CostEstimator | None = None
 _decision_engine: DecisionEngine | None = None
 _foundation_builder: FoundationBuilder | None = None
+_github_service: GitHubService | None = None
 
 
 def get_slack_service() -> SlackService:
@@ -105,6 +111,16 @@ def get_foundation_builder() -> FoundationBuilder:
     if _foundation_builder is None:
         _foundation_builder = FoundationBuilder()
     return _foundation_builder
+
+
+def get_github_service() -> GitHubService:
+    """Get or create GitHub service instance with token from Secrets Manager."""
+    global _github_service
+    if _github_service is None:
+        # Get token from Secrets Manager
+        token = get_secret(GITHUB_INFRA_TOKEN_SECRET)
+        _github_service = GitHubService(token, GITHUB_INFRA_OWNER, GITHUB_INFRA_REPO)
+    return _github_service
 
 
 def verify_slack_signature(
@@ -1290,7 +1306,7 @@ def handle_recommend_command_sync(
 def handle_build_command(
     slack: SlackService, channel_id: str, user_id: str, blueprint_name: str, config: dict = None, trigger_id: str = None
 ) -> dict:
-    """Handle /carl build command - generate Terraform code."""
+    """Handle /carl build command - generate and upload to GitHub."""
     if not blueprint_name:
         return handle_blueprints_command(slack, channel_id, user_id)
 
@@ -1311,114 +1327,32 @@ def handle_build_command(
 
         result = builder.generate(blueprint_name.strip(), config)
 
-        # Post the generated code
-        blocks = [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": f"Generated: {blueprint_name}"},
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*Compliance Notes:*\n" + "\n".join([f"• {n}" for n in result.compliance_notes]),
-                },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*Deployment Steps:*\n" + "\n".join(result.deployment_steps),
-                },
-            },
-        ]
+        # Upload to GitHub and post to Slack
+        try:
+            github = get_github_service()
+            uploader = CodeUploader(github, slack)
 
-        slack.post_message(channel_id, blocks=blocks)
-
-        # Post Terraform code as code block
-        # Slack has a 3000 char limit per text block, so split if needed
-        max_code_length = 2900  # Leave room for formatting
-
-        if len(result.terraform_code) <= max_code_length:
-            # Code fits in one block
-            code_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "*Terraform Code:*"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"```terraform\n{result.terraform_code}\n```"
-                    }
+            upload_result = uploader.upload_and_notify(
+                channel_id=channel_id,
+                user_id=user_id,
+                blueprint_name=blueprint_name,
+                terraform_code=result.terraform_code,
+                metadata={
+                    "compliance_notes": result.compliance_notes,
+                    "deployment_steps": result.deployment_steps,
+                    "config": config
                 }
-            ]
-            slack.post_message(channel_id, blocks=code_blocks)
-        else:
-            # Split code into multiple messages
-            code_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "*Terraform Code (Part 1):*"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"```terraform\n{result.terraform_code[:max_code_length]}\n```"
-                    }
-                }
-            ]
-            slack.post_message(channel_id, blocks=code_blocks)
+            )
 
-            # Post remaining code
-            remaining_code = result.terraform_code[max_code_length:]
-            code_blocks2 = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "*Terraform Code (Part 2):*"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"```terraform\n{remaining_code[:max_code_length]}\n```"
-                    }
-                }
-            ]
-            slack.post_message(channel_id, blocks=code_blocks2)
+            logger.info(f"Uploaded code to GitHub: PR #{upload_result['pr_number']}")
 
-        # Add deployment button
-        deploy_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Ready to deploy this infrastructure?"
-                },
-                "accessory": {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Review & Deploy"
-                    },
-                    "value": f"deploy:{blueprint_name}",
-                    "action_id": "deploy_infrastructure",
-                    "style": "primary"
-                }
-            }
-        ]
-        slack.post_message(channel_id, blocks=deploy_blocks)
+        except Exception as e:
+            logger.error(f"Failed to upload to GitHub: {e}")
+            slack.post_message(
+                channel_id,
+                text=f"❌ Failed to upload to GitHub: {str(e)}\n\nCode was generated but not uploaded. Please contact platform team."
+            )
+            return {"statusCode": 500, "body": str(e)}
 
     except ValueError as e:
         slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
@@ -1596,161 +1530,28 @@ def handle_vpc_config_submission(payload: dict) -> dict:
 
 
 def handle_deploy_review(payload: dict, action: dict) -> dict:
-    """Handle deploy review button - show comprehensive summary before deployment."""
-    import re
-
+    """DEPRECATED: Direct deployment removed - infrastructure changes now go through GitHub."""
     slack = get_slack_service()
     channel_id = payload["channel"]["id"]
-    user_id = payload["user"]["id"]
-
-    # Extract blueprint name from button value (format: "deploy:blueprint_name")
-    blueprint_name = action.get("value", "").replace("deploy:", "")
-
-    if not blueprint_name:
-        slack.post_message(channel_id, text="❌ Error: Could not determine which blueprint to deploy.")
-        return {"statusCode": 200, "body": ""}
-
-    try:
-        # Show processing message
-        slack.post_message(channel_id, text=f"🔍 Analyzing deployment plan for `{blueprint_name}`...")
-
-        # Regenerate Terraform code to analyze
-        builder = get_infrastructure_builder()
-        config = {"name": "main", "environment": "prod"}
-        result = builder.generate(blueprint_name.strip(), config)
-
-        # Parse Terraform code to count resources
-        tf_code = result.terraform_code
-
-        # Extract resource types from Terraform code
-        resource_pattern = r'resource\s+"(aws_\w+)"\s+"(\w+)"'
-        resources = re.findall(resource_pattern, tf_code)
-
-        resource_summary = {}
-        for resource_type, resource_name in resources:
-            resource_summary[resource_type] = resource_summary.get(resource_type, 0) + 1
-
-        total_resources = sum(resource_summary.values())
-
-        # Build comprehensive summary
-        summary_lines = [
-            f"📋 **Deployment Plan Summary: {blueprint_name}**\n",
-            f"**What Will Be Created:**",
-            f"• {total_resources} new AWS resources\n",
-        ]
-
-        if resource_summary:
-            summary_lines.append("**Resource Breakdown:**")
-            for rtype, count in sorted(resource_summary.items()):
-                # Make resource types more readable
-                readable_type = rtype.replace('aws_', '').replace('_', ' ').title()
-                summary_lines.append(f"• {count}x {readable_type}")
-            summary_lines.append("")
-
-        # Add compliance notes
-        summary_lines.append("**Security & Compliance:**")
-        for note in result.compliance_notes:
-            summary_lines.append(f"• {note}")
-        summary_lines.append("")
-
-        # Add deployment steps
-        summary_lines.append("**Deployment Process:**")
-        for step in result.deployment_steps[:3]:
-            summary_lines.append(f"• {step}")
-        summary_lines.append("")
-
-        # Estimate monthly cost (rough estimate based on resource types)
-        estimated_cost = 0
-        if "aws_vpc" in resource_summary:
-            estimated_cost += 0  # VPCs are free
-        if "aws_nat_gateway" in resource_summary:
-            estimated_cost += 32.85 * resource_summary["aws_nat_gateway"]
-        if "aws_instance" in resource_summary:
-            estimated_cost += 50 * resource_summary["aws_instance"]  # Rough t3.medium estimate
-        if "aws_rds_instance" in resource_summary:
-            estimated_cost += 120 * resource_summary["aws_rds_instance"]  # Rough db.t3.medium estimate
-
-        if estimated_cost > 0:
-            summary_lines.append(f"**Estimated Monthly Cost:** ~${estimated_cost:.2f}/month")
-        else:
-            summary_lines.append(f"**Estimated Monthly Cost:** Minimal (< $10/month)")
-
-        summary_lines.append("")
-        summary_lines.append("**⚠️ Warning:** This will create real AWS resources that may incur costs.")
-
-        summary_text = "\n".join(summary_lines)
-
-        # Post summary message first
-        slack.post_message(channel_id, text=summary_text)
-
-        # Post Terraform code in a code block
-        code_preview = result.terraform_code[:2500]  # Limit to 2500 chars for Slack
-        if len(result.terraform_code) > 2500:
-            code_preview += "\n\n... (truncated - full code shown above)"
-
-        slack.post_message(channel_id, text=f"*Terraform Code to be Deployed:*\n```terraform\n{code_preview}\n```")
-
-        # Post Confirm/Cancel buttons
-        decision_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "⚠️ *Review the configuration above carefully.* Click *Cancel* to abort this deployment, or *Confirm & Deploy* to proceed."
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "✅ Confirm & Deploy"
-                        },
-                        "value": f"deploy:{blueprint_name}",
-                        "action_id": "confirm_deploy",
-                        "style": "danger"
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "❌ Cancel Deployment"
-                        },
-                        "value": f"deploy:{blueprint_name}",
-                        "action_id": "cancel_deploy"
-                    }
-                ]
-            }
-        ]
-
-        slack.post_message(channel_id, blocks=decision_blocks)
-
-    except Exception as e:
-        logger.exception("Error during deployment review")
-        slack.post_message(channel_id, text=f"❌ Error analyzing deployment: {str(e)}")
-
+    slack.post_message(
+        channel_id,
+        text="⚠️ *Direct deployment has been removed.*\n\n"
+             "All infrastructure changes now go through GitHub for proper review and approval.\n\n"
+             "Use `/carl build <blueprint>` to generate code and create a Pull Request."
+    )
     return {"statusCode": 200, "body": ""}
 
 
 def handle_deploy_confirm(payload: dict, action: dict) -> dict:
-    """Handle deployment confirmation - actually deploy the infrastructure."""
-    slack = get_slack_service()
-    channel_id = payload["channel"]["id"]
-
-    slack.post_message(channel_id, text="🚧 **Deployment feature coming soon!**\n\nFor now, please:\n1. Copy the Terraform code from above\n2. Save to a `.tf` file\n3. Run `terraform init && terraform apply`\n\nAutomatic deployment will be available in a future update.")
-
-    return {"statusCode": 200, "body": ""}
+    """DEPRECATED: Direct deployment removed - infrastructure changes now go through GitHub."""
+    return handle_deploy_review(payload, action)
 
 
 def handle_deploy_cancel(payload: dict, action: dict) -> dict:
-    """Handle deployment cancellation."""
+    """DEPRECATED: Direct deployment removed - infrastructure changes now go through GitHub."""
     slack = get_slack_service()
     channel_id = payload["channel"]["id"]
-
-    slack.post_message(channel_id, text="✅ Deployment cancelled. No changes were made.")
-
+    slack.post_message(channel_id, text="✅ Cancelled.")
     return {"statusCode": 200, "body": ""}
 
 

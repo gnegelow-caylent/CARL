@@ -205,6 +205,69 @@ resource "aws_s3_bucket" "reports" {
   })
 }
 
+# 6a. Terraform State Bucket (stores Terraform state for infrastructure deployments)
+resource "aws_s3_bucket" "tfstate" {
+  bucket = "carl-tfstate-${local.account_id}"
+
+  tags = merge(var.tags, {
+    Name        = "carl-tfstate-${local.account_id}"
+    Description = "Terraform state storage for CARL infrastructure deployments"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "tfstate" {
+  bucket = aws_s3_bucket.tfstate.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
+  bucket = aws_s3_bucket.tfstate.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "tfstate" {
+  bucket = aws_s3_bucket.tfstate.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# 6b. Terraform State Lock Table (prevents concurrent state modifications)
+resource "aws_dynamodb_table" "tfstate_locks" {
+  name         = "carl-tfstate-locks"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "TTL"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.environment == "prod"
+  }
+
+  tags = merge(var.tags, {
+    Name        = "carl-tfstate-locks"
+    Description = "Terraform state locking for CARL infrastructure deployments"
+  })
+}
+
 resource "aws_s3_bucket_versioning" "reports" {
   bucket = aws_s3_bucket.reports.id
 
@@ -383,6 +446,25 @@ resource "aws_iam_role_policy" "ssm" {
   })
 }
 
+# Secrets Manager access (for GitHub token)
+resource "aws_iam_role_policy" "secrets_manager" {
+  name = "secrets-manager-access"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-infra-token*"
+      }
+    ]
+  })
+}
+
 # CloudFormation/Terraform deployment permissions (for feature deployment)
 resource "aws_iam_role_policy" "deploy_features" {
   name = "deploy-features"
@@ -506,6 +588,11 @@ resource "aws_lambda_function" "carl" {
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
+
+      # GitHub Infrastructure Repository (for GitOps deployments)
+      GITHUB_INFRA_TOKEN_SECRET = "/carl/${var.environment}/github-infra-token"
+      GITHUB_INFRA_OWNER        = var.github_infra_owner
+      GITHUB_INFRA_REPO         = var.github_infra_repo
 
       # Feature flags (all disabled initially)
       FEATURE_MONITORING_ENABLED = "false"

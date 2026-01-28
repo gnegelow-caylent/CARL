@@ -94,3 +94,19 @@ variable "github_repo" {
   type        = string
   default     = ""
 }
+
+# ============================================================================
+# GITHUB INFRASTRUCTURE REPOSITORY (For GitOps infrastructure deployments)
+# ============================================================================
+
+variable "github_infra_owner" {
+  description = "GitHub organization/user for infrastructure deployments repository"
+  type        = string
+  default     = "your-org"
+}
+
+variable "github_infra_repo" {
+  description = "GitHub repository name for infrastructure deployments"
+  type        = string
+  default     = "carl-infrastructure-deployments"
+}
