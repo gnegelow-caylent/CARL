@@ -111,7 +111,18 @@ def verify_slack_signature(
     signature: str,
 ) -> bool:
     """Verify the Slack request signature."""
-    if abs(time.time() - int(timestamp)) > 60 * 5:
+    # Check if timestamp is valid
+    if not timestamp:
+        logger.warning("Missing timestamp header")
+        return False
+
+    try:
+        ts_int = int(timestamp)
+    except ValueError:
+        logger.warning(f"Invalid timestamp format: {timestamp}")
+        return False
+
+    if abs(time.time() - ts_int) > 60 * 5:
         logger.warning("Request timestamp is too old")
         return False
 
@@ -150,20 +161,34 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         body = base64.b64decode(body).decode("utf-8")
 
     # Parse body first to check if it's a URL verification request
-    content_type = headers.get("content-type", "")
-    if "application/json" in content_type:
+    # URL verification doesn't include valid Slack signatures, so check this first
+    content_type = headers.get("content-type", "").lower()
+    logger.info(f"Content-Type: {content_type}, Body length: {len(body)}")
+
+    if "application/json" in content_type and body:
         try:
-            payload = json.loads(body) if body else {}
+            payload = json.loads(body)
+            request_type = payload.get("type", "")
+            logger.info(f"Parsed JSON request type: {request_type}")
+
             # Skip signature verification for URL verification challenges
-            if payload.get("type") == "url_verification":
+            if request_type == "url_verification":
+                logger.info("URL verification request detected, bypassing signature check")
                 return handle_url_verification(payload)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON body: {e}")
             pass
 
     # Verify Slack signature for all other requests
-    signing_secret = get_parameter(SLACK_SIGNING_SECRET_SSM)
     timestamp = headers.get("x-slack-request-timestamp", "")
     signature = headers.get("x-slack-signature", "")
+
+    # If no timestamp/signature, this might be a malformed request
+    if not timestamp or not signature:
+        logger.warning(f"Missing Slack headers - timestamp: {bool(timestamp)}, signature: {bool(signature)}")
+        return {"statusCode": 401, "body": json.dumps({"error": "Missing Slack signature headers"})}
+
+    signing_secret = get_parameter(SLACK_SIGNING_SECRET_SSM)
 
     if not verify_slack_signature(signing_secret, timestamp, body, signature):
         logger.error("Invalid Slack signature")
