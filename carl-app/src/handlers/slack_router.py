@@ -810,12 +810,15 @@ def handle_ask_command_sync(
     should_scan = any(keyword in question_lower for keyword in [
         'bad practice', 'misconfiguration', 'security issue',
         'vulnerability', 'my environment', 'my aws', 'scan',
-        'check my', 'what\'s wrong', 'issues in my'
+        'check my', 'what\'s wrong', 'issues in my',
+        'compliant', 'compliance', 'my current', 'anything i need',
+        'environment compliant', 'need to do', 'fix it'
     ])
 
     context = ""
 
     if should_scan:
+        logger.info(f"Triggering AWS environment scan for question: {question}")
         # Perform live AWS environment scan
         try:
             from services.aws_scanner import AWSScanner
@@ -829,9 +832,9 @@ LIVE AWS ENVIRONMENT SCAN RESULTS:
 
 This is real data from the user's AWS account, scanned moments ago.
 """
-            logger.info("Performed live AWS environment scan")
+            logger.info(f"AWS environment scan completed successfully. Summary length: {len(scan_summary)}")
         except Exception as e:
-            logger.error(f"Failed to scan AWS environment: {e}")
+            logger.error(f"Failed to scan AWS environment: {e}", exc_info=True)
             context = f"Note: Could not scan AWS environment: {str(e)}\n\n"
 
     # Add Security Hub findings ONLY if there are actual issues

@@ -90,7 +90,19 @@ class GitHubService:
         # Return commit SHA
         return resp.json()["commit"]["sha"]
 
-    def create_branch(self, branch_name: str, base_branch: str = None) -> dict:
+    def branch_exists(self, branch_name: str) -> bool:
+        """Check if a branch exists."""
+        branch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{branch_name}"
+        resp = requests.get(branch_url, headers=self._get_headers(), timeout=10)
+        return resp.status_code == 200
+
+    def delete_branch(self, branch_name: str) -> None:
+        """Delete a branch."""
+        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{branch_name}"
+        resp = requests.delete(ref_url, headers=self._get_headers(), timeout=10)
+        resp.raise_for_status()
+
+    def create_branch(self, branch_name: str, base_branch: str = None, force: bool = False) -> dict:
         """
         Create a new branch from base branch.
 
@@ -98,6 +110,10 @@ class GitHubService:
             branch_name: Name of the new branch
             base_branch: Base branch to branch from. If None, uses default branch.
                         If repository is empty, initializes it first.
+            force: If True and branch exists, delete and recreate it
+
+        Returns:
+            Branch info dict
         """
         # Check if repository is empty
         if self.is_repository_empty():
@@ -107,6 +123,18 @@ class GitHubService:
         # Use default branch if not specified
         if base_branch is None:
             base_branch = self.get_default_branch()
+
+        # Check if branch already exists
+        if self.branch_exists(branch_name):
+            if force:
+                # Delete existing branch and recreate
+                self.delete_branch(branch_name)
+            else:
+                # Branch exists and force=False, return existing branch info
+                branch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{branch_name}"
+                resp = requests.get(branch_url, headers=self._get_headers(), timeout=10)
+                resp.raise_for_status()
+                return resp.json()
 
         # Get base branch SHA
         ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{base_branch}"
@@ -200,7 +228,35 @@ class GitHubService:
         return new_commit_sha
 
     def create_pull_request(self, title: str, body: str, head: str, base: str = "develop") -> dict:
-        """Create a pull request."""
+        """
+        Create a pull request, or return existing PR if one already exists for this branch.
+
+        Args:
+            title: PR title
+            body: PR description
+            head: Head branch name
+            base: Base branch name
+
+        Returns:
+            PR info dict
+        """
+        # Check if PR already exists for this head branch
+        list_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/pulls"
+        list_params = {"head": f"{self.repo_owner}:{head}", "base": base, "state": "open"}
+        list_resp = requests.get(list_url, headers=self._get_headers(), params=list_params, timeout=10)
+        list_resp.raise_for_status()
+        existing_prs = list_resp.json()
+
+        if existing_prs:
+            # PR already exists, update it
+            pr = existing_prs[0]
+            update_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/pulls/{pr['number']}"
+            update_payload = {"title": title, "body": body}
+            update_resp = requests.patch(update_url, headers=self._get_headers(), json=update_payload, timeout=10)
+            update_resp.raise_for_status()
+            return update_resp.json()
+
+        # Create new PR
         url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/pulls"
         payload = {
             "title": title,

@@ -36,9 +36,10 @@ class CodeUploader:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M")
         blueprint_short = blueprint_name.replace("/", "-")
 
-        # 1. Create branch (uses default branch, initializes repo if empty)
-        branch_name = f"feature/u{user_id}-{blueprint_short}-{timestamp}"
-        self.github.create_branch(branch_name, base_branch=None)
+        # 1. Create branch (without timestamp to avoid duplicates)
+        # If branch exists, we'll force recreate it with new code
+        branch_name = f"feature/{user_id}/{blueprint_short}"
+        self.github.create_branch(branch_name, base_branch=None, force=True)
 
         # 2. Prepare files
         deployment_path = f"deployments/users/{user_id}/{blueprint_short}/{timestamp}"
