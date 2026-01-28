@@ -12,6 +12,8 @@ import time
 from typing import Any
 from urllib.parse import parse_qs
 
+import boto3
+
 from services.bedrock_service import BedrockService
 from services.findings_service import FindingsService
 from services.slack_service import SlackService
@@ -149,8 +151,20 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     - Slash commands (/carl)
     - Events (app_mention, message)
     - Interactive components (buttons, modals)
+    - Async processing (self-invoked)
     """
     logger.info("Received Slack event", extra={"path": event.get("rawPath", "")})
+
+    # Check if this is an async processing request (Lambda self-invoked)
+    if event.get("action") == "process_ask_async":
+        logger.info("Processing async ask command")
+        slack = get_slack_service()
+        return handle_ask_command_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("question")
+        )
 
     # Parse request
     headers = event.get("headers", {})
@@ -439,15 +453,49 @@ def handle_ask_command(
 ) -> dict:
     """Handle /carl ask command - natural language query."""
     if not question:
-        slack.post_message(
-            channel_id,
-            text="Please provide a question. Example: `/carl ask What is my S3 compliance status?`",
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "response_type": "ephemeral",
+                "text": "Please provide a question. Example: `/carl ask What is my S3 compliance status?`"
+            })
+        }
+
+    # Respond immediately to Slack (prevents timeout)
+    response_payload = {
+        "response_type": "in_channel",
+        "text": f"🤔 Thinking about: _{question}_..."
+    }
+
+    # Invoke async processing in background
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_ask_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'question': question
+            })
         )
-        return {"statusCode": 200, "body": ""}
+    except Exception as e:
+        logger.error(f"Failed to invoke async processing: {e}")
+        # Fallback to synchronous if async fails
+        return handle_ask_command_sync(slack, channel_id, user_id, question)
 
-    # Acknowledge immediately
-    slack.post_message(channel_id, text=f"Thinking about: _{question}_...")
+    # Return immediately to Slack
+    return {
+        "statusCode": 200,
+        "body": json.dumps(response_payload)
+    }
 
+
+def handle_ask_command_sync(
+    slack: SlackService, channel_id: str, user_id: str, question: str
+) -> dict:
+    """Synchronous version of ask command (for async processing or fallback)."""
     # Get context and generate response
     bedrock = get_bedrock_service()
     findings_service = get_findings_service()
@@ -469,6 +517,7 @@ def handle_ask_command(
 
     response = bedrock.ask_compliance_question(question, context)
 
+    # Post result to channel
     slack.post_message(channel_id, text=response)
 
     return {"statusCode": 200, "body": ""}
