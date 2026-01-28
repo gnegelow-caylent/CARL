@@ -128,7 +128,7 @@ def verify_slack_signature(
     return hmac.compare_digest(my_signature, signature)
 
 
-def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     Main Lambda handler for Slack events.
 
