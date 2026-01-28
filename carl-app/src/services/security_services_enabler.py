@@ -248,7 +248,7 @@ class SecurityServicesEnabler:
                         "roleARN": role_arn or f"arn:aws:iam::{account_id}:role/AWSConfigRole",
                         "recordingGroup": {
                             "allSupported": True,
-                            "includeGlobalResources": True
+                            "includeGlobalResourceTypes": True
                         }
                     }
                 )
