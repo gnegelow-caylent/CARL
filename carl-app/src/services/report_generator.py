@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import boto3
 
-from src.utils.logger import get_logger
-from src.services.evidence_collector import (
+from utils.logger import get_logger
+from services.evidence_collector import (
     EvidenceCollector,
     Evidence,
     SOC2Control,

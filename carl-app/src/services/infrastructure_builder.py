@@ -9,8 +9,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from src.services.bedrock_service import BedrockService
-from src.utils.logger import get_logger
+from services.bedrock_service import BedrockService
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 

@@ -15,7 +15,7 @@ from typing import Any, Optional
 import uuid
 import json
 
-from src.knowledge.architecture_patterns import (
+from knowledge.architecture_patterns import (
     ArchitectureDecision,
     DecisionOption,
     EGRESS_PATTERNS,
@@ -25,11 +25,11 @@ from src.knowledge.architecture_patterns import (
     CLIENT_VPN_PATTERNS,
     get_all_patterns,
 )
-from src.knowledge.aws_pricing import (
+from knowledge.aws_pricing import (
     calculate_monthly_cost,
     Region,
 )
-from src.utils.logger import get_logger
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -365,7 +365,7 @@ class DecisionEngine:
         """Lazy load AI architect to avoid circular imports."""
         if self._ai_architect is None and self.use_ai:
             try:
-                from src.services.ai_architect import get_ai_architect
+                from services.ai_architect import get_ai_architect
                 self._ai_architect = get_ai_architect(self.feedback_table)
             except Exception as e:
                 logger.warning(f"Could not initialize AI Architect: {e}")

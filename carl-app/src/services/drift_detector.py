@@ -25,7 +25,7 @@ from dataclasses import dataclass, field, asdict
 import boto3
 from botocore.exceptions import ClientError
 
-from src.utils.logger import get_logger
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 

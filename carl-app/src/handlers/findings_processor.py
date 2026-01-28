@@ -9,12 +9,12 @@ import os
 from datetime import datetime
 from typing import Any
 
-from src.models.finding import Finding, FindingSource, FindingSeverity
-from src.services.findings_service import FindingsService
-from src.services.slack_service import SlackService
-from src.utils.aws_client import get_secret
-from src.utils.logger import get_logger
-from src.utils.soc2_mappings import get_soc2_controls
+from models.finding import Finding, FindingSource, FindingSeverity
+from services.findings_service import FindingsService
+from services.slack_service import SlackService
+from utils.aws_client import get_secret
+from utils.logger import get_logger
+from utils.soc2_mappings import get_soc2_controls
 
 logger = get_logger(__name__)
 

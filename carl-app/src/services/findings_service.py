@@ -9,8 +9,8 @@ from typing import Any
 import boto3
 from boto3.dynamodb.conditions import Key
 
-from src.models.finding import Finding, FindingSeverity, FindingStatus
-from src.utils.logger import get_logger
+from models.finding import Finding, FindingSeverity, FindingStatus
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 

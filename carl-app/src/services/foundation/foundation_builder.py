@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .decision_engine import DecisionSession, DecisionResult
-from src.knowledge.aws_pricing import (
+from knowledge.aws_pricing import (
     calculate_monthly_cost,
     Region,
     NETWORKING_PRICING,

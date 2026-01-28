@@ -19,8 +19,8 @@ from typing import Any, Optional
 import boto3
 from boto3.dynamodb.conditions import Key
 
-from src.utils.logger import get_logger
-from src.knowledge import (
+from utils.logger import get_logger
+from knowledge import (
     get_all_foundation_patterns,
     get_vpc_patterns,
     get_account_patterns,
@@ -34,7 +34,7 @@ from src.knowledge import (
     SECURITY_PRICING,
     LANDING_ZONE_PRICING,
 )
-from src.knowledge.aws_pricing import (
+from knowledge.aws_pricing import (
     BACKUP_PRICING,
     LOGGING_PRICING,
     SYSTEMS_MANAGER_PRICING,

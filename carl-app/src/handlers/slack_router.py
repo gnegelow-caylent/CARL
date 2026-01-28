@@ -11,15 +11,15 @@ import os
 import time
 from typing import Any
 
-from src.services.bedrock_service import BedrockService
-from src.services.findings_service import FindingsService
-from src.services.slack_service import SlackService
-from src.services.architecture_advisor import ArchitectureAdvisor
-from src.services.infrastructure_builder import InfrastructureBuilder
-from src.services.cost_estimator import CostEstimator, format_cost_estimate
-from src.services.foundation import DecisionEngine, FoundationBuilder
-from src.utils.aws_client import get_secret
-from src.utils.logger import get_logger
+from services.bedrock_service import BedrockService
+from services.findings_service import FindingsService
+from services.slack_service import SlackService
+from services.architecture_advisor import ArchitectureAdvisor
+from services.infrastructure_builder import InfrastructureBuilder
+from services.cost_estimator import CostEstimator, format_cost_estimate
+from services.foundation import DecisionEngine, FoundationBuilder
+from utils.aws_client import get_secret
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -617,7 +617,7 @@ def handle_patterns_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
     """Handle /carl patterns command - view architecture patterns with pros/cons."""
-    from src.knowledge.architecture_patterns import get_pattern_by_category, get_all_patterns
+    from knowledge.architecture_patterns import get_pattern_by_category, get_all_patterns
 
     category = args.strip().lower() if args else ""
 
@@ -1404,7 +1404,7 @@ def handle_architect_command(
     slack.post_message(channel_id, text=f"Analyzing: _{question}_\n\n_Using AI with AWS best practices context..._")
 
     try:
-        from src.services.ai_architect import get_ai_architect
+        from services.ai_architect import get_ai_architect
         ai_architect = get_ai_architect()
         response = ai_architect.answer_architecture_question(question)
 
@@ -1588,7 +1588,7 @@ def handle_evidence_command(
 ) -> dict:
     """Handle /carl evidence command - audit evidence collection."""
     import os
-    from src.services.evidence_collector import EvidenceCollector
+    from services.evidence_collector import EvidenceCollector
 
     parts = args.split() if args else []
     subcommand = parts[0].lower() if parts else "status"
@@ -1673,8 +1673,8 @@ def handle_report_command(
 ) -> dict:
     """Handle /carl report command - generate compliance reports."""
     import os
-    from src.services.evidence_collector import EvidenceCollector
-    from src.services.report_generator import ReportGenerator, ReportType
+    from services.evidence_collector import EvidenceCollector
+    from services.report_generator import ReportGenerator, ReportType
     from datetime import datetime, timedelta
 
     parts = args.split() if args else []
@@ -1755,7 +1755,7 @@ def handle_exception_command(
 ) -> dict:
     """Handle /carl exception command - risk exception management."""
     import os
-    from src.services.exception_manager import (
+    from services.exception_manager import (
         ExceptionManager,
         ExceptionRequest,
         ExceptionType,
@@ -1911,7 +1911,7 @@ def handle_drift_command(
 ) -> dict:
     """Handle /carl drift command - infrastructure drift detection."""
     import os
-    from src.services.drift_detector import DriftDetector
+    from services.drift_detector import DriftDetector
 
     parts = args.split() if args else []
     subcommand = parts[0].lower() if parts else "status"
