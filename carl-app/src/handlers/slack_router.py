@@ -418,6 +418,23 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("control_id")
         )
 
+    if event.get("action") == "process_vpc_config_async":
+        logger.info("Processing async VPC config submission")
+        slack = get_slack_service()
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        blueprint_name = event.get("blueprint_name")
+        config = event.get("config")
+
+        # Post confirmation message
+        slack.post_message(
+            channel_id,
+            text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{config.get('cidr')}`..."
+        )
+
+        # Generate the Terraform code
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -1561,22 +1578,32 @@ def handle_vpc_config_submission(payload: dict) -> dict:
         "cidr": vpc_cidr  # Use "cidr" key to match what infrastructure_builder expects
     }
 
-    # Return 200 response immediately to close modal
-    # Slack expects an empty response body to close the modal without errors
-    # We'll process the build asynchronously
-
-    # Post confirmation message
+    # Invoke async processing in background to avoid 3-second timeout
+    user_id = payload.get("user", {}).get("id", "")
     try:
-        slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
-
-        # Generate the Terraform code with the provided configuration
-        user_id = payload.get("user", {}).get("id", "")
-        handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json_lib.dumps({
+                'action': 'process_vpc_config_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'blueprint_name': blueprint_name,
+                'config': config
+            })
+        )
+        logger.info("Invoked async VPC config processing")
     except Exception as e:
-        logger.error(f"Error processing VPC config: {e}")
-        # Still return success so modal closes
-        # Error will be reported in Slack channel
+        logger.error(f"Failed to invoke async processing: {e}")
+        # Fallback to synchronous if async fails
+        try:
+            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
+            handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+        except Exception as e2:
+            logger.error(f"Error processing VPC config: {e2}")
 
+    # Return 200 immediately to close modal (must be within 3 seconds)
     return {"statusCode": 200, "body": ""}
 
 
