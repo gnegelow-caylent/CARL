@@ -325,6 +325,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("question")
         )
 
+    if event.get("action") == "process_recommend_async":
+        logger.info("Processing async recommend command")
+        slack = get_slack_service()
+        return handle_recommend_command_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("requirement")
+        )
+
     if event.get("action") == "process_report_async":
         logger.info("Processing async report command")
         slack = get_slack_service()
@@ -1156,8 +1166,35 @@ def handle_recommend_command(
         )
         return {"statusCode": 200, "body": ""}
 
-    slack.post_message(channel_id, text=f"Analyzing architecture options for: _{requirement}_...")
+    # Post "Analyzing..." message
+    slack.post_message(channel_id, text=f"🔍 Analyzing architecture options for: _{requirement}_...")
 
+    # Invoke async processing in background
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_recommend_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'requirement': requirement
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async processing: {e}")
+        # Fallback to synchronous if async fails
+        return handle_recommend_command_sync(slack, channel_id, user_id, requirement)
+
+    # Return empty 200 OK immediately to Slack (prevents timeout)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_recommend_command_sync(
+    slack: SlackService, channel_id: str, user_id: str, requirement: str
+) -> dict:
+    """Synchronous version of recommend command (for async processing or fallback)."""
     advisor = get_architecture_advisor()
     recommendation = advisor.recommend(requirement)
 
