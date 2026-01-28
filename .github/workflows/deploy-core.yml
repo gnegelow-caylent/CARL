@@ -245,6 +245,15 @@ jobs:
           echo "**API Endpoint:** $(terraform output -raw api_endpoint)" >> $GITHUB_STEP_SUMMARY
           echo "**Lambda Function:** $(terraform output -raw lambda_function_name)" >> $GITHUB_STEP_SUMMARY
 
+  # Run integration tests after dev deployment
+  integration-tests-dev:
+    name: Integration Tests (Dev)
+    needs: deploy-dev
+    uses: ./.github/workflows/integration-tests.yml
+    with:
+      environment: dev
+    secrets: inherit
+
   # Deploy to QA
   deploy-qa:
     name: Deploy to QA
