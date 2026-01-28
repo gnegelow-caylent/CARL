@@ -980,15 +980,9 @@ def handle_build_command(
 
         slack.post_message(channel_id, blocks=blocks)
 
-        # Upload Terraform code as a file
-        slack_service = get_slack_service()
-        slack_service.upload_file(
-            channels=[channel_id],
-            content=result.terraform_code,
-            filename=f"{blueprint_name.replace('/', '-')}.tf",
-            title=f"Terraform: {blueprint_name}",
-            initial_comment="Here's your compliant Terraform code:",
-        )
+        # Post Terraform code as formatted message (avoids files:write permission)
+        terraform_message = f"*Terraform Code:*\n```terraform\n{result.terraform_code}\n```"
+        slack.post_message(channel_id, text=terraform_message)
 
     except ValueError as e:
         slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
