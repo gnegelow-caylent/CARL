@@ -22,6 +22,7 @@ from services.infrastructure_builder import InfrastructureBuilder
 from services.cost_estimator import CostEstimator, format_cost_estimate
 from services.foundation import DecisionEngine, FoundationBuilder
 from services.github_service import GitHubService
+from services.github_app_service import GitHubAppAuth
 from services.code_uploader import CodeUploader
 from utils.aws_client import get_parameter, get_secret
 from utils.logger import get_logger
@@ -32,9 +33,14 @@ logger = get_logger(__name__)
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
 SLACK_BOT_TOKEN_SSM = os.environ.get("SLACK_BOT_TOKEN_SSM", "")
 SLACK_SIGNING_SECRET_SSM = os.environ.get("SLACK_SIGNING_SECRET_SSM", "")
-GITHUB_INFRA_TOKEN_SECRET = os.environ.get("GITHUB_INFRA_TOKEN_SECRET", "/carl/dev/github-infra-token")
+
+# GitHub App configuration (preferred over static token)
+GITHUB_APP_CREDENTIALS_SECRET = os.environ.get("GITHUB_APP_CREDENTIALS_SECRET", "/carl/dev/github-app-credentials")
 GITHUB_INFRA_OWNER = os.environ.get("GITHUB_INFRA_OWNER", "your-org")
 GITHUB_INFRA_REPO = os.environ.get("GITHUB_INFRA_REPO", "carl-infrastructure-deployments")
+
+# Legacy: Static token (deprecated, use GitHub App instead)
+GITHUB_INFRA_TOKEN_SECRET = os.environ.get("GITHUB_INFRA_TOKEN_SECRET", "")
 
 # Lazy-loaded services
 _slack_service: SlackService | None = None
@@ -45,6 +51,7 @@ _infrastructure_builder: InfrastructureBuilder | None = None
 _cost_estimator: CostEstimator | None = None
 _decision_engine: DecisionEngine | None = None
 _foundation_builder: FoundationBuilder | None = None
+_github_app_auth: GitHubAppAuth | None = None
 _github_service: GitHubService | None = None
 
 
@@ -113,13 +120,50 @@ def get_foundation_builder() -> FoundationBuilder:
     return _foundation_builder
 
 
+def get_github_app_auth() -> GitHubAppAuth:
+    """Get or create GitHub App authentication instance."""
+    global _github_app_auth
+    if _github_app_auth is None:
+        # Get GitHub App credentials from Secrets Manager
+        import json as json_lib
+        credentials_json = get_secret(GITHUB_APP_CREDENTIALS_SECRET)
+        credentials = json_lib.loads(credentials_json)
+
+        _github_app_auth = GitHubAppAuth(
+            app_id=credentials["app_id"],
+            private_key=credentials["private_key"],
+            installation_id=credentials["installation_id"]
+        )
+    return _github_app_auth
+
+
 def get_github_service() -> GitHubService:
-    """Get or create GitHub service instance with token from Secrets Manager."""
+    """
+    Get or create GitHub service instance.
+
+    Uses GitHub App (preferred) or falls back to static token (legacy).
+    """
     global _github_service
     if _github_service is None:
-        # Get token from Secrets Manager
-        token = get_secret(GITHUB_INFRA_TOKEN_SECRET)
-        _github_service = GitHubService(token, GITHUB_INFRA_OWNER, GITHUB_INFRA_REPO)
+        try:
+            # Try GitHub App first (preferred)
+            github_app = get_github_app_auth()
+            # Pass token provider function (not static token)
+            _github_service = GitHubService(
+                github_app.get_installation_token,
+                GITHUB_INFRA_OWNER,
+                GITHUB_INFRA_REPO
+            )
+            logger.info("Using GitHub App authentication")
+        except Exception as e:
+            # Fallback to static token (legacy)
+            if GITHUB_INFRA_TOKEN_SECRET:
+                logger.warning(f"GitHub App not configured, falling back to static token: {e}")
+                token = get_secret(GITHUB_INFRA_TOKEN_SECRET)
+                _github_service = GitHubService(token, GITHUB_INFRA_OWNER, GITHUB_INFRA_REPO)
+                logger.info("Using static token authentication (legacy)")
+            else:
+                raise ValueError("No GitHub authentication configured. Set up GitHub App or provide static token.")
     return _github_service
 
 

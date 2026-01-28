@@ -1,19 +1,38 @@
 """GitHub API service for infrastructure repository management."""
 import requests
 import json
-from typing import Optional
+from typing import Optional, Callable
 from datetime import datetime
 
 
 class GitHubService:
     """Service for GitHub repository operations via REST API."""
 
-    def __init__(self, token: str, repo_owner: str, repo_name: str):
-        self.token = token
+    def __init__(self, token_or_provider, repo_owner: str, repo_name: str):
+        """
+        Initialize GitHub service.
+
+        Args:
+            token_or_provider: Either a static token (str) or a callable that returns a token
+            repo_owner: GitHub organization or user
+            repo_name: Repository name
+        """
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.base_url = "https://api.github.com"
-        self.headers = {
+
+        # Support both static token and token provider (for GitHub App)
+        if callable(token_or_provider):
+            self._token_provider = token_or_provider
+            self._static_token = None
+        else:
+            self._token_provider = None
+            self._static_token = token_or_provider
+
+    def _get_headers(self) -> dict:
+        """Get headers with fresh token."""
+        token = self._static_token if self._static_token else self._token_provider()
+        return {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"
@@ -23,7 +42,7 @@ class GitHubService:
         """Create a new branch from base branch."""
         # Get base branch SHA
         ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{base_branch}"
-        ref_resp = requests.get(ref_url, headers=self.headers, timeout=10)
+        ref_resp = requests.get(ref_url, headers=self._get_headers(), timeout=10)
         ref_resp.raise_for_status()
         base_sha = ref_resp.json()["object"]["sha"]
 
@@ -33,7 +52,7 @@ class GitHubService:
             "ref": f"refs/heads/{branch_name}",
             "sha": base_sha
         }
-        resp = requests.post(create_url, headers=self.headers, json=payload, timeout=10)
+        resp = requests.post(create_url, headers=self._get_headers(), json=payload, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
@@ -51,13 +70,13 @@ class GitHubService:
         """
         # Get latest commit on branch
         ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{branch}"
-        ref_resp = requests.get(ref_url, headers=self.headers, timeout=10)
+        ref_resp = requests.get(ref_url, headers=self._get_headers(), timeout=10)
         ref_resp.raise_for_status()
         base_commit_sha = ref_resp.json()["object"]["sha"]
 
         # Get base tree
         commit_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/commits/{base_commit_sha}"
-        commit_resp = requests.get(commit_url, headers=self.headers, timeout=10)
+        commit_resp = requests.get(commit_url, headers=self._get_headers(), timeout=10)
         commit_resp.raise_for_status()
         base_tree_sha = commit_resp.json()["tree"]["sha"]
 
@@ -69,7 +88,7 @@ class GitHubService:
                 "content": content,
                 "encoding": "utf-8"
             }
-            blob_resp = requests.post(blob_url, headers=self.headers, json=blob_payload, timeout=10)
+            blob_resp = requests.post(blob_url, headers=self._get_headers(), json=blob_payload, timeout=10)
             blob_resp.raise_for_status()
             blob_sha = blob_resp.json()["sha"]
 
@@ -86,7 +105,7 @@ class GitHubService:
             "base_tree": base_tree_sha,
             "tree": tree_items
         }
-        tree_resp = requests.post(tree_url, headers=self.headers, json=tree_payload, timeout=10)
+        tree_resp = requests.post(tree_url, headers=self._get_headers(), json=tree_payload, timeout=10)
         tree_resp.raise_for_status()
         new_tree_sha = tree_resp.json()["sha"]
 
@@ -97,7 +116,7 @@ class GitHubService:
             "tree": new_tree_sha,
             "parents": [base_commit_sha]
         }
-        commit_create_resp = requests.post(commit_create_url, headers=self.headers, json=commit_payload, timeout=10)
+        commit_create_resp = requests.post(commit_create_url, headers=self._get_headers(), json=commit_payload, timeout=10)
         commit_create_resp.raise_for_status()
         new_commit_sha = commit_create_resp.json()["sha"]
 
@@ -107,7 +126,7 @@ class GitHubService:
             "sha": new_commit_sha,
             "force": False
         }
-        update_resp = requests.patch(update_url, headers=self.headers, json=update_payload, timeout=10)
+        update_resp = requests.patch(update_url, headers=self._get_headers(), json=update_payload, timeout=10)
         update_resp.raise_for_status()
 
         return new_commit_sha
@@ -121,6 +140,6 @@ class GitHubService:
             "head": head,
             "base": base
         }
-        resp = requests.post(url, headers=self.headers, json=payload, timeout=10)
+        resp = requests.post(url, headers=self._get_headers(), json=payload, timeout=10)
         resp.raise_for_status()
         return resp.json()

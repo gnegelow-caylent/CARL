@@ -446,7 +446,7 @@ resource "aws_iam_role_policy" "ssm" {
   })
 }
 
-# Secrets Manager access (for GitHub token)
+# Secrets Manager access (for GitHub credentials)
 resource "aws_iam_role_policy" "secrets_manager" {
   name = "secrets-manager-access"
   role = aws_iam_role.lambda.id
@@ -459,7 +459,10 @@ resource "aws_iam_role_policy" "secrets_manager" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-infra-token*"
+        Resource = [
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-app-credentials*",
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-infra-token*"
+        ]
       }
     ]
   })
@@ -590,6 +593,9 @@ resource "aws_lambda_function" "carl" {
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
 
       # GitHub Infrastructure Repository (for GitOps deployments)
+      # Preferred: GitHub App (short-lived tokens)
+      GITHUB_APP_CREDENTIALS_SECRET = "/carl/${var.environment}/github-app-credentials"
+      # Legacy: Static token (deprecated)
       GITHUB_INFRA_TOKEN_SECRET = "/carl/${var.environment}/github-infra-token"
       GITHUB_INFRA_OWNER        = var.github_infra_owner
       GITHUB_INFRA_REPO         = var.github_infra_repo

@@ -10,6 +10,10 @@ slack-sdk>=3.27.0
 # HTTP requests
 requests>=2.31.0
 
+# GitHub App authentication
+PyJWT>=2.8.0
+cryptography>=41.0.0  # Required for RS256 JWT signing
+
 # Data validation
 pydantic>=2.5.0
 
