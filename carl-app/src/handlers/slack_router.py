@@ -1255,23 +1255,22 @@ def handle_recommend_command_sync(
 
         blocks.append({"type": "divider"})
 
-    # AI Analysis
-    blocks.append({
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": f"*AI Analysis:*\n{recommendation.ai_analysis}",
-        },
-    })
+    # Post options blocks
+    slack.post_message(channel_id, blocks=blocks)
+
+    # AI Analysis - use formatted blocks for better readability
+    ai_blocks = format_markdown_to_blocks(recommendation.ai_analysis, "🤖 AI Analysis")
+    for block_group in ai_blocks:
+        slack.post_message(channel_id, blocks=block_group)
 
     # Considerations
     considerations_text = "\n".join([f"• {c}" for c in recommendation.considerations[:4]])
-    blocks.append({
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"*Cost Considerations:*\n{considerations_text}"}],
-    })
-
-    slack.post_message(channel_id, blocks=blocks)
+    slack.post_message(channel_id, blocks=[
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"*Cost Considerations:*\n{considerations_text}"}],
+        }
+    ])
 
     return {"statusCode": 200, "body": ""}
 
@@ -1743,6 +1742,56 @@ def handle_deploy_cancel(payload: dict, action: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
+def handle_build_blueprint_button(payload: dict, action: dict) -> dict:
+    """Handle 'Generate Code' button click from recommendations."""
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+    user_id = payload["user"]["id"]
+    trigger_id = payload.get("trigger_id")
+
+    # Extract blueprint name from action_id (format: build_blueprint_<name>)
+    action_id = action.get("action_id", "")
+    blueprint_name = action_id.replace("build_blueprint_", "")
+
+    # Call the build command handler
+    return handle_build_command(slack, channel_id, user_id, blueprint_name, trigger_id=trigger_id)
+
+
+def handle_estimate_option_button(payload: dict, action: dict) -> dict:
+    """Handle 'Detailed Estimate' button click from recommendations."""
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+
+    # Extract option name from action_id (format: estimate_option_<name>)
+    action_id = action.get("action_id", "")
+    option_name = action_id.replace("estimate_option_", "")
+
+    # Show helpful message
+    slack.post_message(
+        channel_id,
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"💰 *Cost Estimate Details*\n\nFor a detailed cost breakdown of *{option_name}*, use the `/carl estimate` command with your specific requirements.\n\n*Example:*\n`/carl estimate {option_name.lower().replace(' ', '-')}`"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💡 The `/carl estimate` command provides itemized cost breakdowns based on your specific configuration needs."
+                    }
+                ]
+            }
+        ]
+    )
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_estimate_command(
     slack: SlackService, channel_id: str, user_id: str, component: str
 ) -> dict:
@@ -1981,6 +2030,10 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_deploy_confirm(payload, action)
             elif action_id == "cancel_deploy":
                 return handle_deploy_cancel(payload, action)
+            elif action_id.startswith("build_blueprint_"):
+                return handle_build_blueprint_button(payload, action)
+            elif action_id.startswith("estimate_option_"):
+                return handle_estimate_option_button(payload, action)
 
     return {"statusCode": 200, "body": "OK"}
 
