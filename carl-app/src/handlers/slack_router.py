@@ -376,6 +376,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             })
         }
 
+    # Keep-warm ping from CloudWatch Events (reduces cold starts)
+    if event.get("action") == "keep_warm":
+        logger.info("Keep-warm ping received")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"status": "warm"})
+        }
+
     # Check if this is an async processing request (Lambda self-invoked)
     if event.get("action") == "process_ask_async":
         logger.info("Processing async ask command")

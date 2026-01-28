@@ -583,9 +583,10 @@ resource "aws_lambda_function" "carl" {
   source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : ""
   runtime          = "python3.11"
 
-  # COST OPTIMIZATION: Start small, Lambda auto-scales
-  memory_size = 512 # Enough for Bedrock calls
-  timeout     = 90  # Agentic workflows need 45-60s for complex questions
+  # Performance optimization: 1024MB provides 2x CPU, faster cold starts
+  # Cost is similar since execution is 2x faster (GB-seconds remain constant)
+  memory_size = 1024 # Faster cold starts, enough for Bedrock calls
+  timeout     = 90   # Agentic workflows need 45-60s for complex questions
 
   # Force update when code changes
   publish = true
@@ -819,6 +820,39 @@ module "auto_remediation" {
   tags = merge(var.tags, {
     Feature = "auto_remediation"
   })
+}
+
+# ============================================================================
+# KEEP LAMBDA WARM (Reduces cold starts for better Slack responsiveness)
+# ============================================================================
+
+# CloudWatch Event to ping Lambda every 5 minutes
+resource "aws_cloudwatch_event_rule" "keep_warm" {
+  name                = "${local.name_prefix}-keep-warm"
+  description         = "Keep CARL Lambda warm to reduce cold starts"
+  schedule_expression = "rate(5 minutes)"
+
+  tags = merge(var.tags, {
+    Purpose = "performance"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "keep_warm" {
+  rule      = aws_cloudwatch_event_rule.keep_warm.name
+  target_id = "KeepWarmLambda"
+  arn       = aws_lambda_function.carl.arn
+
+  input = jsonencode({
+    action = "keep_warm"
+  })
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch" {
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.carl.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.keep_warm.arn
 }
 
 # ============================================================================
