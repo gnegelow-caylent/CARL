@@ -26,6 +26,7 @@ from .architecture_patterns import (
     CLOUDFRONT_PATTERNS,
     LANDING_ZONE_PATTERNS,
     DNS_PATTERNS,
+    INSPECTION_PATTERNS,
 )
 
 from .vpc_patterns import get_vpc_patterns

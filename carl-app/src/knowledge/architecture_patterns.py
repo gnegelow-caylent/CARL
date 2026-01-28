@@ -1410,6 +1410,201 @@ DNS_PATTERNS = ArchitectureDecision(
 )
 
 
+# =============================================================================
+# CENTRAL EGRESS AND INSPECTION PATTERN
+# =============================================================================
+
+INSPECTION_PATTERNS = ArchitectureDecision(
+    question="How should I implement centralized traffic inspection?",
+    options=[
+        DecisionOption(
+            name="Central Egress with AWS Network Firewall",
+            description="Dedicated inspection VPC with AWS Network Firewall for deep packet inspection of all outbound traffic",
+            when_to_use=[
+                "SOC 2, PCI-DSS, HIPAA compliance required",
+                "5+ VPCs with outbound internet traffic",
+                "Need IDS/IPS capabilities",
+                "Defense-in-depth security posture",
+                "URL/domain filtering requirements",
+                "Centralized logging mandatory",
+                "Consistent egress IPs needed for partner whitelisting",
+            ],
+            when_not_to_use=[
+                "Single VPC with minimal traffic",
+                "Startup without compliance requirements",
+                "Cost primary constraint (< 500GB/mo egress)",
+                "Development/test environments only",
+            ],
+            pros=[
+                "Deep packet inspection (Layer 7)",
+                "IDS/IPS capabilities (detect malware, C2 traffic)",
+                "Domain and IP filtering",
+                "Centralized security policy enforcement",
+                "Single logging destination",
+                "Consistent egress IP addresses",
+                "Protection against data exfiltration",
+                "SOC 2 / compliance-ready",
+            ],
+            cons=[
+                "Higher cost ($600-2000/mo base)",
+                "Increased complexity (TGW, routing, firewall rules)",
+                "Single egress path (though HA within VPC)",
+                "Added latency (1-3ms)",
+                "Operational overhead for rule management",
+            ],
+            monthly_cost_range=(600.00, 3500.00),
+            cost_drivers=[
+                "Transit Gateway: $36/mo per VPC attachment",
+                "Network Firewall endpoints: $284.40/mo each (2-3 for HA)",
+                "NAT Gateways: $32.40/mo each (2-3 for HA)",
+                "Data processing: $0.02/GB (TGW) + $0.065/GB (NFW) + $0.045/GB (NAT)",
+                "Small (5 VPCs, 500GB): $900-1000/mo",
+                "Medium (10 VPCs, 2TB): $1300-1500/mo",
+                "Enterprise (25 VPCs, 10TB): $3000-3500/mo",
+            ],
+            soc2_controls=["CC6.6", "CC6.7", "CC6.8", "CC7.1", "CC7.2", "CC7.3"],
+            implementation_complexity="high",
+            operational_overhead="medium",
+        ),
+        DecisionOption(
+            name="Third-Party Firewall Appliances (Palo Alto, Fortinet)",
+            description="Enterprise firewalls deployed via Gateway Load Balancer for advanced inspection",
+            when_to_use=[
+                "Advanced features needed (App-ID, User-ID, SSL decryption)",
+                "Existing enterprise firewall licensing",
+                "Need unified management with on-prem firewalls",
+                "Very large scale (100+ VPCs)",
+                "Specific vendor features required",
+            ],
+            when_not_to_use=[
+                "No existing licensing",
+                "AWS-native preferred",
+                "Limited firewall expertise",
+                "Cost-sensitive deployment",
+            ],
+            pros=[
+                "Advanced application awareness",
+                "SSL/TLS decryption and inspection",
+                "User-based policies (AD integration)",
+                "Unified management with on-prem",
+                "Mature IPS/IDS capabilities",
+                "Advanced threat prevention",
+            ],
+            cons=[
+                "Higher cost ($2000-5000/mo typical)",
+                "More complex (appliance management, patching)",
+                "Gateway Load Balancer costs",
+                "Instance costs for firewall VMs",
+                "Vendor lock-in",
+            ],
+            monthly_cost_range=(2000.00, 5000.00),
+            cost_drivers=[
+                "Firewall instances: $200-500/mo per instance",
+                "Gateway Load Balancer: $16.20/mo + $0.004/GB",
+                "Transit Gateway: $36/mo per attachment",
+                "NAT Gateways: $32.40/mo each",
+                "Vendor licensing: $500-2000/mo",
+            ],
+            soc2_controls=["CC6.6", "CC6.7", "CC6.8", "CC7.1", "CC7.2"],
+            implementation_complexity="high",
+            operational_overhead="high",
+        ),
+        DecisionOption(
+            name="Distributed Inspection (NFW per VPC)",
+            description="AWS Network Firewall deployed in each VPC independently",
+            when_to_use=[
+                "VPCs are completely isolated",
+                "No inter-VPC communication needed",
+                "Team autonomy important",
+                "Avoid single egress path",
+            ],
+            when_not_to_use=[
+                "Many VPCs (cost multiplies)",
+                "Need centralized management",
+                "Consistent policy enforcement required",
+                "Limited networking team",
+            ],
+            pros=[
+                "No Transit Gateway needed",
+                "Team independence",
+                "Failure isolation",
+                "Simpler per-VPC",
+            ],
+            cons=[
+                "Cost multiplies by VPC count",
+                "Inconsistent policies possible",
+                "More management overhead",
+                "Multiple egress IPs",
+            ],
+            monthly_cost_range=(600.00, 600.00),  # Per VPC
+            cost_drivers=[
+                "Network Firewall: $568.80/mo (2 endpoints)",
+                "NAT Gateways: $64.80/mo (2 gateways)",
+                "Per VPC: ~$650/mo",
+                "10 VPCs = $6500/mo vs $1500/mo centralized",
+            ],
+            soc2_controls=["CC6.6", "CC6.7", "CC6.8"],
+            implementation_complexity="medium",
+            operational_overhead="high",
+        ),
+    ],
+    recommendation_logic="""
+    Decision tree for inspection architecture:
+
+    1. Do you have compliance requiring traffic inspection?
+       NO → Consider basic centralized egress without inspection
+       YES → Continue to 2
+
+    2. Do you have existing enterprise firewall investments?
+       YES → Third-party firewall appliances (maintain consistency)
+       NO → Continue to 3
+
+    3. How many VPCs do you need to protect?
+       1-3 VPCs → Distributed inspection (simpler, similar cost)
+       4-10 VPCs → Central egress with AWS Network Firewall
+       10+ VPCs → Central egress (significant cost savings)
+
+    4. Do you need advanced features like SSL decryption, App-ID?
+       YES → Third-party firewall appliances
+       NO → AWS Network Firewall (simpler, AWS-native)
+
+    Cost comparison (10 VPCs):
+    - Distributed NFW: ~$6500/mo
+    - Central AWS NFW: ~$1500/mo
+    - Central 3rd-party: ~$3000/mo
+    """,
+    soc2_relevance="""
+    SOC 2 controls for centralized inspection:
+
+    - CC6.6: Logical access security - Centralized egress control
+    - CC6.7: Transmission security - Encrypted traffic inspection
+    - CC6.8: Malicious software prevention - IDS/IPS detection
+    - CC7.1: Detection of security events - Alert generation
+    - CC7.2: System monitoring - Centralized logging
+    - CC7.3: Evaluation of infrastructure - Network metrics
+
+    Centralized inspection provides:
+    - Single audit trail for all internet traffic
+    - Consistent policy enforcement across all workloads
+    - Detection of data exfiltration attempts
+    - Protection against malware/C2 communication
+    - Compliance-ready architecture
+    """,
+    common_mistakes=[
+        "Forgetting return traffic routing (asymmetric routing)",
+        "Not planning for IP exhaustion in firewall subnets",
+        "Undersizing firewall capacity (throughput limits)",
+        "Single NAT Gateway without HA (creates outage)",
+        "Not testing failover before production",
+        "Overly permissive firewall rules (defeats purpose)",
+        "Not monitoring firewall capacity metrics",
+        "Forgetting to update TGW routes for new VPCs",
+        "Not accounting for cross-AZ data transfer costs",
+        "Missing documentation for future troubleshooting",
+    ],
+)
+
+
 def get_pattern_by_category(category: str) -> ArchitectureDecision | None:
     """Get architecture pattern by category."""
     patterns = {
@@ -1421,6 +1616,7 @@ def get_pattern_by_category(category: str) -> ArchitectureDecision | None:
         "cloudfront": CLOUDFRONT_PATTERNS,
         "landing_zone": LANDING_ZONE_PATTERNS,
         "dns": DNS_PATTERNS,
+        "inspection": INSPECTION_PATTERNS,
     }
     return patterns.get(category)
 
@@ -1436,6 +1632,7 @@ def get_all_patterns() -> dict[str, ArchitectureDecision]:
         "cloudfront": CLOUDFRONT_PATTERNS,
         "landing_zone": LANDING_ZONE_PATTERNS,
         "dns": DNS_PATTERNS,
+        "inspection": INSPECTION_PATTERNS,
     }
 
 
