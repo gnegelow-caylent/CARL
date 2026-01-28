@@ -1288,27 +1288,67 @@ def handle_build_command(
         slack.post_message(channel_id, blocks=blocks)
 
         # Post Terraform code as code block
-        # Truncate if too long for a single message (Slack limit ~3000 chars per block)
-        code_preview = result.terraform_code[:2500] if len(result.terraform_code) > 2500 else result.terraform_code
-        truncated_note = "\n\n_(Code truncated - full code will be deployed)_" if len(result.terraform_code) > 2500 else ""
+        # Slack has a 3000 char limit per text block, so split if needed
+        max_code_length = 2900  # Leave room for formatting
 
-        code_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*Terraform Code:*"
+        if len(result.terraform_code) <= max_code_length:
+            # Code fits in one block
+            code_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*Terraform Code:*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```terraform\n{result.terraform_code}\n```"
+                    }
                 }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"```terraform\n{code_preview}\n```{truncated_note}"
+            ]
+            slack.post_message(channel_id, blocks=code_blocks)
+        else:
+            # Split code into multiple messages
+            code_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*Terraform Code (Part 1):*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```terraform\n{result.terraform_code[:max_code_length]}\n```"
+                    }
                 }
-            }
-        ]
-        slack.post_message(channel_id, blocks=code_blocks)
+            ]
+            slack.post_message(channel_id, blocks=code_blocks)
+
+            # Post remaining code
+            remaining_code = result.terraform_code[max_code_length:]
+            code_blocks2 = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*Terraform Code (Part 2):*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```terraform\n{remaining_code[:max_code_length]}\n```"
+                    }
+                }
+            ]
+            slack.post_message(channel_id, blocks=code_blocks2)
 
         # Add deployment button
         deploy_blocks = [
@@ -1502,8 +1542,9 @@ def handle_vpc_config_submission(payload: dict) -> dict:
     user_id = payload.get("user", {}).get("id", "")
     handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
 
-    # Return empty response to close modal successfully
-    return {}
+    # Return 200 response to close modal successfully
+    # Slack expects an empty response body to close the modal without errors
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_deploy_review(payload: dict, action: dict) -> dict:
