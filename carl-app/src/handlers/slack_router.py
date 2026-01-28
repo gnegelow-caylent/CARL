@@ -142,6 +142,155 @@ def verify_slack_signature(
     return hmac.compare_digest(my_signature, signature)
 
 
+def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[list[dict]]:
+    """
+    Convert markdown text to formatted Slack blocks.
+    Returns a list of block groups (to handle 50-block limit per message).
+    """
+    import re
+
+    blocks = []
+
+    # Add header if provided
+    if title:
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": title
+            }
+        })
+
+    # Split into sections based on markdown headers
+    lines = markdown_text.split('\n')
+    current_section = []
+    in_code_block = False
+    code_block_lines = []
+    code_language = ""
+
+    for line in lines:
+        # Handle code blocks
+        if line.strip().startswith('```'):
+            if not in_code_block:
+                # Start of code block
+                in_code_block = True
+                code_language = line.strip()[3:].strip() or "text"
+                code_block_lines = []
+            else:
+                # End of code block
+                in_code_block = False
+                if code_block_lines:
+                    code_text = '\n'.join(code_block_lines)
+                    # Limit code block size
+                    if len(code_text) > 2500:
+                        code_text = code_text[:2500] + "\n... (truncated)"
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"```{code_text}```"
+                        }
+                    })
+                code_block_lines = []
+            continue
+
+        if in_code_block:
+            code_block_lines.append(line)
+            continue
+
+        # Handle headers
+        if line.startswith('## '):
+            # Flush current section
+            if current_section:
+                section_text = '\n'.join(current_section).strip()
+                if section_text:
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": section_text
+                        }
+                    })
+                current_section = []
+
+            # Add header and divider
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{line[3:].strip()}*"
+                }
+            })
+            continue
+
+        # Handle bold/emphasized lines (likely important callouts)
+        if line.strip().startswith('**') and line.strip().endswith('**'):
+            # Flush current section
+            if current_section:
+                section_text = '\n'.join(current_section).strip()
+                if section_text:
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": section_text
+                        }
+                    })
+                current_section = []
+
+            # Add as emphasized section
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": line
+                }
+            })
+            continue
+
+        # Add to current section
+        current_section.append(line)
+
+        # If current section gets too long, flush it
+        if len('\n'.join(current_section)) > 2500:
+            section_text = '\n'.join(current_section).strip()
+            if section_text:
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": section_text
+                    }
+                })
+            current_section = []
+
+    # Flush remaining section
+    if current_section:
+        section_text = '\n'.join(current_section).strip()
+        if section_text:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": section_text
+                }
+            })
+
+    # Split into groups of 45 blocks (leave room for feedback buttons)
+    block_groups = []
+    for i in range(0, len(blocks), 45):
+        block_groups.append(blocks[i:i+45])
+
+    return block_groups if block_groups else [[{
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": markdown_text[:3000]
+        }
+    }]]
+
+
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     Main Lambda handler for Slack events.
@@ -369,32 +518,70 @@ def handle_status_command(
 
     summary = findings_service.get_compliance_summary()
 
+    # Calculate overall health score
+    total = summary.get('total', 0)
+    critical = summary.get('critical', 0)
+    high = summary.get('high', 0)
+    medium = summary.get('medium', 0)
+    low = summary.get('low', 0)
+
+    # Determine health status and emoji
+    if critical > 0:
+        health_status = "🔴 Critical Issues"
+        health_color = "#d32f2f"
+    elif high > 5:
+        health_status = "🟠 Needs Attention"
+        health_color = "#f57c00"
+    elif high > 0 or medium > 10:
+        health_status = "🟡 Monitor Closely"
+        health_color = "#fbc02d"
+    else:
+        health_status = "🟢 Healthy"
+        health_color = "#388e3c"
+
     blocks = [
         {
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "CARL Compliance Status",
+                "text": "📊 Compliance Status",
             },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Overall Health:* {health_status}"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Security Findings Breakdown:*"
+            }
         },
         {
             "type": "section",
             "fields": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Critical:* {summary.get('critical', 0)}",
+                    "text": f"🔴 *Critical*\n{critical}",
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*High:* {summary.get('high', 0)}",
+                    "text": f"🟠 *High*\n{high}",
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Medium:* {summary.get('medium', 0)}",
+                    "text": f"🟡 *Medium*\n{medium}",
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Low:* {summary.get('low', 0)}",
+                    "text": f"⚪ *Low*\n{low}",
                 },
             ],
         },
@@ -402,15 +589,18 @@ def handle_status_command(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Total Open Findings:* {summary.get('total', 0)}",
+                "text": f"📈 *Total Open Issues:* `{total}`",
             },
+        },
+        {
+            "type": "divider"
         },
         {
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"Last updated: {summary.get('last_updated', 'N/A')}",
+                    "text": f"🕐 Last updated: {summary.get('last_updated', 'N/A')} | Use `/carl findings` to see details",
                 }
             ],
         },
@@ -566,8 +756,10 @@ Recent Security Hub findings:
 
     response = bedrock.ask_compliance_question(question, context)
 
-    # Post result to channel
-    slack.post_message(channel_id, text=response)
+    # Format and post response with better structure
+    formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Response")
+    for block_group in formatted_blocks:
+        slack.post_message(channel_id, blocks=block_group)
 
     return {"statusCode": 200, "body": ""}
 
@@ -759,14 +951,83 @@ def handle_patterns_command(
     category = args.strip().lower() if args else ""
 
     if not category:
-        # List all pattern categories
+        # List all pattern categories with better formatting
         patterns = get_all_patterns()
-        categories_text = "\n".join([f"• `{cat}` - {p.question}" for cat, p in patterns.items()])
 
-        slack.post_message(
-            channel_id,
-            text=f"*Available Architecture Pattern Categories*\n\nUse `/carl patterns <category>` to see details:\n\n{categories_text}",
-        )
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "📚 Architecture Pattern Library"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_Proven AWS architecture patterns with trade-offs, costs, and SOC 2 mappings_"
+                }
+            },
+            {"type": "divider"}
+        ]
+
+        # Group patterns by theme
+        networking_patterns = []
+        security_patterns = []
+        other_patterns = []
+
+        for cat, p in patterns.items():
+            emoji = "🌐" if cat in ["egress", "ingress", "transit", "dns", "inspection"] else \
+                    "🔒" if cat in ["landing_zone", "client_vpn", "site_to_site_vpn"] else "📊"
+
+            pattern_line = f"{emoji} *`{cat}`*\n_{p.question}_"
+
+            if cat in ["egress", "ingress", "transit", "dns", "inspection"]:
+                networking_patterns.append(pattern_line)
+            elif cat in ["landing_zone", "client_vpn", "site_to_site_vpn"]:
+                security_patterns.append(pattern_line)
+            else:
+                other_patterns.append(pattern_line)
+
+        if networking_patterns:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Networking Patterns:*\n" + "\n\n".join(networking_patterns)
+                }
+            })
+            blocks.append({"type": "divider"})
+
+        if security_patterns:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Security Patterns:*\n" + "\n\n".join(security_patterns)
+                }
+            })
+            blocks.append({"type": "divider"})
+
+        if other_patterns:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Other Patterns:*\n" + "\n\n".join(other_patterns)
+                }
+            })
+
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": "💡 Use `/carl patterns <category>` to see detailed comparisons"
+            }]
+        })
+
+        slack.post_message(channel_id, blocks=blocks)
         return {"statusCode": 200, "body": ""}
 
     pattern = get_pattern_by_category(category)
@@ -781,72 +1042,97 @@ def handle_patterns_command(
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"Architecture Patterns: {category.replace('_', ' ').title()}"},
+            "text": {"type": "plain_text", "text": f"📚 {category.replace('_', ' ').title()} Patterns"},
         },
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Decision Question:* {pattern.question}"},
+            "text": {"type": "mrkdwn", "text": f"*Decision:* _{pattern.question}_"},
         },
         {"type": "divider"},
     ]
 
     for i, opt in enumerate(pattern.options, 1):
+        # Option header with cost
+        cost_range = f"${opt.monthly_cost_range[0]:.0f}-${opt.monthly_cost_range[1]:.0f}/mo"
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*Option {i}: {opt.name}*\n"
-                    f"{opt.description}\n\n"
-                    f"*Monthly Cost:* ${opt.monthly_cost_range[0]:.0f} - ${opt.monthly_cost_range[1]:.0f}"
+                    f"*Option {i}: {opt.name}*  💰 _{cost_range}_\n"
+                    f"{opt.description}"
                 ),
             },
         })
 
-        # Pros
-        pros_text = "\n".join([f"✅ {p}" for p in opt.pros[:4]])
-        cons_text = "\n".join([f"⚠️ {c}" for c in opt.cons[:4]])
+        # Pros and Cons (show top 3, indicate more)
+        pros_list = opt.pros[:3]
+        cons_list = opt.cons[:3]
+
+        pros_text = "\n".join([f"✅ {p}" for p in pros_list])
+        if len(opt.pros) > 3:
+            pros_text += f"\n_+{len(opt.pros) - 3} more..._"
+
+        cons_text = "\n".join([f"⚠️ {c}" for c in cons_list])
+        if len(opt.cons) > 3:
+            cons_text += f"\n_+{len(opt.cons) - 3} more..._"
 
         blocks.append({
             "type": "section",
             "fields": [
-                {"type": "mrkdwn", "text": f"*Pros:*\n{pros_text}"},
-                {"type": "mrkdwn", "text": f"*Cons:*\n{cons_text}"},
+                {"type": "mrkdwn", "text": pros_text},
+                {"type": "mrkdwn", "text": cons_text},
             ],
         })
 
-        # When to use
-        when_text = ", ".join(opt.when_to_use[:3])
+        # When to use (compact, top 2)
+        when_list = opt.when_to_use[:2]
+        when_text = " • ".join(when_list)
+        if len(opt.when_to_use) > 2:
+            when_text += f" _(+{len(opt.when_to_use) - 2} more)_"
+
         blocks.append({
             "type": "context",
             "elements": [
-                {"type": "mrkdwn", "text": f"*When to use:* {when_text}"},
+                {"type": "mrkdwn", "text": f"*Best for:* {when_text}"},
             ],
         })
+
+        # Metadata row (SOC 2, complexity, operations)
+        complexity_emoji = "🟢" if opt.implementation_complexity == "Low" else "🟡" if opt.implementation_complexity == "Medium" else "🔴"
+        ops_emoji = "🟢" if opt.operational_overhead == "Low" else "🟡" if opt.operational_overhead == "Medium" else "🔴"
 
         blocks.append({
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*SOC 2:* {', '.join(opt.soc2_controls)} | *Complexity:* {opt.implementation_complexity} | *Ops:* {opt.operational_overhead}",
+                    "text": f"🔒 SOC 2: {', '.join(opt.soc2_controls[:4])} | {complexity_emoji} Setup: {opt.implementation_complexity} | {ops_emoji} Ops: {opt.operational_overhead}",
                 },
             ],
         })
 
         blocks.append({"type": "divider"})
 
-    # Decision logic
+    # Decision logic (truncated for readability)
+    logic_preview = pattern.recommendation_logic.strip()[:800]
+    if len(pattern.recommendation_logic) > 800:
+        logic_preview += "...\n_(truncated - ask CARL for full guidance)_"
+
     blocks.append({
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": f"*Recommendation Logic:*\n```{pattern.recommendation_logic.strip()[:1500]}```",
+            "text": f"*💡 Decision Framework:*\n```{logic_preview}```",
         },
     })
 
-    # Common mistakes
-    mistakes_text = "\n".join([f"• {m}" for m in pattern.common_mistakes[:4]])
+    # Common mistakes (top 3)
+    mistakes_list = pattern.common_mistakes[:3]
+    mistakes_text = "\n".join([f"🚨 {m}" for m in mistakes_list])
+    if len(pattern.common_mistakes) > 3:
+        mistakes_text += f"\n_+{len(pattern.common_mistakes) - 3} more mistakes to avoid..._"
+
     blocks.append({
         "type": "section",
         "text": {
@@ -1190,12 +1476,15 @@ def handle_vpc_config_submission(payload: dict) -> dict:
         "vpc_cidr": vpc_cidr
     }
 
-    # Generate the Terraform code with the provided configuration
+    # Post confirmation message
     slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
 
-    # Call build command with the config
+    # Generate the Terraform code with the provided configuration
     user_id = payload.get("user", {}).get("id", "")
-    return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+    handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
+
+    # Return empty response to close modal successfully
+    return {}
 
 
 def handle_deploy_review(payload: dict, action: dict) -> dict:
@@ -2006,15 +2295,10 @@ def handle_architect_command_sync(
             except Exception as e:
                 logger.warning(f"Failed to delete status message: {e}")
 
-        # Split long responses
-        if len(response) > 3000:
-            # Send in chunks
-            chunks = [response[i:i+3000] for i in range(0, len(response), 3000)]
-            for i, chunk in enumerate(chunks):
-                prefix = "" if i == 0 else "_(continued)_\n"
-                slack.post_message(channel_id, text=f"{prefix}{chunk}")
-        else:
-            slack.post_message(channel_id, text=response)
+        # Format and post response with better structure
+        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
+        for block_group in formatted_blocks:
+            slack.post_message(channel_id, blocks=block_group)
 
         # Add feedback buttons
         blocks = [
