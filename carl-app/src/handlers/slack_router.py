@@ -25,8 +25,8 @@ logger = get_logger(__name__)
 
 # Environment variables
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
-SLACK_TOKEN_SECRET_ARN = os.environ.get("SLACK_TOKEN_SECRET_ARN", "")
-SLACK_SIGNING_SECRET_ARN = os.environ.get("SLACK_SIGNING_SECRET_ARN", "")
+SLACK_BOT_TOKEN_SSM = os.environ.get("SLACK_BOT_TOKEN_SSM", "")
+SLACK_SIGNING_SECRET_SSM = os.environ.get("SLACK_SIGNING_SECRET_SSM", "")
 
 # Lazy-loaded services
 _slack_service: SlackService | None = None
@@ -43,7 +43,7 @@ def get_slack_service() -> SlackService:
     """Get or create Slack service instance."""
     global _slack_service
     if _slack_service is None:
-        token = get_secret(SLACK_TOKEN_SECRET_ARN)
+        token = get_secret(SLACK_BOT_TOKEN_SSM)
         _slack_service = SlackService(token)
     return _slack_service
 
@@ -149,8 +149,19 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         import base64
         body = base64.b64decode(body).decode("utf-8")
 
-    # Verify Slack signature
-    signing_secret = get_secret(SLACK_SIGNING_SECRET_ARN)
+    # Parse body first to check if it's a URL verification request
+    content_type = headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(body) if body else {}
+            # Skip signature verification for URL verification challenges
+            if payload.get("type") == "url_verification":
+                return handle_url_verification(payload)
+        except json.JSONDecodeError:
+            pass
+
+    # Verify Slack signature for all other requests
+    signing_secret = get_secret(SLACK_SIGNING_SECRET_SSM)
     timestamp = headers.get("x-slack-request-timestamp", "")
     signature = headers.get("x-slack-signature", "")
 
