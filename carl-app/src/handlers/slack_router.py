@@ -304,6 +304,18 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     logger.info("Received Slack event", extra={"path": event.get("rawPath", "")})
 
+    # Health check endpoint for monitoring/integration tests
+    if event.get("rawPath") == "/health" or event.get("path") == "/health":
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "status": "healthy",
+                "service": "carl-api",
+                "version": "1.0"
+            })
+        }
+
     # Check if this is an async processing request (Lambda self-invoked)
     if event.get("action") == "process_ask_async":
         logger.info("Processing async ask command")
