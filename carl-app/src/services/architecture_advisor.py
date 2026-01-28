@@ -589,6 +589,18 @@ Provide a brief (2-3 sentences) analysis of:
 2. Key tradeoffs to consider
 3. Any compliance considerations specific to SOC 2
 
+CRITICAL FORMATTING RULES (Slack markdown):
+- Use *text* for bold (single asterisk), NOT **text**
+- NO markdown headers (#, ##) - use *Section Name* instead
+- NO horizontal rules (---)
+- Use bullet points with •
+- Keep it concise (2-3 sentences total)
+
+Example format:
+*Best Fit:* The Standard option is appropriate for this requirement...
+*Key Tradeoffs:* Cost vs coverage...
+*SOC 2 Considerations:* Ensure CC6...
+
 Be concise and actionable."""
 
         return self.bedrock.invoke_model(prompt, max_tokens=300)
