@@ -82,23 +82,32 @@ GitHub Actions will:
 
 **Deployment takes ~5-10 minutes**
 
-### 4. Configure Slack Slash Commands
+### 4. Configure Slack Integration
 
-After deployment, get the API Gateway URL and configure Slack:
+After deployment, get the API Gateway URL:
 
 ```bash
 cd carl-infrastructure/core
-terraform output slack_endpoint_url
+terraform output slack_webhook_url
 ```
 
-In your Slack app settings:
-1. Go to "Slash Commands" → Create `/carl` command
-2. Set Request URL to: `https://your-api-gateway-url/slack/events`
-3. Go to "Event Subscriptions" → Enable events
-4. Set Request URL to same endpoint
-5. Subscribe to: `app_mention`, `message.channels`
+Example output: `https://bz9vbzlh56.execute-api.us-east-1.amazonaws.com/slack`
 
-See [SLACK_SETUP.md](./SLACK_SETUP.md) for detailed Slack configuration.
+**IMPORTANT:** Follow the complete, verified Slack setup guide:
+
+📖 **See [SLACK_SETUP.md](./SLACK_SETUP.md) for step-by-step instructions**
+
+The guide includes:
+- Slack app creation and OAuth configuration
+- Event Subscriptions and slash command setup
+- All verified fixes and troubleshooting
+- Testing checklist
+
+**Quick summary:**
+1. Create Slack app with required OAuth scopes
+2. Set Event Subscriptions URL to your API endpoint (`/slack`)
+3. Create `/carl` slash command with same URL
+4. Install app to workspace
 
 ### 5. Test CARL
 
@@ -458,55 +467,37 @@ Adds guided infrastructure creation wizard.
 
 ## Slack Configuration
 
-### Create Slack App
+**IMPORTANT:** Slack integration has been fully tested and verified working.
 
-1. Go to https://api.slack.com/apps
-2. Click "Create New App"
-3. Choose "From scratch"
-4. Name: "CARL"
-5. Select your workspace
+📖 **Complete guide:** [SLACK_SETUP.md](./SLACK_SETUP.md)
 
-### Configure OAuth & Permissions
+The SLACK_SETUP.md guide includes:
+- ✅ Verified working step-by-step instructions
+- ✅ All required OAuth scopes and permissions
+- ✅ Event Subscriptions and slash command configuration
+- ✅ Comprehensive troubleshooting for common issues
+- ✅ Testing checklist to verify everything works
 
-Add these **Bot Token Scopes**:
+### Quick Reference
+
+**Required OAuth Scopes:**
 - `chat:write` - Send messages
 - `commands` - Respond to slash commands
 - `users:read` - Read user information
 
-### Configure Slash Commands
+**Slash Command:**
+- Command: `/carl`
+- Request URL: `<your-api-endpoint>/slack` (from `terraform output slack_webhook_url`)
 
-Create `/carl` command:
-- **Command:** `/carl`
-- **Request URL:** `<your-api-endpoint>/slack` (from Terraform output)
-- **Description:** "CARL - Cloud Automated Risk & Compliance Logic"
-- **Usage Hint:** `status | architect | recommend | patterns`
+**Event Subscriptions:**
+- Request URL: Same as slash command URL
+- Bot events: `app_mention`, `message.channels`, `message.im`
 
-### Enable Event Subscriptions
+**Credentials needed:**
+- Bot Token (starts with `xoxb-`) → Store in GitHub Secrets as `SLACK_BOT_TOKEN_DEV`
+- Signing Secret → Store in GitHub Secrets as `SLACK_SIGNING_SECRET_DEV`
 
-Set **Request URL** to: `<your-api-endpoint>/slack`
-
-Subscribe to bot events:
-- `app_mention` - When @CARL is mentioned
-- `message.im` - Direct messages to CARL
-
-### Install App to Workspace
-
-Click "Install to Workspace" and authorize.
-
-### Copy Credentials
-
-Copy these values:
-- **Bot Token** (starts with `xoxb-`)
-- **Signing Secret**
-
-Add to Terraform:
-```bash
-terraform apply \
-  -var="slack_bot_token=xoxb-..." \
-  -var="slack_signing_secret=..."
-```
-
-Or store in GitHub Secrets for CI/CD.
+For complete setup instructions with troubleshooting, see [SLACK_SETUP.md](./SLACK_SETUP.md).
 
 ---
 
