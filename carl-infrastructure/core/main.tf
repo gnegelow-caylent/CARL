@@ -160,7 +160,27 @@ resource "aws_dynamodb_table" "exceptions" {
   })
 }
 
-# 5. Evidence Bucket (stores evidence artifacts)
+# 5. Setup Configuration Table (stores workspace setup and preferences)
+resource "aws_dynamodb_table" "setup_config" {
+  name         = "${local.name_prefix}-setup-config"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "workspace_id"
+
+  attribute {
+    name = "workspace_id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = var.environment == "prod"
+  }
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-setup-config"
+  })
+}
+
+# 6. Evidence Bucket (stores evidence artifacts)
 resource "aws_s3_bucket" "evidence" {
   bucket = "${local.name_prefix}-evidence"
 
@@ -581,6 +601,7 @@ resource "aws_lambda_function" "carl" {
       EVIDENCE_TABLE   = "${local.name_prefix}-evidence"
       FINDINGS_TABLE   = "${local.name_prefix}-findings"
       EXCEPTIONS_TABLE = "${local.name_prefix}-exceptions"
+      SETUP_TABLE_NAME = aws_dynamodb_table.setup_config.name
       EVIDENCE_BUCKET  = "${local.name_prefix}-evidence"
       REPORTS_BUCKET   = "${local.name_prefix}-reports"
 

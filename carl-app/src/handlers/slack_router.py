@@ -619,6 +619,10 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_exception_command(slack, channel_id, user_id, args)
     elif subcommand == "drift":
         return handle_drift_command(slack, channel_id, user_id, args)
+    elif subcommand == "setup":
+        return handle_setup_command(slack, channel_id, user_id, args, payload.get("trigger_id"))
+    elif subcommand == "settings":
+        return handle_settings_command(slack, channel_id, user_id, args)
     elif subcommand == "help":
         return handle_help_command(slack, channel_id, user_id)
     else:
@@ -890,6 +894,11 @@ def handle_help_command(
     help_text = """
 *CARL - Cloud Automated Risk & Compliance Logic*
 
+*Setup & Configuration:*
+- `/carl setup start` - Initial setup wizard (first-time setup)
+- `/carl setup status` - View setup status
+- `/carl settings` - View current configuration
+
 *Compliance Commands:*
 - `/carl status` - View compliance posture summary
 - `/carl findings [severity]` - List recent findings
@@ -939,6 +948,175 @@ def handle_help_command(
 
     slack.post_message(channel_id, text=help_text)
 
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_setup_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str, trigger_id: str = None
+) -> dict:
+    """Handle /carl setup command - initial setup wizard."""
+    from services.setup_service import SetupService
+
+    setup = SetupService()
+    parts = args.split() if args else []
+    subcommand = parts[0].lower() if parts else "start"
+
+    # Get workspace ID from Slack
+    try:
+        team_info = slack.client.team_info()
+        workspace_id = team_info["team"]["id"]
+    except Exception as e:
+        logger.error(f"Failed to get workspace ID: {e}")
+        slack.post_message(channel_id, text="❌ Failed to get workspace information.")
+        return {"statusCode": 500, "body": str(e)}
+
+    if subcommand == "start":
+        # Check if already set up
+        if setup.is_setup_complete(workspace_id):
+            slack.post_message(
+                channel_id,
+                text="✅ *CARL is already set up!*\n\n"
+                     "Use `/carl settings` to view or update your configuration.\n"
+                     "Use `/carl setup reset` to run the setup wizard again."
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Run connectivity validation
+        slack.post_message(channel_id, text="🔍 *Welcome to CARL Setup!*\n\nValidating connectivity...")
+
+        validation_results = setup.validate_connectivity()
+        validation_text = setup.format_validation_results(validation_results)
+
+        # Check if all services are OK
+        all_ok = all(result.get("status") == "ok" for result in validation_results.values())
+
+        if not all_ok:
+            slack.post_message(
+                channel_id,
+                text=f"❌ *Setup Validation Failed*\n\n{validation_text}\n\n"
+                     "Please fix the connectivity issues before proceeding with setup.\n"
+                     "Contact your administrator if you need help."
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Validation passed, show success and start wizard
+        slack.post_message(
+            channel_id,
+            text=f"✅ *Validation Complete!*\n\n{validation_text}\n\n"
+                 "Ready to configure CARL for your team!"
+        )
+
+        # Show setup modal if trigger_id available
+        if trigger_id:
+            return show_setup_modal(slack, trigger_id, channel_id, workspace_id, step=1)
+        else:
+            slack.post_message(
+                channel_id,
+                text="⚠️ Please run `/carl setup start` again to open the configuration wizard."
+            )
+            return {"statusCode": 200, "body": ""}
+
+    elif subcommand == "reset":
+        # Allow re-running setup
+        setup.update_workspace_config(workspace_id, {"setup_complete": False})
+        slack.post_message(
+            channel_id,
+            text="✅ Setup has been reset. Run `/carl setup start` to begin again."
+        )
+        return {"statusCode": 200, "body": ""}
+
+    elif subcommand == "status":
+        # Show current setup status
+        config = setup.get_workspace_config(workspace_id)
+        if not config:
+            slack.post_message(
+                channel_id,
+                text="⚠️ CARL has not been set up yet. Run `/carl setup start` to begin."
+            )
+        else:
+            status_text = f"""*CARL Setup Status*
+
+*Setup Complete:* {"✅ Yes" if config.get("setup_complete") else "❌ No"}
+*Notification Channel:* {f"<#{config.get('notification_channel')}>" if config.get('notification_channel') else "Not set"}
+*Scan Schedule:* {config.get('scan_schedule', 'Not set')}
+*Scan Regions:* {', '.join(config.get('scan_regions', [])) or 'Not set'}
+*Auto-scan on Deploy:* {"✅ Enabled" if config.get('auto_scan_on_deploy') else "❌ Disabled"}
+*Compliance Frameworks:* {', '.join(config.get('compliance_frameworks', [])) or 'Not set'}
+
+Run `/carl settings` to update configuration."""
+            slack.post_message(channel_id, text=status_text)
+        return {"statusCode": 200, "body": ""}
+
+    else:
+        slack.post_message(
+            channel_id,
+            text="❌ Unknown setup command.\n\n"
+                 "*Available commands:*\n"
+                 "• `/carl setup start` - Start setup wizard\n"
+                 "• `/carl setup status` - View setup status\n"
+                 "• `/carl setup reset` - Reset and re-run setup"
+        )
+        return {"statusCode": 200, "body": ""}
+
+
+def handle_settings_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Handle /carl settings command - view/update configuration."""
+    from services.setup_service import SetupService
+
+    setup = SetupService()
+
+    # Get workspace ID
+    try:
+        team_info = slack.client.team_info()
+        workspace_id = team_info["team"]["id"]
+    except Exception as e:
+        logger.error(f"Failed to get workspace ID: {e}")
+        slack.post_message(channel_id, text="❌ Failed to get workspace information.")
+        return {"statusCode": 500, "body": str(e)}
+
+    config = setup.get_workspace_config(workspace_id)
+
+    if not config or not config.get("setup_complete"):
+        slack.post_message(
+            channel_id,
+            text="⚠️ CARL has not been set up yet. Run `/carl setup start` to begin."
+        )
+        return {"statusCode": 200, "body": ""}
+
+    # Show current settings with buttons to update
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "⚙️ CARL Configuration"}
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Notification Channel:* <#{config.get('notification_channel')}>\n"
+                        f"*Scan Schedule:* {config.get('scan_schedule', 'on_demand')}\n"
+                        f"*Scan Regions:* {', '.join(config.get('scan_regions', ['us-east-1']))}\n"
+                        f"*Auto-scan on Deploy:* {'✅ Enabled' if config.get('auto_scan_on_deploy', True) else '❌ Disabled'}\n"
+                        f"*Compliance Frameworks:* {', '.join(config.get('compliance_frameworks', ['soc2']))}\n"
+                        f"*Evidence Collection:* {'✅ Enabled' if config.get('evidence_collection', True) else '❌ Disabled'}\n"
+                        f"*Evidence Retention:* {config.get('evidence_retention_years', 7)} years"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Need to update settings?*\nRun `/carl setup start` to re-configure."
+            }
+        }
+    ]
+
+    slack.post_message(channel_id, blocks=blocks)
     return {"statusCode": 200, "body": ""}
 
 
@@ -1652,6 +1830,152 @@ def show_s3_config_modal(slack: SlackService, trigger_id: str, channel_id: str, 
     return {"statusCode": 200, "body": ""}
 
 
+def show_setup_modal(slack: SlackService, trigger_id: str, channel_id: str, workspace_id: str, step: int = 1) -> dict:
+    """Show setup configuration modal."""
+    import json as json_lib
+
+    # Step 1: Notification channel and scan schedule
+    modal = {
+        "type": "modal",
+        "callback_id": "setup_modal",
+        "private_metadata": json_lib.dumps({
+            "channel_id": channel_id,
+            "workspace_id": workspace_id,
+            "step": step
+        }),
+        "title": {
+            "type": "plain_text",
+            "text": "CARL Setup (1/2)"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Next"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Step 1: Notifications & Scanning*\n\nConfigure where CARL sends notifications and how often to scan your environment."
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "input",
+                "block_id": "notification_channel_block",
+                "element": {
+                    "type": "channels_select",
+                    "action_id": "notification_channel_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select a channel"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Default Notification Channel"
+                },
+                "hint": {
+                    "type": "plain_text",
+                    "text": "This channel will receive daily summaries and critical alerts"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "scan_schedule_block",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "scan_schedule_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select scan schedule"
+                    },
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "On-demand only"
+                        },
+                        "value": "on_demand"
+                    },
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "On-demand only"
+                            },
+                            "value": "on_demand"
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Daily at 6 AM UTC"
+                            },
+                            "value": "daily"
+                        }
+                    ]
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Scan Schedule"
+                },
+                "hint": {
+                    "type": "plain_text",
+                    "text": "How often to automatically scan your AWS environment"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "auto_scan_block",
+                "optional": True,
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "auto_scan_input",
+                    "initial_options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Enable auto-scan after deployments"
+                            },
+                            "value": "auto_scan"
+                        }
+                    ],
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Enable auto-scan after deployments"
+                            },
+                            "value": "auto_scan"
+                        }
+                    ]
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Auto-scan Options"
+                }
+            }
+        ]
+    }
+
+    try:
+        response = slack.client.views_open(
+            trigger_id=trigger_id,
+            view=modal
+        )
+        logger.info(f"Setup modal opened: {response}")
+    except Exception as e:
+        logger.exception("Error opening setup modal")
+        slack.post_message(channel_id, text=f"❌ Error showing setup wizard: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_vpc_config_submission(payload: dict) -> dict:
     """Handle VPC configuration modal submission with validation."""
     import json as json_lib
@@ -1807,6 +2131,89 @@ def handle_s3_config_submission(payload: dict) -> dict:
             logger.error(f"Error processing S3 config: {e2}")
 
     # Return 200 immediately to close modal (must be within 3 seconds)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_setup_submission(payload: dict) -> dict:
+    """Handle setup wizard modal submission."""
+    import json as json_lib
+    from services.setup_service import SetupService
+
+    slack = get_slack_service()
+    setup = SetupService()
+
+    # Extract values from modal submission
+    view = payload.get("view", {})
+    values = view.get("state", {}).get("values", {})
+    private_metadata = json_lib.loads(view.get("private_metadata", "{}"))
+
+    channel_id = private_metadata.get("channel_id")
+    workspace_id = private_metadata.get("workspace_id")
+
+    # Extract input values
+    notification_channel = values.get("notification_channel_block", {}).get("notification_channel_input", {}).get("selected_channel")
+    scan_schedule = values.get("scan_schedule_block", {}).get("scan_schedule_input", {}).get("selected_option", {}).get("value", "on_demand")
+    auto_scan_options = values.get("auto_scan_block", {}).get("auto_scan_input", {}).get("selected_options", [])
+    auto_scan = len(auto_scan_options) > 0
+
+    # Validate
+    errors = {}
+    if not notification_channel:
+        errors["notification_channel_block"] = "Please select a notification channel"
+
+    if errors:
+        return {
+            "response_action": "errors",
+            "errors": errors
+        }
+
+    # Save configuration
+    config = {
+        "notification_channel": notification_channel,
+        "scan_schedule": scan_schedule,
+        "scan_regions": ["us-east-1"],  # Default for now
+        "auto_scan_on_deploy": auto_scan,
+        "compliance_frameworks": ["soc2"],
+        "evidence_collection": True,
+        "evidence_retention_years": 7,
+        "setup_complete": True,
+        "setup_version": "1.0",
+    }
+
+    success = setup.save_workspace_config(workspace_id, config)
+
+    if not success:
+        slack.post_message(
+            channel_id,
+            text="❌ Failed to save configuration. Please try again or contact support."
+        )
+        return {"statusCode": 500, "body": "Failed to save config"}
+
+    # Post success message
+    slack.post_message(
+        channel_id,
+        text=f"""✅ *Setup Complete!*
+
+*Configuration Summary:*
+• Notification channel: <#{notification_channel}>
+• Scan schedule: {scan_schedule}
+• Auto-scan on deploy: {'✅ Enabled' if auto_scan else '❌ Disabled'}
+• Compliance: SOC 2
+• Evidence collection: ✅ Enabled
+
+*Next Steps:*
+1. Run `/carl status` to see your compliance posture
+2. Try `/carl build networking/standard-vpc` to generate infrastructure
+3. Use `/carl ask <question>` for compliance help
+
+*Useful Commands:*
+• `/carl help` - View all commands
+• `/carl settings` - View current configuration
+• `/carl setup reset` - Re-run setup wizard
+
+Ready to help you build compliant infrastructure! 🚀"""
+    )
+
     return {"statusCode": 200, "body": ""}
 
 
@@ -2094,6 +2501,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_vpc_config_submission(payload)
         elif callback_id == "s3_config_modal":
             return handle_s3_config_submission(payload)
+        elif callback_id == "setup_modal":
+            return handle_setup_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
