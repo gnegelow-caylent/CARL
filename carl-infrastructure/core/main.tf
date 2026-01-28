@@ -229,8 +229,8 @@ resource "aws_lambda_function" "carl" {
       # Config table
       CONFIG_TABLE = aws_dynamodb_table.config.name
 
-      # Bedrock - Cost optimized (Haiku by default)
-      BEDROCK_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+      # Bedrock - Cost optimized (Claude Haiku 4.5 by default)
+      BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
       BEDROCK_REGION   = local.region
 
       # Slack
