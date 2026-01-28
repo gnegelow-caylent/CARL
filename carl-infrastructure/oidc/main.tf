@@ -134,7 +134,8 @@ data "aws_iam_policy_document" "carl_deployer" {
     ]
     resources = [
       "arn:aws:apigateway:${var.region}::/apis*",
-      "arn:aws:apigateway:${var.region}::/restapis*"
+      "arn:aws:apigateway:${var.region}::/restapis*",
+      "arn:aws:apigateway:${var.region}::/tags*"
     ]
   }
 
@@ -213,6 +214,16 @@ data "aws_iam_policy_document" "carl_deployer" {
     ]
   }
 
+  # CloudWatch Logs - DescribeLogGroups (requires wildcard resource)
+  statement {
+    sid    = "CloudWatchLogsDescribe"
+    effect = "Allow"
+    actions = [
+      "logs:DescribeLogGroups"
+    ]
+    resources = ["*"]
+  }
+
   # SSM Parameter Store
   statement {
     sid    = "SSMManagement"
@@ -229,6 +240,16 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = [
       "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/*/carl/*"
     ]
+  }
+
+  # SSM Parameter Store - DescribeParameters (requires wildcard resource)
+  statement {
+    sid    = "SSMDescribe"
+    effect = "Allow"
+    actions = [
+      "ssm:DescribeParameters"
+    ]
+    resources = ["*"]
   }
 
   # KMS
