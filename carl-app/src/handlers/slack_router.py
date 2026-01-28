@@ -334,7 +334,8 @@ def handle_slash_command(payload: dict) -> dict:
     elif subcommand == "recommend":
         return handle_recommend_command(slack, channel_id, user_id, args)
     elif subcommand == "build":
-        return handle_build_command(slack, channel_id, user_id, args)
+        trigger_id = payload.get("trigger_id")
+        return handle_build_command(slack, channel_id, user_id, args, trigger_id=trigger_id)
     elif subcommand == "estimate":
         return handle_estimate_command(slack, channel_id, user_id, args)
     elif subcommand == "blueprints":
@@ -953,17 +954,26 @@ def handle_recommend_command(
 
 
 def handle_build_command(
-    slack: SlackService, channel_id: str, user_id: str, blueprint_name: str
+    slack: SlackService, channel_id: str, user_id: str, blueprint_name: str, config: dict = None, trigger_id: str = None
 ) -> dict:
     """Handle /carl build command - generate Terraform code."""
     if not blueprint_name:
         return handle_blueprints_command(slack, channel_id, user_id)
 
+    # Check if this is a VPC-related blueprint that needs CIDR input
+    vpc_blueprints = ["networking/basic-vpc", "networking/three-tier-vpc", "networking/vpc"]
+    needs_cidr = any(bp in blueprint_name.lower() for bp in vpc_blueprints)
+
+    # If VPC blueprint and no config provided, ask for CIDR via modal
+    if needs_cidr and config is None and trigger_id:
+        return show_vpc_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
+
     builder = get_infrastructure_builder()
 
     try:
-        # Default configuration (could be enhanced with follow-up questions)
-        config = {"name": "main", "environment": "prod"}
+        # Use provided config or defaults
+        if config is None:
+            config = {"name": "main", "environment": "prod"}
 
         result = builder.generate(blueprint_name.strip(), config)
 
@@ -1021,6 +1031,171 @@ def handle_build_command(
         slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
 
     return {"statusCode": 200, "body": ""}
+
+
+def show_vpc_config_modal(slack: SlackService, trigger_id: str, channel_id: str, user_id: str, blueprint_name: str) -> dict:
+    """Show modal to collect VPC configuration (CIDR, etc.)."""
+    import json as json_lib
+
+    modal = {
+        "type": "modal",
+        "callback_id": "vpc_config_modal",
+        "private_metadata": json_lib.dumps({
+            "channel_id": channel_id,
+            "blueprint_name": blueprint_name
+        }),
+        "title": {
+            "type": "plain_text",
+            "text": "VPC Configuration"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Generate Code"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "vpc_cidr_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_cidr_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "10.0.0.0/16"
+                    },
+                    "initial_value": "10.0.0.0/16"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "VPC CIDR Block"
+                },
+                "hint": {
+                    "type": "plain_text",
+                    "text": "Enter a valid CIDR block (e.g., 10.0.0.0/16 or 172.16.0.0/12)"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_name_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_name_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "main"
+                    },
+                    "initial_value": "main"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "VPC Name"
+                },
+                "hint": {
+                    "type": "plain_text",
+                    "text": "A name for your VPC resources"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "environment_block",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "environment_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select environment"
+                    },
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Production"
+                        },
+                        "value": "prod"
+                    },
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Development"
+                            },
+                            "value": "dev"
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Staging"
+                            },
+                            "value": "staging"
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Production"
+                            },
+                            "value": "prod"
+                        }
+                    ]
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Environment"
+                }
+            }
+        ]
+    }
+
+    try:
+        # Open the modal using the Slack API
+        response = slack.client.views_open(
+            trigger_id=trigger_id,
+            view=modal
+        )
+        logger.info(f"Modal opened: {response}")
+    except Exception as e:
+        logger.exception("Error opening modal")
+        slack.post_message(channel_id, text=f"❌ Error showing configuration form: {str(e)}\n\nUsing default configuration instead...")
+        # Fallback to default config
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, {"name": "main", "environment": "prod", "vpc_cidr": "10.0.0.0/16"}, trigger_id=None)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_vpc_config_submission(payload: dict) -> dict:
+    """Handle VPC configuration modal submission."""
+    import json as json_lib
+
+    slack = get_slack_service()
+
+    # Extract values from modal submission
+    view = payload.get("view", {})
+    values = view.get("state", {}).get("values", {})
+    private_metadata = json_lib.loads(view.get("private_metadata", "{}"))
+
+    channel_id = private_metadata.get("channel_id")
+    blueprint_name = private_metadata.get("blueprint_name")
+
+    # Extract input values
+    vpc_cidr = values.get("vpc_cidr_block", {}).get("vpc_cidr_input", {}).get("value", "10.0.0.0/16")
+    vpc_name = values.get("vpc_name_block", {}).get("vpc_name_input", {}).get("value", "main")
+    environment = values.get("environment_block", {}).get("environment_input", {}).get("selected_option", {}).get("value", "prod")
+
+    # Build configuration
+    config = {
+        "name": vpc_name,
+        "environment": environment,
+        "vpc_cidr": vpc_cidr
+    }
+
+    # Generate the Terraform code with the provided configuration
+    slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
+
+    # Call build command with the config
+    user_id = payload.get("user", {}).get("id", "")
+    return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
 
 
 def handle_deploy_review(payload: dict, action: dict) -> dict:
@@ -1108,13 +1283,23 @@ def handle_deploy_review(payload: dict, action: dict) -> dict:
 
         summary_text = "\n".join(summary_lines)
 
-        # Post summary with Confirm/Cancel buttons
-        blocks = [
+        # Post summary message first
+        slack.post_message(channel_id, text=summary_text)
+
+        # Post Terraform code in a code block
+        code_preview = result.terraform_code[:2500]  # Limit to 2500 chars for Slack
+        if len(result.terraform_code) > 2500:
+            code_preview += "\n\n... (truncated - full code shown above)"
+
+        slack.post_message(channel_id, text=f"*Terraform Code to be Deployed:*\n```terraform\n{code_preview}\n```")
+
+        # Post Confirm/Cancel buttons
+        decision_blocks = [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": summary_text
+                    "text": "⚠️ *Review the configuration above carefully.* Click *Cancel* to abort this deployment, or *Confirm & Deploy* to proceed."
                 }
             },
             {
@@ -1134,7 +1319,7 @@ def handle_deploy_review(payload: dict, action: dict) -> dict:
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "❌ Cancel"
+                            "text": "❌ Cancel Deployment"
                         },
                         "value": f"deploy:{blueprint_name}",
                         "action_id": "cancel_deploy"
@@ -1143,7 +1328,7 @@ def handle_deploy_review(payload: dict, action: dict) -> dict:
             }
         ]
 
-        slack.post_message(channel_id, blocks=blocks)
+        slack.post_message(channel_id, blocks=decision_blocks)
 
     except Exception as e:
         logger.exception("Error during deployment review")
@@ -1373,6 +1558,11 @@ def handle_direct_message(event: dict) -> dict:
 def handle_interaction(payload: dict) -> dict:
     """Handle interactive components (buttons, modals)."""
     action_type = payload.get("type", "")
+
+    if action_type == "view_submission":
+        callback_id = payload.get("view", {}).get("callback_id", "")
+        if callback_id == "vpc_config_modal":
+            return handle_vpc_config_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
