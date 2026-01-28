@@ -1247,8 +1247,8 @@ def handle_build_command(
         return handle_blueprints_command(slack, channel_id, user_id)
 
     # Check if this is a VPC-related blueprint that needs CIDR input
-    vpc_blueprints = ["networking/basic-vpc", "networking/three-tier-vpc", "networking/vpc"]
-    needs_cidr = any(bp in blueprint_name.lower() for bp in vpc_blueprints)
+    # Show modal for any blueprint with "vpc" in the name
+    needs_cidr = "vpc" in blueprint_name.lower()
 
     # If VPC blueprint and no config provided, ask for CIDR via modal
     if needs_cidr and config is None and trigger_id:
