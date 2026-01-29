@@ -17,7 +17,8 @@ class JiraSecuritySync:
     def __init__(self, jira_service: Optional[JiraService] = None):
         """Initialize with optional JiraService (for testing)."""
         self.jira = jira_service or JiraService()
-        self.findings_table = get_table("carl-findings")
+        from services.findings_service import FindingsService
+        self.findings_service = FindingsService()
 
     def sync_finding_to_jira(
         self,
@@ -52,7 +53,7 @@ class JiraSecuritySync:
         """
         try:
             # Check if finding already has a Jira ticket
-            existing = self._get_finding_from_db(finding_id)
+            existing = self._get_finding_from_db(finding_id, aws_account_id)
 
             if existing and existing.get("jira_ticket_id"):
                 # Update existing ticket
@@ -68,7 +69,7 @@ class JiraSecuritySync:
                     "compliance_status": compliance_status,
                     "last_synced_at": datetime.utcnow().isoformat(),
                     "jira_last_updated": datetime.utcnow().isoformat()
-                })
+                }, account_id=aws_account_id)
 
                 return {
                     "success": True,
@@ -81,16 +82,20 @@ class JiraSecuritySync:
                 # Create new Jira ticket
                 logger.info(f"Creating new Jira ticket for finding {finding_id}")
 
+                # Build resource ARN from resource_id
+                resource_arn = resource_id if resource_id.startswith("arn:") else f"arn:aws:{resource_type}:{region}:{aws_account_id}:{resource_id}"
+
                 result = self.jira.create_security_finding(
                     finding_id=finding_id,
                     title=title,
                     severity=severity,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
+                    description=recommendation,  # Use recommendation as description
+                    resource_arn=resource_arn,   # Fixed: was resource_type/resource_id
+                    account_id=aws_account_id,   # Fixed: was aws_account_id
+                    region=region,
+                    soc2_controls=metadata.get("control_ids", []) if metadata else [],
                     compliance_status=compliance_status,
-                    recommendation=recommendation,
-                    aws_account_id=aws_account_id,
-                    region=region
+                    first_detected=datetime.utcnow().isoformat()
                 )
 
                 jira_key = result["key"]
@@ -103,7 +108,7 @@ class JiraSecuritySync:
                     "jira_created_at": datetime.utcnow().isoformat(),
                     "jira_last_updated": datetime.utcnow().isoformat(),
                     "last_synced_at": datetime.utcnow().isoformat()
-                })
+                }, account_id=aws_account_id)
 
                 logger.info(f"Created Jira ticket {jira_key} for finding {finding_id}")
 
@@ -323,7 +328,7 @@ class JiraSecuritySync:
                     "status": carl_status,
                     "jira_last_updated": datetime.utcnow().isoformat(),
                     "last_status_change": datetime.utcnow().isoformat()
-                })
+                }, account_id=finding.get("account_id"))
 
                 return {
                     "success": True,
@@ -355,15 +360,15 @@ class JiraSecuritySync:
             self._update_finding_in_db(finding["finding_id"], {
                 "jira_ticket_deleted": True,
                 "jira_deleted_at": datetime.utcnow().isoformat()
-            })
+            }, account_id=finding.get("account_id"))
 
         return {"success": True, "action": "marked_deleted"}
 
-    def _get_finding_from_db(self, finding_id: str) -> Optional[dict]:
+    def _get_finding_from_db(self, finding_id: str, account_id: str = None) -> Optional[dict]:
         """Get finding from DynamoDB."""
         try:
-            response = self.findings_table.get_item(Key={"finding_id": finding_id})
-            return response.get("Item")
+            # Use FindingsService which handles the pk/sk composite key correctly
+            return self.findings_service.get_finding(finding_id, account_id)
         except Exception as e:
             logger.error(f"Failed to get finding {finding_id} from DB: {e}")
             return None
@@ -383,25 +388,15 @@ class JiraSecuritySync:
             logger.error(f"Failed to query finding by Jira key {jira_key}: {e}")
             return None
 
-    def _update_finding_in_db(self, finding_id: str, updates: Dict[str, Any]):
+    def _update_finding_in_db(self, finding_id: str, updates: Dict[str, Any], account_id: str = None):
         """Update finding in DynamoDB."""
         try:
-            # Build update expression
-            update_expr_parts = []
-            expr_values = {}
-
-            for key, value in updates.items():
-                update_expr_parts.append(f"{key} = :{key}")
-                expr_values[f":{key}"] = value
-
-            update_expr = "SET " + ", ".join(update_expr_parts)
-
-            self.findings_table.update_item(
-                Key={"finding_id": finding_id},
-                UpdateExpression=update_expr,
-                ExpressionAttributeValues=expr_values
+            # Use FindingsService which handles the pk/sk composite key correctly
+            self.findings_service.update_finding(
+                finding_id=finding_id,
+                account_id=account_id,
+                **updates
             )
-
             logger.debug(f"Updated finding {finding_id} in DB")
 
         except Exception as e:
