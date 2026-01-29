@@ -3977,14 +3977,34 @@ def handle_jira_sync(
         synced_count = 0
         failed_count = 0
         skipped_count = 0
+        recreated_count = 0
 
         for finding in findings:
-            # Check if already has Jira ticket
-            if finding.get("jira_ticket_id"):
-                skipped_count += 1
-                continue
+            # Check if already has Jira ticket ID in DynamoDB
+            existing_ticket_id = finding.get("jira_ticket_id")
 
-            # Sync to Jira
+            if existing_ticket_id:
+                # Verify ticket actually exists in Jira (may have been deleted)
+                try:
+                    jira_sync.jira.get_issue(existing_ticket_id)
+                    # Ticket exists, skip it
+                    skipped_count += 1
+                    continue
+                except Exception as e:
+                    # Ticket doesn't exist in Jira anymore - recreate it
+                    logger.info(f"Jira ticket {existing_ticket_id} not found, will recreate for finding {finding['id']}")
+                    # Clear old ticket ID from DynamoDB
+                    findings_service.update_finding(
+                        finding_id=finding["id"],
+                        account_id=finding.get("account_id", "N/A"),
+                        jira_ticket_id=None,
+                        jira_url=None,
+                        jira_created_at=None
+                    )
+                    recreated_count += 1
+                    # Continue to create new ticket below
+
+            # Sync to Jira (create new ticket)
             result = jira_sync.sync_finding_to_jira(
                 finding_id=finding["id"],  # Fixed: use "id" not "finding_id"
                 title=finding["title"],
@@ -3994,7 +4014,8 @@ def handle_jira_sync(
                 compliance_status=finding.get("compliance_status", "FAILED"),
                 recommendation=finding.get("remediation_steps", "Review this finding"),  # Fixed: use "remediation_steps"
                 aws_account_id=finding.get("account_id", "N/A"),  # Fixed: use "account_id"
-                region=finding.get("region", "us-east-1")
+                region=finding.get("region", "us-east-1"),
+                metadata={"control_ids": finding.get("control_ids", [])}  # Pass SOC 2 controls for AI ticket generation
             )
 
             if result["success"]:
@@ -4004,6 +4025,15 @@ def handle_jira_sync(
                 logger.error(f"Failed to sync finding {finding['id']}: {result.get('error')}")
 
         # Report results
+        result_text = f"✅ *Jira Sync Complete*\n\n"
+        result_text += f"• Synced: {synced_count} new tickets\n"
+        result_text += f"• Skipped: {skipped_count} (tickets already exist)\n"
+
+        if recreated_count > 0:
+            result_text += f"• Recreated: {recreated_count} (tickets were deleted in Jira)\n"
+
+        result_text += f"• Failed: {failed_count}"
+
         slack.post_message(
             channel_id,
             blocks=[
@@ -4011,10 +4041,7 @@ def handle_jira_sync(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"✅ *Jira Sync Complete*\n\n"
-                               f"• Synced: {synced_count} findings\n"
-                               f"• Skipped: {skipped_count} (already have tickets)\n"
-                               f"• Failed: {failed_count}"
+                        "text": result_text
                     }
                 }
             ]
