@@ -906,6 +906,102 @@ class JiraService:
         result = self._make_request("GET", "search", params=params)
         return result.get("issues", [])
 
+    def create_compliance_epic(
+        self,
+        title: str,
+        description: str,
+        coverage_percent: int,
+        project_key: str = "CARLSEC"
+    ) -> str:
+        """
+        Create a compliance epic in Jira.
+
+        Args:
+            title: Epic title
+            description: Epic description (markdown format)
+            coverage_percent: Current compliance coverage %
+            project_key: Jira project key
+
+        Returns:
+            Epic key (e.g., "CARLSEC-100")
+        """
+        try:
+            # Convert markdown to ADF for description
+            adf_description = self._markdown_to_adf(description)
+
+            issue_data = {
+                "fields": {
+                    "project": {"key": project_key},
+                    "summary": title,
+                    "description": adf_description,
+                    "issuetype": {"name": "Epic"},
+                    "labels": ["compliance", "soc2", f"coverage-{coverage_percent}pct"],
+                }
+            }
+
+            result = self._make_request("POST", "issue", data=issue_data)
+            epic_key = result.get("key")
+
+            logger.info(f"Created compliance epic: {epic_key}")
+            return epic_key
+
+        except Exception as e:
+            logger.error(f"Failed to create compliance epic: {e}")
+            raise
+
+    def create_compliance_story(
+        self,
+        epic_key: str,
+        title: str,
+        description: str,
+        phase: int,
+        effort_hours: int,
+        project_key: str = "CARLSEC"
+    ) -> str:
+        """
+        Create a story linked to a compliance epic.
+
+        Args:
+            epic_key: Parent epic key
+            title: Story title
+            description: Story description (markdown)
+            phase: Phase number (1-4)
+            effort_hours: Estimated effort in hours
+            project_key: Jira project key
+
+        Returns:
+            Story key (e.g., "CARLSEC-101")
+        """
+        try:
+            # Convert markdown to ADF
+            adf_description = self._markdown_to_adf(description)
+
+            issue_data = {
+                "fields": {
+                    "project": {"key": project_key},
+                    "summary": title,
+                    "description": adf_description,
+                    "issuetype": {"name": "Story"},
+                    "labels": ["compliance", f"phase-{phase}", "remediation"],
+                    "parent": {"key": epic_key}  # Link to epic
+                }
+            }
+
+            # Add story points based on effort (rough estimate: 1 point = 4 hours)
+            story_points = max(1, effort_hours // 4)
+            if "customfield_10016" in self.custom_fields:  # Story points field
+                issue_data["fields"]["customfield_10016"] = story_points
+
+            result = self._make_request("POST", "issue", data=issue_data)
+            story_key = result.get("key")
+
+            logger.info(f"Created compliance story {story_key} linked to epic {epic_key}")
+            return story_key
+
+        except Exception as e:
+            logger.error(f"Failed to create compliance story: {e}")
+            raise
+
     def test_connection(self) -> Dict[str, Any]:
         """Test Jira API connectivity."""
         try:

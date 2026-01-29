@@ -447,6 +447,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("args", "")
         )
 
+    if event.get("action") == "process_compliance_assess_async":
+        logger.info("Processing async compliance assessment")
+        slack = get_slack_service()
+        return handle_compliance_assess_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("args", "")
+        )
+
     if event.get("action") == "process_vpc_config_async":
         logger.info("Processing async VPC config submission")
         slack = get_slack_service()
@@ -650,6 +660,8 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_drift_command(slack, channel_id, user_id, args)
     elif subcommand == "jira":
         return handle_jira_command(slack, channel_id, user_id, args)
+    elif subcommand == "compliance":
+        return handle_compliance_command(slack, channel_id, user_id, args)
     elif subcommand == "setup":
         return handle_setup_command(slack, channel_id, user_id, args, payload.get("trigger_id"), payload.get("team_id"))
     elif subcommand == "settings":
@@ -4178,6 +4190,226 @@ def handle_jira_status(
         slack.post_message(
             channel_id,
             text=f"❌ Failed to get Jira status: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_compliance_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """
+    Handle /carl compliance command.
+
+    Subcommands:
+    - /carl compliance assess - Run complete SOC 2 compliance assessment
+    - /carl compliance status - Show current compliance status
+    """
+    parts = args.split(maxsplit=1)
+    subcommand = parts[0].lower() if parts else "status"
+    sub_args = parts[1] if len(parts) > 1 else ""
+
+    if subcommand == "assess":
+        return handle_compliance_assess(slack, channel_id, user_id, sub_args)
+    elif subcommand == "status":
+        return handle_compliance_status(slack, channel_id, user_id)
+    else:
+        slack.post_message(
+            channel_id,
+            text="Unknown compliance subcommand. Use: `assess` or `status`"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_compliance_assess(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Run complete compliance assessment (async wrapper)."""
+    import boto3
+    import json
+    import os
+
+    # Post immediate response
+    slack.post_message(
+        channel_id,
+        text="🔍 Starting comprehensive SOC 2 compliance assessment...\n\nThis will take 3-5 minutes to:\n• Scan AWS environment intelligently\n• Detect patterns and root causes\n• Analyze SOC 2 control coverage\n• Generate phased remediation plan\n• Create Jira epic with stories\n\nI'll post results when complete."
+    )
+
+    try:
+        # Invoke Lambda asynchronously to avoid timeout
+        lambda_client = boto3.client('lambda')
+        function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+
+        if function_name:
+            try:
+                lambda_client.invoke(
+                    FunctionName=function_name,
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps({
+                        'action': 'process_compliance_assess_async',
+                        'channel_id': channel_id,
+                        'user_id': user_id,
+                        'args': args
+                    })
+                )
+                logger.info("Async compliance assessment invocation successful")
+            except Exception as e:
+                logger.error(f"Failed to invoke async compliance assessment: {e}")
+                # Fallback to synchronous if async fails
+                return handle_compliance_assess_sync(slack, channel_id, user_id, args)
+        else:
+            # Not running in Lambda, do synchronous
+            return handle_compliance_assess_sync(slack, channel_id, user_id, args)
+
+    except Exception as e:
+        logger.error(f"Error starting compliance assessment: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to start compliance assessment: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_compliance_assess_sync(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Synchronous version - does the actual compliance assessment work."""
+    try:
+        from services.compliance_agent import ComplianceAgent
+        import os
+
+        # Get agent ID from environment (will be configured via CDK/CloudFormation)
+        agent_id = os.environ.get("COMPLIANCE_AGENT_ID")
+
+        if not agent_id:
+            # Agent not configured yet - use fallback approach
+            logger.warning("Compliance agent not configured, using fallback")
+            return handle_compliance_assess_fallback(slack, channel_id, user_id)
+
+        # Initialize agent
+        agent = ComplianceAgent(agent_id=agent_id)
+
+        # Run assessment
+        result = agent.assess_compliance(
+            framework="soc2",
+            auto_create_tickets=True
+        )
+
+        # Post results to Slack
+        coverage = result.get("coverage_percent", 0)
+        gaps_count = len(result.get("gaps", []))
+        epic_url = result.get("jira_epic_url")
+        story_count = result.get("jira_story_count", 0)
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "📊 SOC 2 Compliance Assessment Complete"}
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Coverage:*\n{coverage}%"},
+                    {"type": "mrkdwn", "text": f"*Gaps:*\n{gaps_count}"}
+                ]
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": result.get("executive_summary", "Assessment complete.")
+                }
+            }
+        ]
+
+        if epic_url:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*📋 Jira Epic Created:* <{epic_url}|View Roadmap>\n{story_count} stories created for phased remediation."
+                }
+            })
+
+        slack.post_message(channel_id, blocks=blocks)
+
+    except Exception as e:
+        logger.error(f"Compliance assessment failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Compliance assessment failed: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_compliance_assess_fallback(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Fallback when Bedrock Agent not configured - use simpler approach."""
+    slack.post_message(
+        channel_id,
+        text="⚠️ Compliance agent not yet configured.\n\nTo enable autonomous compliance assessment:\n1. Configure AWS Bedrock Agent\n2. Set COMPLIANCE_AGENT_ID environment variable\n3. Deploy updated Lambda\n\nFor now, you can use:\n• `/carl evidence collect` - Manual evidence collection\n• `/carl jira sync` - Create tickets manually"
+    )
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_compliance_status(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Show current compliance status."""
+    try:
+        findings_service = get_findings_service()
+        findings = findings_service.get_recent_findings(limit=100)
+
+        # Calculate basic compliance metrics
+        total_findings = len(findings)
+        critical_findings = sum(1 for f in findings if f.get("severity") == "CRITICAL")
+        high_findings = sum(1 for f in findings if f.get("severity") == "HIGH")
+
+        # Estimate coverage (simplified)
+        estimated_coverage = max(0, 100 - (critical_findings * 5 + high_findings * 2))
+
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "📊 Compliance Status"}
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Estimated Coverage:*\n~{estimated_coverage}%"},
+                        {"type": "mrkdwn", "text": f"*Total Findings:*\n{total_findings}"}
+                    ]
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Critical:*\n{critical_findings}"},
+                        {"type": "mrkdwn", "text": f"*High:*\n{high_findings}"}
+                    ]
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "💡 Run `/carl compliance assess` for complete SOC 2 analysis with remediation plan."
+                    }
+                }
+            ]
+        )
+
+    except Exception as e:
+        logger.error(f"Compliance status failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to get compliance status: {str(e)}"
         )
 
     return {"statusCode": 200, "body": ""}
