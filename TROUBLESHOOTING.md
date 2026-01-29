@@ -506,6 +506,81 @@ terraform apply  # ❌ WRONG - bypasses CI/CD
 
 ---
 
+## Drift Detection Issues
+
+### AccessDeniedException: Not authorized to perform dynamodb:PutItem on drift table
+
+**Symptoms:**
+- `/carl drift scan` fails with AccessDeniedException
+- Error: `User is not authorized to perform: dynamodb:PutItem on resource: arn:aws:dynamodb:us-east-1:xxx:table/carl-drift`
+- Drift detection commands don't work
+
+**Root Cause:**
+Drift detection module is disabled by default, so the DynamoDB table doesn't exist. When code tries to write to it, AWS returns AccessDeniedException.
+
+**Solution:**
+
+1. **Enable drift detection module** (`carl-infrastructure/core/variables.tf`):
+   ```hcl
+   variable "enable_drift_detection" {
+     description = "Enable infrastructure drift detection"
+     type        = bool
+     default     = true  # Changed from false
+   }
+   ```
+
+2. **Add drift table output** (`carl-infrastructure/modules/drift/outputs.tf`):
+   ```hcl
+   output "table_name" {
+     description = "Name of the drift detection DynamoDB table"
+     value       = aws_dynamodb_table.drift.name
+   }
+   ```
+
+3. **Add environment variable to Lambda** (`carl-infrastructure/core/main.tf`):
+   ```hcl
+   environment {
+     variables = {
+       # ...
+       DRIFT_TABLE = var.enable_drift_detection ? module.drift_detection[0].table_name : "${local.name_prefix}-drift"
+       # ...
+     }
+   }
+   ```
+
+4. **Fix hardcoded table names in code**:
+   ```python
+   # BROKEN - hardcoded table name
+   drift_table = get_table("carl-drift-detections")
+
+   # FIXED - use environment variable
+   drift_table = get_table(os.environ.get("DRIFT_TABLE", "carl-dev-drift"))
+   ```
+
+5. **Deploy via GitHub Actions**:
+   ```bash
+   git add carl-infrastructure/
+   git commit -m "fix: enable drift detection"
+   git push origin develop
+   ```
+
+**Verification:**
+```bash
+# After deployment completes, check table exists
+aws dynamodb describe-table --table-name carl-dev-drift
+
+# Test drift scan
+# In Slack: /carl drift scan
+```
+
+**Prevention:**
+- Always check if modules are enabled before using features
+- Use environment variables for table names (never hardcode)
+- Test feature enablement in dev before production
+- Document module dependencies in README
+
+---
+
 ## Resources
 
 ### Log Files
