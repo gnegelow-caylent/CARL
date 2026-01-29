@@ -15,7 +15,7 @@ resource "aws_iam_role" "agent" {
   name = "${var.name_prefix}-bedrock-agent-role"
 
   assume_role_policy = jsonencode({
-    Version = "2012-01-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -44,7 +44,7 @@ resource "aws_iam_role_policy" "agent_lambda" {
   role = aws_iam_role.agent.id
 
   policy = jsonencode({
-    Version = "2012-01-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -63,7 +63,7 @@ resource "aws_iam_role_policy" "agent_bedrock" {
   role = aws_iam_role.agent.id
 
   policy = jsonencode({
-    Version = "2012-01-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
