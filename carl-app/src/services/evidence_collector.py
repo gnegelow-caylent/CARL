@@ -929,6 +929,48 @@ class EvidenceCollector:
         logger.info(f"Stored evidence: {evidence_id} - {title}")
         return evidence
 
+    def get_recent_evidence(self, limit: int = 50, evidence_type: str = None) -> list[Evidence]:
+        """
+        Get recent evidence items across all types.
+
+        Args:
+            limit: Maximum number of items to return
+            evidence_type: Optional filter by evidence type (e.g., 'config_snapshot')
+
+        Returns:
+            List of Evidence objects, sorted by collection time (newest first)
+        """
+        from boto3.dynamodb.conditions import Attr, Key
+
+        try:
+            # Scan for recent evidence (DynamoDB limitations - can't efficiently query by timestamp across accounts)
+            scan_kwargs = {"Limit": limit * 2}  # Get more than we need to allow for filtering
+
+            if evidence_type:
+                scan_kwargs["FilterExpression"] = Attr("evidence_type").eq(evidence_type)
+
+            response = self.table.scan(**scan_kwargs)
+            items = response.get("Items", [])
+
+            # Convert to Evidence objects
+            evidence_list = []
+            for item in items:
+                try:
+                    evidence_list.append(Evidence.from_dict(item))
+                except Exception as e:
+                    logger.warning(f"Failed to parse evidence item: {e}")
+                    continue
+
+            # Sort by collected_at timestamp (newest first)
+            evidence_list.sort(key=lambda e: e.collected_at, reverse=True)
+
+            # Return up to limit items
+            return evidence_list[:limit]
+
+        except Exception as e:
+            logger.error(f"Failed to get recent evidence: {e}")
+            return []
+
     def get_evidence_by_control(self, control: str) -> list[Evidence]:
         """Get all evidence items for a specific SOC 2 control."""
         from boto3.dynamodb.conditions import Attr

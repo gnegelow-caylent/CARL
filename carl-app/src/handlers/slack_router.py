@@ -1217,7 +1217,10 @@ def handle_help_command(
 
 *Compliance Commands:*
 - `/carl status` - View compliance posture summary
-- `/carl findings [severity]` - List recent findings
+- `/carl findings list [severity]` - List recent findings with interactive buttons
+- `/carl findings accept <id> "<justification>"` - Accept risk with documented justification
+- `/carl findings ignore <id>` - Ignore a finding (won't create ticket)
+- `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings
 - `/carl ask <question>` - Ask compliance questions
 
 *Architecture & Build Commands:*
@@ -1236,6 +1239,7 @@ def handle_help_command(
 
 *Audit & Evidence:*
 - `/carl evidence collect` - Collect audit evidence across all resources
+- `/carl evidence list [type]` - View all collected evidence items
 - `/carl evidence status` - View evidence collection status
 - `/carl report executive` - Generate executive compliance summary
 - `/carl report full` - Generate full audit report
@@ -3752,6 +3756,11 @@ def handle_evidence_command(
             # Return empty 200 OK immediately to Slack (prevents timeout)
             return {"statusCode": 200, "body": ""}
 
+        elif subcommand == "list":
+            # Parse optional type filter (e.g., /carl evidence list IAM)
+            evidence_type_filter = parts[1] if len(parts) > 1 else None
+            return handle_evidence_list_command(slack, channel_id, user_id, evidence_type_filter)
+
         elif subcommand == "status":
             coverage = collector.get_control_coverage()
 
@@ -3860,6 +3869,126 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
     except Exception as e:
         logger.exception("Error collecting evidence")
         slack.post_message(channel_id, text=f"❌ Evidence collection failed: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_evidence_list_command(
+    slack: SlackService, channel_id: str, user_id: str, evidence_type_filter: str = None
+) -> dict:
+    """Handle /carl evidence list command - shows all collected evidence items."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+
+    evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+    evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+
+    try:
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
+
+        # Get recent evidence items
+        evidence_items = collector.get_recent_evidence(limit=20, evidence_type=evidence_type_filter)
+
+        if not evidence_items:
+            slack.post_message(
+                channel_id,
+                text=f"No evidence items found{' for type: ' + evidence_type_filter if evidence_type_filter else ''}.\n\n"
+                     f"Run `/carl evidence collect` to gather evidence."
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Build Slack blocks
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Recent Evidence Items{' - ' + evidence_type_filter if evidence_type_filter else ''}"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Showing {len(evidence_items)} most recent items"
+                    }
+                ]
+            }
+        ]
+
+        # Group by resource type for better organization
+        from collections import defaultdict
+        by_type = defaultdict(list)
+        for evidence in evidence_items:
+            by_type[evidence.resource_type].append(evidence)
+
+        # Display grouped by resource type
+        for resource_type, items in sorted(by_type.items()):
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{resource_type}* ({len(items)} items)"
+                }
+            })
+
+            for evidence in items[:5]:  # Show max 5 per type to avoid clutter
+                # Format collected time
+                from datetime import datetime
+                try:
+                    collected_dt = datetime.fromisoformat(evidence.collected_at.replace('Z', '+00:00'))
+                    time_str = collected_dt.strftime("%Y-%m-%d %H:%M UTC")
+                except:
+                    time_str = evidence.collected_at
+
+                # Get status indicator (check if has associated finding)
+                status_icon = "📋"  # Default: evidence only
+                if "password" in evidence.title.lower() or "mfa" in evidence.title.lower() or "encryption" in evidence.title.lower():
+                    status_icon = "🔍"  # Potentially interesting
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{status_icon} *{evidence.title}*\n"
+                                f"_{evidence.description[:100]}{'...' if len(evidence.description) > 100 else ''}_\n"
+                                f"📅 {time_str} | 🆔 `{evidence.evidence_id}`"
+                    }
+                })
+
+            if len(items) > 5:
+                blocks.append({
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"_+{len(items) - 5} more {resource_type} items_"
+                        }
+                    ]
+                })
+
+        # Add footer with helpful commands
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 Use `/carl findings` to see security issues | `/carl evidence collect` to refresh"
+                }
+            ]
+        })
+
+        slack.post_message(channel_id, blocks=blocks)
+
+    except Exception as e:
+        logger.exception("Error listing evidence")
+        slack.post_message(channel_id, text=f"❌ Failed to list evidence: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 
