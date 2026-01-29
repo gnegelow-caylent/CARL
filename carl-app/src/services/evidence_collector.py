@@ -652,9 +652,9 @@ class EvidenceCollector:
 
         for category, evidence_items in evidence_results.items():
             for evidence in evidence_items:
-                # Check if this evidence represents a security issue
-                finding = self._analyze_evidence_for_finding(evidence, category)
-                if finding:
+                # Check if this evidence represents security issues (can return multiple)
+                evidence_findings = self._analyze_evidence_for_findings(evidence, category)
+                for finding in evidence_findings:
                     # Check if finding already exists
                     existing = findings_service.get_finding(finding.id, finding.account_id)
                     if existing:
@@ -666,13 +666,16 @@ class EvidenceCollector:
         logger.info(f"Created {len(findings)} new findings from evidence analysis ({skipped} already existed)")
         return findings
 
-    def _analyze_evidence_for_finding(self, evidence: Evidence, category: str) -> Optional[Finding]:
+    def _analyze_evidence_for_findings(self, evidence: Evidence, category: str) -> list[Finding]:
         """
-        Analyze a single evidence item to determine if it represents a security finding.
+        Analyze a single evidence item to determine if it represents security findings.
 
-        Returns Finding object if evidence shows a security issue, None otherwise.
+        Returns list of Finding objects for all security issues detected in this evidence.
+        Can return multiple findings per evidence item (e.g., S3 bucket with multiple issues).
         """
         import hashlib
+
+        findings = []
 
         # Check for explicit risk indicators in content
         content = evidence.metadata if isinstance(evidence.metadata, dict) else {}
@@ -681,8 +684,10 @@ class EvidenceCollector:
         if category == "iam":
             # Password policy not configured
             if "NOT CONFIGURED" in evidence.title and "Password Policy" in evidence.title:
-                return Finding(
-                    id=f"evidence-{hashlib.md5(evidence.evidence_id.encode()).hexdigest()[:12]}",
+                # Use stable ID based on account + issue type (not evidence ID)
+                finding_key = f"{evidence.account_id}-iam-password-policy"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title="IAM Password Policy Not Configured",
@@ -695,26 +700,28 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps="Configure an IAM password policy with minimum requirements: 14+ characters, complexity requirements, password expiration, and password reuse prevention.",
                     raw_finding={"evidence_id": evidence.evidence_id, "source": "evidence_collector"}
-                )
+                ))
 
             # Users without MFA
             if "mfa_devices" in str(content).lower() and content.get("mfa_enabled") == False:
-                finding_key = f"{evidence.evidence_id}-mfa"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+                user_name = content.get('user_name', 'Unknown')
+                # Use stable ID based on account + user + issue type
+                finding_key = f"{evidence.account_id}-iam-user-{user_name}-mfa"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
-                    title=f"IAM User Without MFA: {content.get('user_name', 'Unknown')}",
-                    description=f"IAM user {content.get('user_name')} does not have MFA enabled, increasing risk of credential compromise.",
+                    title=f"IAM User Without MFA: {user_name}",
+                    description=f"IAM user {user_name} does not have MFA enabled, increasing risk of credential compromise.",
                     resource_type="AWS::IAM::User",
                     resource_id=evidence.resource_id,
                     account_id=evidence.account_id,
                     region=evidence.region,
                     control_ids=[c.value if isinstance(c, SOC2Control) else c for c in evidence.controls],
                     status=FindingStatus.NEW,
-                    remediation_steps=f"Enable MFA for user {content.get('user_name')} in IAM console or via CLI.",
+                    remediation_steps=f"Enable MFA for user {user_name} in IAM console or via CLI.",
                     raw_finding={"evidence_id": evidence.evidence_id, "source": "evidence_collector"}
-                )
+                ))
 
         # S3 Issues
         elif category == "s3":
@@ -723,9 +730,10 @@ class EvidenceCollector:
 
             # Unencrypted bucket
             if content.get("encryption") is None:
-                finding_key = f"{evidence.evidence_id}-encryption"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+                # Use stable ID based on account + bucket + issue type
+                finding_key = f"{evidence.account_id}-s3-{bucket_name}-encryption"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"S3 Bucket Not Encrypted: {bucket_name}",
@@ -738,17 +746,19 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps=f"Enable default encryption for bucket '{bucket_name}' using AES-256 or KMS encryption.",
                     raw_finding={"evidence_id": evidence.evidence_id, "bucket": bucket_name, "source": "evidence_collector"}
-                )
+                ))
 
-            # No versioning
-            if content.get("versioning") in ["Disabled", None]:
-                finding_key = f"{evidence.evidence_id}-versioning"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+            # No versioning (check for None, "Disabled", or "Suspended")
+            versioning_status = content.get("versioning")
+            if versioning_status in ["Disabled", "Suspended", None]:
+                # Use stable ID based on account + bucket + issue type
+                finding_key = f"{evidence.account_id}-s3-{bucket_name}-versioning"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
                     title=f"S3 Bucket Versioning Disabled: {bucket_name}",
-                    description=f"S3 bucket '{bucket_name}' does not have versioning enabled. Cannot recover from accidental deletions or overwrites.",
+                    description=f"S3 bucket '{bucket_name}' does not have versioning enabled (status: {versioning_status}). Cannot recover from accidental deletions or overwrites.",
                     resource_type="AWS::S3::Bucket",
                     resource_id=evidence.resource_id,
                     account_id=evidence.account_id,
@@ -757,7 +767,7 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps=f"Enable versioning for bucket '{bucket_name}' to protect against accidental deletion.",
                     raw_finding={"evidence_id": evidence.evidence_id, "bucket": bucket_name, "source": "evidence_collector"}
-                )
+                ))
 
             # Public access not blocked
             public_block = content.get("public_access_block")
@@ -767,9 +777,10 @@ class EvidenceCollector:
                 public_block.get("IgnorePublicAcls"),
                 public_block.get("RestrictPublicBuckets")
             ]):
-                finding_key = f"{evidence.evidence_id}-public"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+                # Use stable ID based on account + bucket + issue type
+                finding_key = f"{evidence.account_id}-s3-{bucket_name}-public"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"S3 Bucket Public Access Not Fully Blocked: {bucket_name}",
@@ -782,7 +793,7 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps=f"Enable all public access block settings for bucket '{bucket_name}'.",
                     raw_finding={"evidence_id": evidence.evidence_id, "bucket": bucket_name, "source": "evidence_collector"}
-                )
+                ))
 
         # VPC Issues
         elif category == "vpc":
@@ -791,9 +802,10 @@ class EvidenceCollector:
             # No flow logs
             if "flow_logs_enabled" in content_str and content.get("flow_logs_enabled") == False:
                 vpc_id = content.get("vpc_id", "unknown")
-                finding_key = f"{evidence.evidence_id}-flowlogs"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+                # Use stable ID based on account + vpc + issue type
+                finding_key = f"{evidence.account_id}-vpc-{vpc_id}-flowlogs"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
                     title=f"VPC Flow Logs Not Enabled: {vpc_id}",
@@ -806,15 +818,15 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps=f"Enable VPC flow logs for {vpc_id} and send to CloudWatch Logs or S3.",
                     raw_finding={"evidence_id": evidence.evidence_id, "vpc_id": vpc_id, "source": "evidence_collector"}
-                )
+                ))
 
-            # Risky security groups
+            # Risky security groups - create one finding PER security group
             risky_sgs = content.get("risky_security_groups", [])
-            if risky_sgs and len(risky_sgs) > 0:
-                sg_info = risky_sgs[0]  # Report first one
-                finding_key = f"{evidence.evidence_id}-sg-{sg_info['id']}"
-                return Finding(
-                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+            for sg_info in risky_sgs:
+                # Use stable ID based on account + sg + issue type
+                finding_key = f"{evidence.account_id}-sg-{sg_info['id']}-permissive"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"Overly Permissive Security Group: {sg_info['name']}",
@@ -827,14 +839,31 @@ class EvidenceCollector:
                     status=FindingStatus.NEW,
                     remediation_steps=f"Restrict security group {sg_info['name']} to specific IP ranges instead of 0.0.0.0/0.",
                     raw_finding={"evidence_id": evidence.evidence_id, "security_group": sg_info, "source": "evidence_collector"}
-                )
+                ))
 
         # CloudTrail Issues
         elif category == "cloudtrail":
-            # Check if no trails found (would be in the results count)
-            pass  # CloudTrail issues are better detected at the collection level
+            # Check if CloudTrail is not enabled or not properly configured
+            if "NOT ENABLED" in evidence.title or "not logging" in evidence.description.lower():
+                # Use stable ID based on account + issue type
+                finding_key = f"{evidence.account_id}-cloudtrail-not-enabled"
+                findings.append(Finding(
+                    id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
+                    source=FindingSource.CONFIG,
+                    severity=FindingSeverity.HIGH,
+                    title="CloudTrail Not Properly Configured",
+                    description="CloudTrail is not enabled or not logging. Audit trail of AWS API calls is not being captured.",
+                    resource_type="AWS::CloudTrail::Trail",
+                    resource_id=evidence.resource_id,
+                    account_id=evidence.account_id,
+                    region=evidence.region,
+                    control_ids=[c.value if isinstance(c, SOC2Control) else c for c in evidence.controls],
+                    status=FindingStatus.NEW,
+                    remediation_steps="Enable CloudTrail with multi-region logging and log file validation.",
+                    raw_finding={"evidence_id": evidence.evidence_id, "source": "evidence_collector"}
+                ))
 
-        return None
+        return findings
 
     def _store_evidence(
         self,
