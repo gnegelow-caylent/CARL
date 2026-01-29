@@ -457,6 +457,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("args", "")
         )
 
+    if event.get("action") == "process_finding_details_async":
+        logger.info("Processing async finding details")
+        return handle_finding_details_sync(
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("finding_id"),
+            event.get("account_id")
+        )
+
     if event.get("action") == "process_vpc_config_async":
         logger.info("Processing async VPC config submission")
         slack = get_slack_service()
@@ -3250,17 +3259,49 @@ def handle_foundation_change(payload: dict, action: dict) -> dict:
 
 
 def handle_finding_details(payload: dict, finding_id: str) -> dict:
-    """Show detailed information about a finding."""
+    """Show detailed information about a finding - async wrapper."""
+    import boto3
+    import json
+    import os
+
     channel = payload.get("channel", {}).get("id", "")
     user = payload.get("user", {}).get("id", "")
 
     slack = get_slack_service()
-    findings_service = get_findings_service()
-    bedrock = get_bedrock_service()
+
+    # Post immediate response
+    slack.post_message(channel, text="🔍 Loading finding details...")
 
     # Get account ID
-    import boto3
     account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Invoke async processing
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_finding_details_async',
+                'channel_id': channel,
+                'user_id': user,
+                'finding_id': finding_id,
+                'account_id': account_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async finding details: {e}")
+        # Fallback to synchronous
+        return handle_finding_details_sync(channel, user, finding_id, account_id)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_details_sync(channel: str, user: str, finding_id: str, account_id: str) -> dict:
+    """Synchronous version of finding details - does the actual work."""
+    slack = get_slack_service()
+    findings_service = get_findings_service()
+    bedrock = get_bedrock_service()
 
     finding = findings_service.get_finding(finding_id, account_id)
     if not finding:
