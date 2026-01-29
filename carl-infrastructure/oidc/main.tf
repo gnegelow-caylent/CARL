@@ -326,7 +326,10 @@ data "aws_iam_policy_document" "carl_deployer" {
       "bedrock:UpdateAgentAlias",
       "bedrock:DeleteAgentAlias",
       "bedrock:GetAgentAlias",
-      "bedrock:ListAgentAliases"
+      "bedrock:ListAgentAliases",
+      "bedrock:TagResource",
+      "bedrock:UntagResource",
+      "bedrock:ListTagsForResource"
     ]
     resources = ["*"]
   }
