@@ -3876,7 +3876,7 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
 def handle_evidence_list_command(
     slack: SlackService, channel_id: str, user_id: str, evidence_type_filter: str = None
 ) -> dict:
-    """Handle /carl evidence list command - shows all collected evidence items."""
+    """Handle /carl evidence list command - shows all collected evidence items with findings status."""
     import os
     from services.evidence_collector import EvidenceCollector
 
@@ -3888,6 +3888,7 @@ def handle_evidence_list_command(
             evidence_bucket=evidence_bucket,
             evidence_table=evidence_table
         )
+        findings_service = get_findings_service()
 
         # Get recent evidence items
         evidence_items = collector.get_recent_evidence(limit=20, evidence_type=evidence_type_filter)
@@ -3900,13 +3901,17 @@ def handle_evidence_list_command(
             )
             return {"statusCode": 200, "body": ""}
 
+        # Get all findings to match with evidence
+        all_findings = findings_service.get_recent_findings(limit=100)
+        findings_by_resource = {f.get('resource_id'): f for f in all_findings}
+
         # Build Slack blocks
         blocks = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"Recent Evidence Items{' - ' + evidence_type_filter if evidence_type_filter else ''}"
+                    "text": f"Collected Evidence{' - ' + evidence_type_filter if evidence_type_filter else ''}"
                 }
             },
             {
@@ -3914,72 +3919,111 @@ def handle_evidence_list_command(
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Showing {len(evidence_items)} most recent items"
+                        "text": f"Showing {len(evidence_items)} most recent items | ✅ = Compliant | ⚠️ = Issue Found"
                     }
                 ]
             }
         ]
 
-        # Group by resource type for better organization
-        from collections import defaultdict
-        by_type = defaultdict(list)
-        for evidence in evidence_items:
-            by_type[evidence.resource_type].append(evidence)
+        # Display each evidence item
+        for evidence in evidence_items[:20]:  # Show up to 20 items
+            # Check if there's a finding for this resource
+            resource_finding = findings_by_resource.get(evidence.resource_id)
 
-        # Display grouped by resource type
-        for resource_type, items in sorted(by_type.items()):
-            blocks.append({"type": "divider"})
+            # Determine status and severity
+            if resource_finding:
+                severity = resource_finding.get('severity', 'UNKNOWN')
+                status = resource_finding.get('status', 'NEW')
+                finding_id = resource_finding.get('id', '')
+                jira_ticket_id = resource_finding.get('jira_ticket_id')
+                jira_url = resource_finding.get('jira_url')
+
+                # Severity emoji
+                severity_emoji = {
+                    'CRITICAL': '🔴',
+                    'HIGH': '🟠',
+                    'MEDIUM': '🟡',
+                    'LOW': '🔵',
+                    'INFORMATIONAL': 'ℹ️'
+                }.get(severity, '⚠️')
+
+                status_text = f"{severity_emoji} *{severity}*"
+                if jira_ticket_id and jira_url:
+                    status_text += f" | <{jira_url}|{jira_ticket_id}>"
+
+            else:
+                status_text = "✅ *Compliant*"
+                finding_id = None
+                jira_ticket_id = None
+                status = None
+
+            # Build evidence text
+            evidence_text = (
+                f"{status_text}\n"
+                f"*{evidence.title}*\n"
+                f"{evidence.description[:150]}{'...' if len(evidence.description) > 150 else ''}\n"
+                f"Resource: `{evidence.resource_id}`"
+            )
+
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{resource_type}* ({len(items)} items)"
+                    "text": evidence_text
                 }
             })
 
-            for evidence in items[:5]:  # Show max 5 per type to avoid clutter
-                # Format collected time
-                from datetime import datetime
-                try:
-                    collected_dt = datetime.fromisoformat(evidence.collected_at.replace('Z', '+00:00'))
-                    time_str = collected_dt.strftime("%Y-%m-%d %H:%M UTC")
-                except:
-                    time_str = evidence.collected_at
+            # Add action buttons if there's a finding
+            if resource_finding:
+                action_buttons = []
 
-                # Get status indicator (check if has associated finding)
-                status_icon = "📋"  # Default: evidence only
-                if "password" in evidence.title.lower() or "mfa" in evidence.title.lower() or "encryption" in evidence.title.lower():
-                    status_icon = "🔍"  # Potentially interesting
+                # Show "Create Ticket" if no ticket and not accepted/ignored
+                if not jira_ticket_id and status not in ["ACCEPTED_RISK", "IGNORED", "SUPPRESSED", "REMEDIATED"]:
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🎫 Create Ticket"},
+                        "action_id": f"finding_create_ticket_{finding_id}",
+                        "style": "primary"
+                    })
 
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{status_icon} *{evidence.title}*\n"
-                                f"_{evidence.description[:100]}{'...' if len(evidence.description) > 100 else ''}_\n"
-                                f"📅 {time_str} | 🆔 `{evidence.evidence_id}`"
-                    }
+                # Show "Accept Risk" if not already accepted/ignored/remediated
+                if status not in ["ACCEPTED_RISK", "IGNORED", "REMEDIATED"]:
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Accept Risk"},
+                        "action_id": f"finding_accept_risk_{finding_id}",
+                    })
+
+                # Show "Ignore" if not already ignored/remediated
+                if status not in ["IGNORED", "REMEDIATED"]:
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👁️ Ignore"},
+                        "action_id": f"finding_ignore_{finding_id}",
+                    })
+
+                # Always show "Details" button
+                action_buttons.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "ℹ️ Details"},
+                    "action_id": f"finding_details_{finding_id}",
                 })
 
-            if len(items) > 5:
-                blocks.append({
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"_+{len(items) - 5} more {resource_type} items_"
-                        }
-                    ]
-                })
+                if action_buttons:
+                    blocks.append({
+                        "type": "actions",
+                        "elements": action_buttons
+                    })
+
+            blocks.append({"type": "divider"})
 
         # Add footer with helpful commands
-        blocks.append({"type": "divider"})
         blocks.append({
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💡 Use `/carl findings` to see security issues | `/carl evidence collect` to refresh"
+                    "text": "💡 Run `/carl evidence collect` to refresh evidence | `/carl jira sync` to sync all findings"
                 }
             ]
         })
