@@ -8,6 +8,7 @@ on:
       - qa        # QA deployments
     paths:
       - 'carl-infrastructure/core/**'
+      - 'carl-infrastructure/modules/**'
       - 'carl-app/src/**'
       - '.github/workflows/deploy-core.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - qa
     paths:
       - 'carl-infrastructure/core/**'
+      - 'carl-infrastructure/modules/**'
       - 'carl-app/src/**'
   workflow_dispatch:
     inputs:
