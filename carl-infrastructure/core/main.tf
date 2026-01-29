@@ -115,6 +115,42 @@ resource "aws_dynamodb_table" "findings" {
     type = "S"
   }
 
+  attribute {
+    name = "severity"
+    type = "S"
+  }
+
+  attribute {
+    name = "control_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "created_at"
+    type = "S"
+  }
+
+  # GSI for querying by severity
+  global_secondary_index {
+    name            = "severity-timestamp-index"
+    hash_key        = "severity"
+    range_key       = "created_at"
+    projection_type = "ALL"
+  }
+
+  # GSI for querying by control and status
+  global_secondary_index {
+    name            = "control-status-index"
+    hash_key        = "control_id"
+    range_key       = "status"
+    projection_type = "ALL"
+  }
+
   ttl {
     attribute_name = "ttl"
     enabled        = true
