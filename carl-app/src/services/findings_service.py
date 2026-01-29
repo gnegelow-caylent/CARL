@@ -370,6 +370,167 @@ class FindingsService:
             logger.exception(f"Error suppressing finding: {finding_id}")
             return False
 
+    def accept_risk(
+        self,
+        finding_id: str,
+        account_id: str,
+        justification: str,
+        accepted_by: str,
+    ) -> bool:
+        """
+        Accept a finding as an acceptable risk.
+
+        Args:
+            finding_id: Finding ID
+            account_id: AWS account ID
+            justification: Business justification for accepting the risk
+            accepted_by: User who accepted the risk
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # First, query to get the existing item and its sk
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                Limit=1
+            )
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Finding {finding_id} not found for risk acceptance")
+                return False
+
+            item = items[0]
+            pk = item["pk"]
+            sk = item["sk"]
+
+            # Update to ACCEPTED_RISK status
+            self.table.update_item(
+                Key={"pk": pk, "sk": sk},
+                UpdateExpression=(
+                    "SET #status = :status, updated_at = :updated, "
+                    "risk_justification = :justification, risk_accepted_by = :by, "
+                    "risk_accepted_at = :accepted_at"
+                ),
+                ExpressionAttributeValues={
+                    ":status": FindingStatus.ACCEPTED_RISK.value,
+                    ":updated": datetime.utcnow().isoformat(),
+                    ":justification": justification,
+                    ":by": accepted_by,
+                    ":accepted_at": datetime.utcnow().isoformat(),
+                },
+                ExpressionAttributeNames={"#status": "status"},
+            )
+
+            logger.info(f"Accepted risk for finding {finding_id} by {accepted_by}")
+            return True
+
+        except Exception as e:
+            logger.exception(f"Error accepting risk for finding: {finding_id}")
+            return False
+
+    def ignore_finding(
+        self,
+        finding_id: str,
+        account_id: str,
+        ignored_by: str,
+        reason: str = "Acknowledged, no action needed",
+    ) -> bool:
+        """
+        Ignore a finding (mark as acknowledged but no action needed).
+
+        Args:
+            finding_id: Finding ID
+            account_id: AWS account ID
+            ignored_by: User who ignored the finding
+            reason: Optional reason for ignoring
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # First, query to get the existing item and its sk
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                Limit=1
+            )
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Finding {finding_id} not found for ignoring")
+                return False
+
+            item = items[0]
+            pk = item["pk"]
+            sk = item["sk"]
+
+            # Update to IGNORED status
+            self.table.update_item(
+                Key={"pk": pk, "sk": sk},
+                UpdateExpression=(
+                    "SET #status = :status, updated_at = :updated, "
+                    "ignored_reason = :reason, ignored_by = :by, "
+                    "ignored_at = :ignored_at"
+                ),
+                ExpressionAttributeValues={
+                    ":status": FindingStatus.IGNORED.value,
+                    ":updated": datetime.utcnow().isoformat(),
+                    ":reason": reason,
+                    ":by": ignored_by,
+                    ":ignored_at": datetime.utcnow().isoformat(),
+                },
+                ExpressionAttributeNames={"#status": "status"},
+            )
+
+            logger.info(f"Ignored finding {finding_id} by {ignored_by}")
+            return True
+
+        except Exception as e:
+            logger.exception(f"Error ignoring finding: {finding_id}")
+            return False
+
+    def get_findings_for_ticketing(self, limit: int = 100) -> list[dict]:
+        """
+        Get findings that should be synced to Jira.
+
+        Excludes:
+        - Findings with existing Jira tickets
+        - Findings with ACCEPTED_RISK status
+        - Findings with IGNORED status
+        - Findings with SUPPRESSED status
+        - Findings with REMEDIATED status
+
+        Returns:
+            List of findings that need Jira tickets
+        """
+        try:
+            response = self.table.scan(Limit=limit)
+            items = response.get("Items", [])
+
+            # Filter to findings that need tickets
+            ticketable_statuses = [FindingStatus.NEW.value, FindingStatus.IN_PROGRESS.value]
+            needs_ticket = []
+
+            for item in items:
+                # Skip if already has Jira ticket
+                if item.get("jira_ticket_id"):
+                    continue
+
+                # Skip if status excludes ticketing
+                status = item.get("status", "NEW")
+                if status not in ticketable_statuses:
+                    continue
+
+                # Convert to dict
+                finding_dict = Finding.from_dynamodb_item(item).to_dict()
+                needs_ticket.append(finding_dict)
+
+            logger.info(f"Found {len(needs_ticket)} findings that need Jira tickets")
+            return needs_ticket
+
+        except Exception as e:
+            logger.exception("Error getting findings for ticketing")
+            return []
+
     def store_scanner_findings(self, scan_results: dict[str, Any], region: str = "us-east-1") -> list[str]:
         """
         Convert AWSScanner results to Finding objects and store in DynamoDB.

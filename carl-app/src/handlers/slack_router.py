@@ -632,7 +632,22 @@ def handle_slash_command(payload: dict) -> dict:
     if subcommand == "status":
         return handle_status_command(slack, channel_id, user_id)
     elif subcommand == "findings":
-        return handle_findings_command(slack, channel_id, user_id, args)
+        # Parse findings subcommand
+        parts_findings = args.split(maxsplit=1) if args else []
+        findings_action = parts_findings[0] if parts_findings else "list"
+        findings_args = parts_findings[1] if len(parts_findings) > 1 else ""
+
+        if findings_action == "list":
+            return handle_findings_list_command(slack, channel_id, user_id, findings_args)
+        elif findings_action == "accept":
+            return handle_findings_accept_command(slack, channel_id, user_id, findings_args)
+        elif findings_action == "ignore":
+            return handle_findings_ignore_command(slack, channel_id, user_id, findings_args)
+        elif findings_action == "create-ticket":
+            return handle_findings_create_ticket_command(slack, channel_id, user_id, findings_args)
+        else:
+            # Backward compatibility: treat as severity filter
+            return handle_findings_list_command(slack, channel_id, user_id, args)
     elif subcommand == "ask":
         return handle_ask_command(slack, channel_id, user_id, args)
     elif subcommand == "recommend":
@@ -774,10 +789,10 @@ def handle_status_command(
     return {"statusCode": 200, "body": ""}
 
 
-def handle_findings_command(
+def handle_findings_list_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Handle /carl findings command."""
+    """Handle /carl findings list command."""
     findings_service = get_findings_service()
 
     severity = args.upper() if args else None
@@ -802,32 +817,273 @@ def handle_findings_command(
 
     for finding in findings[:10]:
         # Build finding text with Jira link if available
+        finding_id = finding.get('id', '')
         jira_ticket_id = finding.get("jira_ticket_id")
         jira_url = finding.get("jira_url")
+        status = finding.get("status", "NEW")
 
         finding_text = (
             f"*{finding.get('severity', 'UNKNOWN')}* | "
             f"{finding.get('title', 'No title')}\n"
-            f"Resource: `{finding.get('resource_id', 'N/A')}`"
+            f"Resource: `{finding.get('resource_id', 'N/A')}`\n"
+            f"Status: {status}"
         )
 
         if jira_ticket_id and jira_url:
             finding_text += f"\n🔗 Jira: <{jira_url}|{jira_ticket_id}>"
 
+        # Section with finding info
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": finding_text
-            },
-            "accessory": {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Details"},
-                "action_id": f"finding_details_{finding.get('id', '')}",
-            },
+            }
         })
 
+        # Action buttons based on status
+        action_buttons = []
+
+        # Show "Create Ticket" if no ticket and not accepted/ignored
+        if not jira_ticket_id and status not in ["ACCEPTED_RISK", "IGNORED", "SUPPRESSED", "REMEDIATED"]:
+            action_buttons.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🎫 Create Ticket"},
+                "action_id": f"finding_create_ticket_{finding_id}",
+                "style": "primary"
+            })
+
+        # Show "Accept Risk" if not already accepted/ignored/remediated
+        if status not in ["ACCEPTED_RISK", "IGNORED", "REMEDIATED"]:
+            action_buttons.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "✅ Accept Risk"},
+                "action_id": f"finding_accept_risk_{finding_id}",
+            })
+
+        # Show "Ignore" if not already ignored/remediated
+        if status not in ["IGNORED", "REMEDIATED"]:
+            action_buttons.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "👁️ Ignore"},
+                "action_id": f"finding_ignore_{finding_id}",
+            })
+
+        # Always show "Details" button
+        action_buttons.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "ℹ️ Details"},
+            "action_id": f"finding_details_{finding_id}",
+        })
+
+        if action_buttons:
+            blocks.append({
+                "type": "actions",
+                "elements": action_buttons
+            })
+
+        # Add divider between findings
+        blocks.append({"type": "divider"})
+
     slack.post_message(channel_id, blocks=blocks)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_findings_accept_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Handle /carl findings accept <id> "<justification>" command."""
+    import re
+    from services.findings_service import FindingsService
+
+    findings_service = FindingsService()
+
+    # Parse: finding_id "justification"
+    # Support both: finding-123 "text" and finding-123 text
+    match = re.match(r'(\S+)\s+"([^"]+)"', args) or re.match(r'(\S+)\s+(.+)', args)
+
+    if not match:
+        slack.post_message(
+            channel_id,
+            text='Usage: `/carl findings accept <finding_id> "<justification>"`\nExample: `/carl findings accept finding-04a95 "Dev environment, accepted risk"`'
+        )
+        return {"statusCode": 200, "body": ""}
+
+    finding_id, justification = match.groups()
+
+    # Get account ID (would normally come from context, using env for now)
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Accept the risk
+    success = findings_service.accept_risk(
+        finding_id=finding_id,
+        account_id=account_id,
+        justification=justification,
+        accepted_by=user_id
+    )
+
+    if success:
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✅ Risk accepted for finding `{finding_id}`\n\n*Justification:* {justification}\n*Accepted by:* <@{user_id}>"
+                    }
+                }
+            ]
+        )
+    else:
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to accept risk for finding `{finding_id}`. Finding may not exist."
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_findings_ignore_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Handle /carl findings ignore <id> command."""
+    from services.findings_service import FindingsService
+
+    findings_service = FindingsService()
+
+    if not args:
+        slack.post_message(
+            channel_id,
+            text='Usage: `/carl findings ignore <finding_id>`\nExample: `/carl findings ignore finding-04a95`'
+        )
+        return {"statusCode": 200, "body": ""}
+
+    finding_id = args.strip()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Ignore the finding
+    success = findings_service.ignore_finding(
+        finding_id=finding_id,
+        account_id=account_id,
+        ignored_by=user_id
+    )
+
+    if success:
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"👁️ Finding `{finding_id}` marked as ignored\n*By:* <@{user_id}>"
+                    }
+                }
+            ]
+        )
+    else:
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to ignore finding `{finding_id}`. Finding may not exist."
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_findings_create_ticket_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Handle /carl findings create-ticket <id> [<id> ...] command."""
+    from services.findings_service import FindingsService
+    from services.jira_service import JiraService
+
+    findings_service = FindingsService()
+
+    if not args:
+        slack.post_message(
+            channel_id,
+            text='Usage: `/carl findings create-ticket <finding_id> [<finding_id> ...]`\nExample: `/carl findings create-ticket finding-04a95 finding-9f705`'
+        )
+        return {"statusCode": 200, "body": ""}
+
+    finding_ids = args.strip().split()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Get Jira service
+    try:
+        jira = JiraService()
+    except Exception as e:
+        logger.error(f"Failed to initialize Jira service: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Jira is not configured. Please set up Jira credentials first."
+        )
+        return {"statusCode": 200, "body": ""}
+
+    created = []
+    failed = []
+
+    for finding_id in finding_ids:
+        try:
+            # Get finding
+            finding = findings_service.get_finding(finding_id, account_id)
+            if not finding:
+                failed.append(f"{finding_id} (not found)")
+                continue
+
+            # Skip if already has ticket
+            if finding.get('jira_ticket_id'):
+                failed.append(f"{finding_id} (already has ticket)")
+                continue
+
+            # Create Jira ticket
+            ticket_id = jira.create_finding_ticket(
+                title=finding.get('title', 'Security Finding'),
+                description=finding.get('description', ''),
+                severity=finding.get('severity', 'MEDIUM'),
+                resource=finding.get('resource_id', 'N/A'),
+                finding_id=finding_id
+            )
+
+            if ticket_id:
+                # Update finding with Jira ticket ID
+                findings_service.update_finding(
+                    finding_id=finding_id,
+                    account_id=account_id,
+                    jira_ticket_id=ticket_id,
+                    jira_url=f"{jira.base_url}/browse/{ticket_id}",
+                    jira_created_at=datetime.utcnow().isoformat()
+                )
+                created.append((finding_id, ticket_id))
+            else:
+                failed.append(f"{finding_id} (ticket creation failed)")
+
+        except Exception as e:
+            logger.exception(f"Error creating ticket for {finding_id}")
+            failed.append(f"{finding_id} ({str(e)})")
+
+    # Post results
+    result_text = []
+    if created:
+        result_text.append(f"✅ Created {len(created)} ticket(s):")
+        for fid, ticket_id in created:
+            result_text.append(f"  • `{fid}` → {ticket_id}")
+
+    if failed:
+        result_text.append(f"\n❌ Failed {len(failed)} finding(s):")
+        for failure in failed:
+            result_text.append(f"  • {failure}")
+
+    slack.post_message(channel_id, text="\n".join(result_text))
 
     return {"statusCode": 200, "body": ""}
 
@@ -2092,6 +2348,54 @@ def show_setup_modal(slack: SlackService, trigger_id: str, channel_id: str, work
     return {"statusCode": 200, "body": ""}
 
 
+def handle_accept_risk_modal_submission(payload: dict) -> dict:
+    """Handle Accept Risk modal submission."""
+    from services.findings_service import FindingsService
+
+    view = payload.get("view", {})
+    user = payload.get("user", {}).get("id", "")
+
+    # Get finding ID from private_metadata
+    finding_id = view.get("private_metadata", "")
+
+    # Get justification from modal input
+    values = view.get("state", {}).get("values", {})
+    justification = values.get("justification_block", {}).get("justification_input", {}).get("value", "")
+
+    if not justification:
+        # Return error - justification is required
+        return {
+            "response_action": "errors",
+            "errors": {
+                "justification_block": "Justification is required for accepting a risk"
+            }
+        }
+
+    findings_service = FindingsService()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Accept the risk
+    success = findings_service.accept_risk(
+        finding_id=finding_id,
+        account_id=account_id,
+        justification=justification,
+        accepted_by=user
+    )
+
+    if success:
+        # Post success message to channel (requires getting channel from metadata or response_url)
+        # Since we don't have channel easily, we'll return success and let Slack close modal
+        logger.info(f"Risk accepted for finding {finding_id} by {user}")
+    else:
+        logger.error(f"Failed to accept risk for finding {finding_id}")
+
+    # Close modal
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_vpc_config_submission(payload: dict) -> dict:
     """Handle VPC configuration modal submission with validation."""
     import json as json_lib
@@ -2619,12 +2923,23 @@ def handle_interaction(payload: dict) -> dict:
             return handle_s3_config_submission(payload)
         elif callback_id == "setup_modal":
             return handle_setup_submission(payload)
+        elif callback_id.startswith("accept_risk_modal_"):
+            return handle_accept_risk_modal_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
             action_id = action.get("action_id", "")
-            if action_id.startswith("finding_details_"):
+            if action_id.startswith("finding_create_ticket_"):
+                finding_id = action_id.replace("finding_create_ticket_", "")
+                return handle_finding_create_ticket_button(payload, finding_id)
+            elif action_id.startswith("finding_accept_risk_"):
+                finding_id = action_id.replace("finding_accept_risk_", "")
+                return handle_finding_accept_risk_button(payload, finding_id)
+            elif action_id.startswith("finding_ignore_"):
+                finding_id = action_id.replace("finding_ignore_", "")
+                return handle_finding_ignore_button(payload, finding_id)
+            elif action_id.startswith("finding_details_"):
                 finding_id = action_id.replace("finding_details_", "")
                 return handle_finding_details(payload, finding_id)
             elif action_id.startswith("approve_remediation_"):
@@ -2928,6 +3243,156 @@ def handle_finding_details(payload: dict, finding_id: str) -> dict:
     ]
 
     slack.post_message(channel, blocks=blocks)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
+    """Handle Create Ticket button click."""
+    from datetime import datetime
+    from services.findings_service import FindingsService
+    from services.jira_service import JiraService
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    slack = get_slack_service()
+    findings_service = FindingsService()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Get finding
+    finding = findings_service.get_finding(finding_id, account_id)
+    if not finding:
+        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found.")
+        return {"statusCode": 200, "body": ""}
+
+    # Check if already has ticket
+    if finding.get('jira_ticket_id'):
+        slack.post_message(
+            channel,
+            text=f"ℹ️ Finding `{finding_id}` already has Jira ticket: {finding['jira_ticket_id']}"
+        )
+        return {"statusCode": 200, "body": ""}
+
+    # Create Jira ticket
+    try:
+        jira = JiraService()
+        ticket_id = jira.create_finding_ticket(
+            title=finding.get('title', 'Security Finding'),
+            description=finding.get('description', ''),
+            severity=finding.get('severity', 'MEDIUM'),
+            resource=finding.get('resource_id', 'N/A'),
+            finding_id=finding_id
+        )
+
+        if ticket_id:
+            # Update finding with Jira ticket ID
+            findings_service.update_finding(
+                finding_id=finding_id,
+                account_id=account_id,
+                jira_ticket_id=ticket_id,
+                jira_url=f"{jira.base_url}/browse/{ticket_id}",
+                jira_created_at=datetime.utcnow().isoformat()
+            )
+
+            slack.post_message(
+                channel,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✅ Created Jira ticket for finding `{finding_id}`\n🔗 <{jira.base_url}/browse/{ticket_id}|{ticket_id}>"
+                        }
+                    }
+                ]
+            )
+        else:
+            slack.post_message(channel, text=f"❌ Failed to create Jira ticket for finding `{finding_id}`")
+
+    except Exception as e:
+        logger.exception(f"Error creating Jira ticket: {e}")
+        slack.post_message(channel, text=f"❌ Jira is not configured. Please set up Jira credentials first.")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_accept_risk_button(payload: dict, finding_id: str) -> dict:
+    """Handle Accept Risk button click - open modal for justification."""
+    slack = get_slack_service()
+    trigger_id = payload.get("trigger_id")
+
+    if not trigger_id:
+        return {"statusCode": 200, "body": ""}
+
+    # Open modal to get justification
+    slack.client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": f"accept_risk_modal_{finding_id}",
+            "title": {"type": "plain_text", "text": "Accept Risk"},
+            "submit": {"type": "plain_text", "text": "Accept"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "justification_block",
+                    "label": {"type": "plain_text", "text": "Business Justification"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "justification_input",
+                        "multiline": True,
+                        "placeholder": {"type": "plain_text", "text": "Explain why this risk is acceptable..."}
+                    }
+                }
+            ],
+            "private_metadata": finding_id
+        }
+    )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_ignore_button(payload: dict, finding_id: str) -> dict:
+    """Handle Ignore button click."""
+    from services.findings_service import FindingsService
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    slack = get_slack_service()
+    findings_service = FindingsService()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Ignore the finding
+    success = findings_service.ignore_finding(
+        finding_id=finding_id,
+        account_id=account_id,
+        ignored_by=user
+    )
+
+    if success:
+        slack.post_message(
+            channel,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"👁️ Finding `{finding_id}` marked as ignored\n*By:* <@{user}>"
+                    }
+                }
+            ]
+        )
+    else:
+        slack.post_message(channel, text=f"❌ Failed to ignore finding `{finding_id}`")
 
     return {"statusCode": 200, "body": ""}
 
@@ -4041,8 +4506,8 @@ def handle_jira_sync_sync(
         findings_service = get_findings_service()
         jira_sync = JiraSecuritySync()
 
-        # Get recent findings (last 24 hours)
-        findings = findings_service.get_recent_findings(limit=50)
+        # Get findings that need Jira tickets (excludes accepted/ignored/suppressed)
+        findings = findings_service.get_findings_for_ticketing(limit=50)
 
         synced_count = 0
         failed_count = 0

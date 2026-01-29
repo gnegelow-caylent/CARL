@@ -34,6 +34,8 @@ class FindingStatus(Enum):
     IN_PROGRESS = "IN_PROGRESS"
     REMEDIATED = "REMEDIATED"
     SUPPRESSED = "SUPPRESSED"
+    ACCEPTED_RISK = "ACCEPTED_RISK"  # Risk accepted with justification
+    IGNORED = "IGNORED"  # Acknowledged but no action needed
 
 
 @dataclass
