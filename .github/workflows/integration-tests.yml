@@ -80,17 +80,21 @@ jobs:
         run: |
           ENVIRONMENT="${{ steps.env.outputs.environment }}"
 
-          # Get API endpoint from Terraform output
-          cd carl-infrastructure/core
-          terraform init \
-            -backend-config="bucket=carl-tfstate-${{ steps.account.outputs.account_id }}" \
-            -backend-config="key=core/terraform.tfstate" \
-            -backend-config="region=us-east-1" \
-            -input=false
-          API_ENDPOINT=$(terraform output -raw api_endpoint 2>/dev/null || echo "")
+          # Get API endpoint directly from AWS (not from Terraform state)
+          API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='carl-$ENVIRONMENT-api'].ApiId" --output text)
+
+          if [ -z "$API_ID" ]; then
+            echo "ERROR: Could not find API Gateway with name carl-$ENVIRONMENT-api"
+            exit 1
+          fi
+
+          echo "Found API Gateway: $API_ID"
+
+          # Get the default stage invoke URL
+          API_ENDPOINT=$(aws apigatewayv2 get-stages --api-id "$API_ID" --query "Items[?StageName=='\$default'].InvokeUrl" --output text)
 
           if [ -z "$API_ENDPOINT" ]; then
-            echo "ERROR: Could not get API endpoint"
+            echo "ERROR: Could not get API endpoint for stage \$default"
             exit 1
           fi
 

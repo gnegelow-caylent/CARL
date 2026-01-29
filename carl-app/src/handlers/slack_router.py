@@ -437,6 +437,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("user_id")
         )
 
+    if event.get("action") == "process_jira_sync_async":
+        logger.info("Processing async Jira sync")
+        slack = get_slack_service()
+        return handle_jira_sync_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id"),
+            event.get("args", "")
+        )
+
     if event.get("action") == "process_vpc_config_async":
         logger.info("Processing async VPC config submission")
         slack = get_slack_service()
@@ -3964,9 +3974,57 @@ def handle_jira_test(
 def handle_jira_sync(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Manually sync findings to Jira."""
-    slack.post_message(channel_id, text="🔄 Starting Jira sync...")
+    """Manually sync findings to Jira (async wrapper)."""
+    import boto3
+    import json
+    import os
 
+    # Post immediate response
+    slack.post_message(
+        channel_id,
+        text="🔄 Starting Jira sync... This may take a few minutes for large numbers of findings."
+    )
+
+    try:
+        # Invoke Lambda asynchronously to avoid timeout
+        lambda_client = boto3.client('lambda')
+        function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+
+        if function_name:
+            try:
+                lambda_client.invoke(
+                    FunctionName=function_name,
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps({
+                        'action': 'process_jira_sync_async',
+                        'channel_id': channel_id,
+                        'user_id': user_id,
+                        'args': args
+                    })
+                )
+                logger.info("Async Jira sync invocation successful")
+            except Exception as e:
+                logger.error(f"Failed to invoke async Jira sync: {e}")
+                # Fallback to synchronous if async fails
+                return handle_jira_sync_sync(slack, channel_id, user_id, args)
+        else:
+            # Not running in Lambda, do synchronous
+            return handle_jira_sync_sync(slack, channel_id, user_id, args)
+
+    except Exception as e:
+        logger.error(f"Error starting Jira sync: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to start Jira sync: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_jira_sync_sync(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Synchronous version of Jira sync - does the actual work."""
     try:
         findings_service = get_findings_service()
         jira_sync = JiraSecuritySync()
