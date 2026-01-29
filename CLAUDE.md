@@ -58,6 +58,55 @@ Result: Complete compliance roadmap from 53% → 100% in 4-6 weeks
 
 See `COMPLIANCE_AGENT.md` and `AI_OPPORTUNITIES.md` for complete details.
 
+### Real-Time AWS Pricing Tool 💰 (January 29, 2026)
+
+**New Capability:** Real-time AWS pricing for cost-aware recommendations!
+
+**What's New:**
+1. ✅ **AWS Price List API Integration** - Real-time pricing, always current
+2. ✅ **AgentCore Tool** - Any agent can use pricing autonomously
+3. ✅ **200+ Services Supported** - EC2, RDS, S3, Glue, DMS, Lambda, DynamoDB, Redshift, EMR, Kinesis, VPC, ELB, etc.
+4. ✅ **Region-Aware Pricing** - Accurate pricing for any AWS region
+5. ✅ **Design Principle #3** - Cost-Aware Recommendations documented
+6. ✅ **Updated AI Prompts** - Always include cost analysis in recommendations
+
+**How It Works:**
+```python
+from services.pricing_tool import pricing_tool
+
+# Register with any agent
+agent = Agent(tools=[pricing_tool], ...)
+
+# Agent autonomously calls pricing when needed
+User: "What's the cost of t3.medium?"
+Agent: Calls get_aws_pricing(service_name="ec2", instance_type="t3.medium")
+Returns: $0.0416/hour = ~$30/month (real-time from AWS)
+```
+
+**Design Principle #3: Cost-Aware Recommendations**
+- Always include cost in architecture recommendations
+- Compare options with cost tradeoffs
+- Show break-even analysis
+- Recommend best VALUE (not just cheapest)
+- Factor in operational overhead
+
+**Example Response:**
+```
+Option 1: AWS Glue - $220/month (serverless, no ops overhead)
+Option 2: EC2 - $50/month + 20 hours/month ops time (~$330 total value)
+
+Recommended: AWS Glue saves $110/month in ops time
+```
+
+**Files Added:**
+- `pricing_tool.py` - Real-time pricing tool (330 lines)
+- Updated `CARL_DESIGN_PRINCIPLES.md` with Principle #3
+- Updated `bedrock_service.py` prompts to emphasize cost
+
+**Cost:** Free - AWS Price List API has no charges
+
+See `CARL_DESIGN_PRINCIPLES.md` for complete cost-aware recommendation guidelines.
+
 ### Smart Infrastructure Generation Released 🎯 (January 28, 2026)
 
 **Revolutionary New Capability:** CARL now scans your AWS environment before generating infrastructure code!

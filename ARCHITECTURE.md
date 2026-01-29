@@ -458,7 +458,105 @@ RAG (Retrieval Augmented Generation) system for continuous learning.
 
 **SOC 2 Mapping:** CC1.4 (Continuous Improvement)
 
-### 7. Foundation Builder (`foundation/`)
+### 7. Real-Time Pricing Tool (`pricing_tool.py`) **NEW**
+
+Real-time AWS pricing using AWS Price List API for cost-aware recommendations.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     PRICING TOOL                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              AWS Price List API                              ││
+│  │                                                              ││
+│  │  Query real-time pricing for:                                ││
+│  │  - EC2 (all instance types, all regions)                     ││
+│  │  - RDS (all database engines, instance types)                ││
+│  │  - S3, Lambda, DynamoDB, Redshift                            ││
+│  │  - Glue, DMS, EMR, Kinesis                                   ││
+│  │  - VPC, NAT Gateway, ELB                                     ││
+│  │  - 200+ AWS services                                         ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                           │                                      │
+│                           ▼                                      │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │               Pricing Tool Functions                         ││
+│  │                                                              ││
+│  │  get_aws_pricing(service_code, region, filters)              ││
+│  │    → Full control, custom filters                            ││
+│  │                                                              ││
+│  │  get_common_service_pricing(service_name, region, ...)       ││
+│  │    → Simplified for common use cases                         ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                           │                                      │
+│                           ▼                                      │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                 AgentCore Tool                               ││
+│  │                                                              ││
+│  │  pricing_tool = Tool(                                        ││
+│  │    name="get_aws_pricing",                                   ││
+│  │    function=get_common_service_pricing,                      ││
+│  │    description="Get real-time pricing..."                    ││
+│  │  )                                                           ││
+│  │                                                              ││
+│  │  Any agent can register and use:                             ││
+│  │  - Advisory Agent                                            ││
+│  │  - Architect Agent                                           ││
+│  │  - Remediation Agent                                         ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                           │                                      │
+│                           ▼                                      │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │               Cost-Aware Recommendations                     ││
+│  │                                                              ││
+│  │  Example: "Should I use AWS Glue or EC2 for ETL?"            ││
+│  │                                                              ││
+│  │  Agent autonomously:                                         ││
+│  │  1. Calls get_aws_pricing(service_name="glue")               ││
+│  │  2. Calls get_aws_pricing(service_name="ec2", ...)           ││
+│  │  3. Compares: Glue $220/mo vs EC2 $50/mo + ops time          ││
+│  │  4. Recommends: Glue (better value, saves $110/mo ops time)  ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- Real-time pricing from AWS Price List API (always current)
+- Region-aware pricing with automatic multipliers
+- Instance-specific pricing (t3.medium, db.t3.large, etc.)
+- Supports 200+ AWS services
+- AgentCore Tool interface for autonomous agent use
+
+**Key Functions:**
+- `get_aws_pricing()` - Low-level API access with custom filters
+- `get_common_service_pricing()` - High-level simplified interface
+- `pricing_tool` - Tool definition for AgentCore registration
+
+**Design Principle Integration:**
+This tool implements **Design Principle #3: Cost-Aware Recommendations**
+- Always factor cost into architecture decisions
+- Compare options with cost tradeoffs
+- Recommend best VALUE (not just cheapest)
+- Show break-even analysis when relevant
+
+**Usage Example:**
+```python
+from services.pricing_tool import pricing_tool
+
+# Register with any agent
+agent = Agent(tools=[pricing_tool], instructions="...")
+
+# Agent autonomously calls pricing when needed
+# User: "What's the cost of running t3.medium 24/7?"
+# Agent calls: get_aws_pricing(service_name="ec2", instance_type="t3.medium")
+# Returns: $0.0416/hour = ~$30/month (real-time from API)
+```
+
+**Cost:** Free - AWS Price List API has no charges
+
+### 8. Foundation Builder (`foundation/`)
 
 Guided wizard for building compliant AWS infrastructure from scratch.
 
@@ -502,7 +600,7 @@ Guided wizard for building compliant AWS infrastructure from scratch.
 
 **SOC 2 Mapping:** CC5.1 (Control Activities), CC6.1 (Logical Access)
 
-### 8. Bootstrap Automation (`bootstrap/`) **NEW**
+### 9. Bootstrap Automation (`bootstrap/`) **NEW**
 
 Complete AWS environment bootstrap automation from scratch.
 

@@ -6,6 +6,17 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ## ✅ Completed (Current Release)
 
+### Real-Time Pricing Tool (January 29, 2026)
+- ✅ AWS Price List API integration for real-time pricing
+- ✅ Pricing tool for AgentCore (any agent can use)
+- ✅ Support for EC2, RDS, S3, Glue, DMS, Lambda, DynamoDB, Redshift, EMR, Kinesis, VPC, ELB
+- ✅ Region-aware pricing with instance-specific queries
+- ✅ Design Principle #3 documented: Cost-Aware Recommendations
+- ✅ Updated AI prompts to always include cost analysis
+- ✅ 330+ lines of new code (pricing_tool.py)
+
+**Impact:** CARL now provides real-time AWS pricing data in all recommendations. Agents can autonomously query pricing when answering cost questions. Implements "always show cost" principle.
+
 ### Smart Infrastructure Generation (January 28, 2026)
 - ✅ Resource detection service (scans AWS before generating code)
 - ✅ Environment-aware code generation (only creates missing resources)
