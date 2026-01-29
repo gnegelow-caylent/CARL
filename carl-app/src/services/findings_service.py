@@ -172,6 +172,49 @@ class FindingsService:
                 "error": str(e),
             }
 
+    def update_finding(
+        self,
+        finding_id: str,
+        account_id: str,
+        **updates
+    ) -> bool:
+        """Update arbitrary fields of a finding."""
+        try:
+            if not updates:
+                return True
+
+            # Build update expression
+            update_expr_parts = []
+            expr_values = {}
+            expr_names = {}
+
+            # Always update timestamp
+            updates["updated_at"] = datetime.utcnow().isoformat()
+
+            for key, value in updates.items():
+                # Use expression attribute names for reserved words
+                attr_name = f"#{key}"
+                attr_value = f":{key}"
+                update_expr_parts.append(f"{attr_name} = {attr_value}")
+                expr_values[attr_value] = value
+                expr_names[attr_name] = key
+
+            update_expr = "SET " + ", ".join(update_expr_parts)
+
+            self.table.update_item(
+                Key={"pk": f"ACCOUNT#{account_id}#FINDING#{finding_id}"},
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=expr_values,
+                ExpressionAttributeNames=expr_names,
+            )
+
+            logger.info(f"Updated finding: {finding_id}")
+            return True
+
+        except Exception as e:
+            logger.exception(f"Error updating finding: {finding_id}")
+            return False
+
     def update_finding_status(
         self,
         finding_id: str,
