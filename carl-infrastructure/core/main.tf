@@ -489,6 +489,96 @@ resource "aws_iam_role_policy" "secrets_manager" {
   })
 }
 
+# Evidence collection permissions (read-only access to AWS resources)
+resource "aws_iam_role_policy" "evidence_collection" {
+  name = "evidence-collection"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          # S3 - List buckets and get configurations
+          "s3:ListAllMyBuckets",
+          "s3:GetBucketEncryption",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketLogging",
+          "s3:GetBucketPolicy"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          # IAM - List users, roles, policies for compliance checks
+          "iam:GetAccountPasswordPolicy",
+          "iam:ListUsers",
+          "iam:GetUser",
+          "iam:ListMFADevices",
+          "iam:ListAccessKeys",
+          "iam:GetAccessKeyLastUsed",
+          "iam:ListUserPolicies",
+          "iam:ListAttachedUserPolicies",
+          "iam:ListRoles",
+          "iam:GetRole",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          # Security Hub - Get findings and standards
+          "securityhub:GetEnabledStandards",
+          "securityhub:GetFindings",
+          "securityhub:DescribeHub",
+          "securityhub:ListEnabledProductsForImport"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          # CloudTrail - Get trail configurations
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:GetEventSelectors"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          # VPC/EC2 - Get network configurations
+          "ec2:DescribeVpcs",
+          "ec2:DescribeFlowLogs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeNetworkAcls",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeInternetGateways",
+          "ec2:DescribeNatGateways"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          # Config - Get compliance rules
+          "config:DescribeConfigRules",
+          "config:DescribeComplianceByConfigRule",
+          "config:GetComplianceDetailsByConfigRule"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # CloudFormation/Terraform deployment permissions (for feature deployment)
 resource "aws_iam_role_policy" "deploy_features" {
   name = "deploy-features"
