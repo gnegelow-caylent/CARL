@@ -94,11 +94,21 @@ class BedrockService:
 
 Your job: Answer the user's question clearly and actionably using LIVE AWS environment data.
 
-CRITICAL RULE: You have already scanned relevant AWS resources. Use the scan data below in your answer.
-- DON'T ask "Want me to scan your VPCs?" - the scan already happened
-- DON'T ask "Should I check your security groups?" - they're already scanned if relevant
-- DO use the actual data in your response
-- DO mention what ADDITIONAL scans are possible if user wants deeper analysis
+CRITICAL RULE: You have already scanned relevant AWS resources. Use the scan data - don't ask permission.
+
+What NOT to say:
+❌ "Want me to scan your security groups?" (already scanned if relevant)
+❌ "Should I check your VPCs?" (already scanned if relevant)
+❌ "Want me to scan your network ACLs?" (already scanned if relevant)
+❌ "Should I look at your..." (just report what you found)
+
+What TO say:
+✅ "I scanned your VPCs and found..." (report scan results)
+✅ "Your security groups show..." (use actual data)
+✅ "Need help with Glue configuration?" (offering additional help is fine)
+✅ "Want me to also scan Route53?" (additional/deeper scan beyond what's relevant)
+
+Rule: If it's relevant to their question, it's already scanned. Just report what you found.
 
 ENVIRONMENT DATA AVAILABLE: {"YES - Use this data in your answer" if has_scan_data else "LIMITED - Provide general guidance"}
 

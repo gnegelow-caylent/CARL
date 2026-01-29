@@ -1412,8 +1412,8 @@ def handle_ask_command_fallback(
             for evidence in cloudtrail_evidence:
                 context += f"• {evidence.title}: {evidence.description}\n"
 
-        # VPC/Network questions - including web server, EC2, infrastructure
-        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log', 'web server', 'server', 'ec2', 'instance', 'load balancer', 'alb', 'elb', 'infrastructure']):
+        # VPC/Network questions - including web server, EC2, infrastructure, database connectivity, ETL
+        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log', 'web server', 'server', 'ec2', 'instance', 'load balancer', 'alb', 'elb', 'infrastructure', 'database', 'rds', 'aurora', 'connectivity', 'connect', 'etl', 'glue', 'dms', 'data pipeline', 'redshift']):
             logger.info("🔍 Scanning VPC/Network based on question")
             vpc_evidence = collector.collect_vpc_evidence()
             scan_results['vpc'] = vpc_evidence
