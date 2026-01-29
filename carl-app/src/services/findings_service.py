@@ -40,12 +40,14 @@ class FindingsService:
         try:
             # If we don't have account_id, we need to scan (less efficient)
             if account_id:
-                response = self.table.get_item(
-                    Key={
-                        "pk": f"ACCOUNT#{account_id}#FINDING#{finding_id}",
-                    }
+                # Use Query instead of GetItem since we have composite keys (pk + sk)
+                # We know the pk but not the exact sk (which includes timestamp)
+                response = self.table.query(
+                    KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                    Limit=1
                 )
-                item = response.get("Item")
+                items = response.get("Items", [])
+                item = items[0] if items else None
             else:
                 # Query by finding_id across accounts
                 response = self.table.scan(
