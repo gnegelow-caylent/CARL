@@ -466,6 +466,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("account_id")
         )
 
+    if event.get("action") == "process_status_async":
+        logger.info("Processing async status command")
+        slack = get_slack_service()
+        return handle_status_command_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id")
+        )
+
     if event.get("action") == "process_vpc_config_async":
         logger.info("Processing async VPC config submission")
         slack = get_slack_service()
@@ -700,102 +709,235 @@ def handle_slash_command(payload: dict) -> dict:
 def handle_status_command(
     slack: SlackService, channel_id: str, user_id: str
 ) -> dict:
-    """Handle /carl status command."""
-    findings_service = get_findings_service()
+    """Handle /carl status command - async wrapper for live scanning."""
+    import boto3
+    import json
+    import os
 
-    summary = findings_service.get_compliance_summary()
+    # Post immediate response
+    slack.post_message(channel_id, text="🔍 Scanning your AWS environment for SOC 2 compliance status...")
 
-    # Calculate overall health score
-    total = summary.get('total', 0)
-    critical = summary.get('critical', 0)
-    high = summary.get('high', 0)
-    medium = summary.get('medium', 0)
-    low = summary.get('low', 0)
-
-    # Determine health status and emoji
-    if critical > 0:
-        health_status = "🔴 Critical Issues"
-        health_color = "#d32f2f"
-    elif high > 5:
-        health_status = "🟠 Needs Attention"
-        health_color = "#f57c00"
-    elif high > 0 or medium > 10:
-        health_status = "🟡 Monitor Closely"
-        health_color = "#fbc02d"
-    else:
-        health_status = "🟢 Healthy"
-        health_color = "#388e3c"
-
-    blocks = [
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "📊 Compliance Status",
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Overall Health:* {health_status}"
-            }
-        },
-        {
-            "type": "divider"
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Security Findings Breakdown:*"
-            }
-        },
-        {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"🔴 *Critical*\n{critical}",
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"🟠 *High*\n{high}",
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"🟡 *Medium*\n{medium}",
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"⚪ *Low*\n{low}",
-                },
-            ],
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"📈 *Total Open Issues:* `{total}`",
-            },
-        },
-        {
-            "type": "divider"
-        },
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"🕐 Last updated: {summary.get('last_updated', 'N/A')} | Use `/carl findings` to see details",
-                }
-            ],
-        },
-    ]
-
-    slack.post_message(channel_id, blocks=blocks)
+    # Invoke async processing
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_status_async',
+                'channel_id': channel_id,
+                'user_id': user_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async status: {e}")
+        # Fallback to synchronous
+        return handle_status_command_sync(slack, channel_id, user_id)
 
     return {"statusCode": 200, "body": ""}
+
+
+def handle_status_command_sync(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Handle /carl status command - synchronous version with live scanning."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+    from collections import defaultdict
+
+    evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+    evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+    findings_service = get_findings_service()
+
+    try:
+        # 1. LIVE SCAN - Environment-First Principle
+        logger.info("🔍 Running live AWS environment scan for status check")
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
+
+        # Collect all evidence
+        all_evidence = collector.collect_all_evidence()
+
+        # Analyze evidence to create findings
+        findings = collector.create_findings_from_evidence(all_evidence)
+
+        # Store new findings
+        new_findings_count = 0
+        for finding in findings:
+            try:
+                findings_service.store_finding(finding)
+                new_findings_count += 1
+            except Exception as e:
+                logger.error(f"Failed to store finding: {e}")
+
+        logger.info(f"✓ Live scan complete: {new_findings_count} findings created/updated")
+
+        # 2. COMPLIANCE MAPPING - Compliance-Native Principle
+        # Get all current findings (including newly created)
+        all_findings = findings_service.get_recent_findings(limit=100)
+
+        # Count by severity
+        critical = sum(1 for f in all_findings if f.get('severity') == 'CRITICAL')
+        high = sum(1 for f in all_findings if f.get('severity') == 'HIGH')
+        medium = sum(1 for f in all_findings if f.get('severity') == 'MEDIUM')
+        low = sum(1 for f in all_findings if f.get('severity') == 'LOW')
+        total = len(all_findings)
+
+        # Map findings to SOC 2 controls
+        controls_with_issues = defaultdict(list)
+        for finding in all_findings:
+            control_ids = finding.get('control_ids', [])
+            for control_id in control_ids:
+                controls_with_issues[control_id].append(finding)
+
+        # Calculate SOC 2 compliance percentage (43 total controls)
+        total_soc2_controls = 43
+        controls_violated = len(controls_with_issues)
+        controls_compliant = total_soc2_controls - controls_violated
+        compliance_percentage = int((controls_compliant / total_soc2_controls) * 100)
+
+        # Determine audit impact
+        audit_blockers = sum(1 for f in all_findings if f.get('severity') in ['CRITICAL', 'HIGH'])
+
+        # Determine health status
+        if critical > 0:
+            health_status = "🔴 CRITICAL - Audit Blockers Found"
+            health_emoji = "🔴"
+        elif high > 5:
+            health_status = "🟠 NEEDS ATTENTION - Multiple High Issues"
+            health_emoji = "🟠"
+        elif high > 0 or medium > 10:
+            health_status = "🟡 MONITOR CLOSELY - Some Issues Found"
+            health_emoji = "🟡"
+        else:
+            health_status = "🟢 HEALTHY - Audit Ready"
+            health_emoji = "🟢"
+
+        # Build Slack blocks
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "📊 SOC 2 Compliance Status (Live Scan)"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Overall Status:* {health_status}"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*SOC 2 Compliance*\n{health_emoji} {compliance_percentage}% Compliant"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Audit Blockers*\n🚫 {audit_blockers} Critical/High"
+                    }
+                ]
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Security Findings (by Severity):*"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"🔴 *Critical*\n{critical} (audit blockers)"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"🟠 *High*\n{high} (auditor will flag)"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"🟡 *Medium*\n{medium} (should fix)"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"⚪ *Low*\n{low} (nice to have)"
+                    }
+                ]
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*SOC 2 Controls Affected:* {controls_violated} of {total_soc2_controls}"
+                }
+            }
+        ]
+
+        # Show top 3 violated controls
+        if controls_with_issues:
+            top_controls = sorted(controls_with_issues.items(), key=lambda x: len(x[1]), reverse=True)[:3]
+            controls_text = []
+            for control_id, control_findings in top_controls:
+                count = len(control_findings)
+                controls_text.append(f"• *{control_id}*: {count} finding{'s' if count > 1 else ''}")
+
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Top Violated Controls:*\n" + "\n".join(controls_text)
+                }
+            })
+
+        # Add action items
+        blocks.extend([
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Next Steps:*\n" +
+                           (f"1. Fix {audit_blockers} audit blockers immediately\n" if audit_blockers > 0 else "") +
+                           f"2. Run `/carl findings` to see all issues\n" +
+                           f"3. Run `/carl jira sync` to create tickets\n" +
+                           f"4. Run `/carl evidence collect` to refresh data"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"🔍 Live scan completed just now | {total} total findings"
+                    }
+                ]
+            }
+        ])
+
+        slack.post_message(channel_id, blocks=blocks)
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.exception("Error in status command")
+        slack.post_message(channel_id, text=f"❌ Failed to get status: {str(e)}")
+        return {"statusCode": 200, "body": ""}
 
 
 def handle_findings_list_command(
