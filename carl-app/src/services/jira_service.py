@@ -25,13 +25,13 @@ logger = get_logger(__name__)
 class JiraService:
     """Service for Jira Cloud API integration."""
 
-    # Issue type IDs (set after project creation)
-    ISSUE_TYPE_SECURITY_FINDING = "Security Finding"
-    ISSUE_TYPE_RISK_EXCEPTION = "Risk Exception"
-    ISSUE_TYPE_DRIFT = "Configuration Drift"
-    ISSUE_TYPE_FEATURE = "Feature Request"
+    # Issue type IDs (use standard Jira types for compatibility)
+    ISSUE_TYPE_SECURITY_FINDING = "Task"  # Changed from "Security Finding" to standard type
+    ISSUE_TYPE_RISK_EXCEPTION = "Task"
+    ISSUE_TYPE_DRIFT = "Task"
+    ISSUE_TYPE_FEATURE = "Story"
     ISSUE_TYPE_BUG = "Bug"
-    ISSUE_TYPE_INFRA_CHANGE = "Infrastructure Change"
+    ISSUE_TYPE_INFRA_CHANGE = "Task"
 
     # Project keys
     PROJECT_SECURITY = "CARLSEC"

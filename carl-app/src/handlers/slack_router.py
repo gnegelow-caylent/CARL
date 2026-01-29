@@ -3943,7 +3943,7 @@ def handle_jira_sync(
                 synced_count += 1
             else:
                 failed_count += 1
-                logger.error(f"Failed to sync finding {finding['finding_id']}: {result.get('error')}")
+                logger.error(f"Failed to sync finding {finding['id']}: {result.get('error')}")
 
         # Report results
         slack.post_message(
