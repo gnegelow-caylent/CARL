@@ -15,13 +15,142 @@
 
 ---
 
-## Design Principle: Environment-First Architecture
+## Design Principle #1: Environment-First Architecture
 
 Every CARL command should:
 1. **Scan first, answer second** - Query AWS APIs before responding
 2. **Use actual resource names** - "Your S3 bucket 'prod-data' is not encrypted" not "S3 buckets should be encrypted"
 3. **Provide contextual recommendations** - Based on what YOU have, not generic best practices
 4. **Know your current state** - Don't recommend what you already have
+
+---
+
+## Design Principle #2: Compliance-Native Intelligence
+
+**CARL's second core value:** Deep understanding of compliance frameworks paired with environment access.
+
+**Without this, CARL is just an AWS scanner** - which CloudFormation Guard or AWS Config could do.
+
+### What Makes CARL Different
+
+**Generic scanner:**
+- "Your S3 bucket is not encrypted"
+- "Enable MFA on IAM users"
+
+**CARL (Compliance-Native):**
+- "Your S3 bucket 'prod-data' is not encrypted, violating **SOC 2 CC6.7** (Logical and Physical Access Controls)"
+- "This affects your **Data Confidentiality** trust service criteria"
+- "IAM user 'john@company.com' lacks MFA, non-compliant with **SOC 2 CC6.1** (Logical Access Controls)"
+- "This creates an auditor finding in the **Access Control** section of your audit report"
+
+### Deep Compliance Knowledge Required
+
+CARL must understand:
+
+**1. SOC 2 Trust Service Criteria (Current Focus)**
+- **CC6.1** - Logical access controls (MFA, password policies)
+- **CC6.6** - Encryption at rest (S3, RDS, EBS)
+- **CC6.7** - Encryption in transit (TLS, HTTPS)
+- **CC7.2** - System monitoring (CloudTrail, CloudWatch)
+- **CC8.1** - Change management (Infrastructure as Code)
+- And 38 other SOC 2 controls
+
+**2. What Controls Mean in AWS Terms**
+- CC6.1 → IAM password policies, MFA enforcement, access keys rotation
+- CC6.6 → S3 bucket encryption, RDS encryption, EBS encryption
+- CC7.2 → CloudTrail enabled, VPC Flow Logs, CloudWatch alarms
+- A1.2 → Multi-AZ deployments, backup plans, disaster recovery
+
+**3. How to Implement Controls**
+- Not just "enable encryption"
+- Specific: "aws s3api put-bucket-encryption --bucket prod-data --server-side-encryption-configuration..."
+- Terraform code for the fix
+- Step-by-step remediation plan
+
+**4. Audit Evidence Requirements**
+- What auditors will ask for
+- How to collect and present evidence
+- How to document exceptions and compensating controls
+
+### Compliance-Environment Pairing
+
+Every finding should map:
+```
+[AWS Resource] → [Issue] → [SOC 2 Control] → [Remediation] → [Evidence]
+
+Example:
+S3 bucket "prod-data"
+  → Not encrypted
+  → Violates CC6.6 (Encryption at Rest)
+  → Enable AES-256 encryption (here's the Terraform code)
+  → Store encryption config as evidence for auditors
+```
+
+### Multi-Framework Support (Roadmap)
+
+**Phase 1: SOC 2 (Current)**
+- Full SOC 2 Type II control mapping
+- Evidence collection automation
+- Gap analysis and remediation plans
+
+**Phase 2: Expand to Other Frameworks**
+- **HIPAA** - Health data compliance
+- **PCI-DSS** - Payment card data security
+- **ISO 27001** - Information security management
+- **FedRAMP** - Federal government requirements
+- **GDPR** - EU data protection
+
+**Cross-Framework Intelligence:**
+- "This S3 encryption issue violates:"
+  - SOC 2 CC6.6
+  - HIPAA 164.312(a)(2)(iv)
+  - PCI-DSS 3.4
+  - ISO 27001 A.10.1.1
+- Fix once, satisfy multiple compliance requirements
+
+### Why This Matters
+
+**Without compliance knowledge:**
+- "You have 15 security issues"
+- User: "Which ones matter for my SOC 2 audit?"
+- CARL: "¯\_(ツ)_/¯"
+
+**With compliance knowledge:**
+- "You have 15 security issues:"
+- "7 are SOC 2 blockers (won't pass audit)"
+- "5 are high priority (auditor will mention)"
+- "3 are best practices (nice to have)"
+- "Fix these 7 first to pass your audit"
+
+### Implementation in Code
+
+Every finding must include:
+```python
+Finding(
+    id="finding-abc123",
+    title="S3 Bucket Not Encrypted",
+    resource_id="arn:aws:s3:::prod-data",
+    severity="HIGH",
+    control_ids=["CC6.6", "A1.2"],  # SOC 2 controls affected
+    control_names=[
+        "Encryption at Rest",
+        "Availability Criteria"
+    ],
+    compliance_frameworks=["SOC2"],  # Future: ["SOC2", "HIPAA", "PCI-DSS"]
+    audit_impact="HIGH",  # Will this cause audit failure?
+    remediation_steps="...",  # Specific AWS actions
+    terraform_fix="...",  # Infrastructure as code
+    evidence_required="...",  # What auditors need
+)
+```
+
+### The Test
+
+Before deploying any compliance feature, ask:
+> "Does this help the user pass their SOC 2 audit?"
+
+If YES → Feature provides compliance value
+If NO → Feature is just security scanning (not enough)
 
 ---
 
@@ -124,22 +253,61 @@ If you see:
 
 ---
 
-## The Test
+## The Combined Value Proposition
 
-Before deploying any feature, ask:
-> "Could the user get this same answer from ChatGPT?"
+CARL = **Live AWS Environment Access** + **Deep Compliance Knowledge**
 
-If YES → Feature is broken, needs live AWS integration
-If NO → Feature is using CARL's advantage correctly
+### Two Tests for Every Feature
+
+**Test #1: Environment Access**
+> "Could the user get this answer from ChatGPT?"
+
+- If YES → Feature is broken, needs live AWS integration
+- If NO → Feature is using CARL's environment advantage ✓
+
+**Test #2: Compliance Intelligence**
+> "Does this help the user pass their SOC 2 audit?"
+
+- If YES → Feature provides compliance value ✓
+- If NO → Feature is just security scanning (not enough)
+
+**Both must pass** for a feature to deliver CARL's full value.
+
+### Examples
+
+❌ **Bad:** Generic advice without environment data or compliance context
+- "You should enable MFA" (no environment scan, no SOC 2 mapping)
+
+⚠️ **Half-Good:** Environment data but no compliance context
+- "User john@company.com doesn't have MFA" (has environment data, but missing why it matters for SOC 2)
+
+⚠️ **Half-Good:** Compliance advice but no environment data
+- "SOC 2 CC6.1 requires MFA" (knows SOC 2, but doesn't know if YOUR users have MFA)
+
+✅ **Excellent:** Environment data + Compliance intelligence
+- "User john@company.com doesn't have MFA, violating SOC 2 CC6.1 (Logical Access Controls). This is an audit blocker. Fix: aws iam enable-mfa-device --user-name john@company.com..."
 
 ---
 
 ## Priority Fixes (In Order)
 
-1. `/carl status` - Add live scan
-2. `/carl architect` - Scan network topology first
-3. `/carl recommend` - Scan infrastructure first
-4. `/carl foundation start` - Detect existing resources
-5. `/carl findings` - Add live scan option
+### Environment Access Fixes
+1. **`/carl status`** - Add live scan + SOC 2 control mapping
+2. **`/carl architect`** - Scan network topology first + map to compliance requirements
+3. **`/carl recommend`** - Scan infrastructure first + compliance impact analysis
+4. **`/carl foundation start`** - Detect existing resources + compliance coverage check
+5. **`/carl findings`** - Add live scan option + always show SOC 2 control IDs
 
-**The goal:** Make every command impossible to replicate without AWS IAM access (Lambda execution role).
+### Compliance Intelligence Enhancements
+1. **Findings → SOC 2 mapping** - Every finding must show which controls it violates
+2. **Audit impact scoring** - "This will fail your audit" vs "auditor will mention" vs "nice to have"
+3. **Evidence automation** - Auto-collect evidence for each SOC 2 control
+4. **Gap analysis** - "You're 78% compliant with SOC 2, here are the 12 gaps"
+5. **Multi-framework roadmap** - Add HIPAA, PCI-DSS, ISO 27001 mappings
+
+### The Goal
+Make every command impossible to replicate without:
+1. AWS IAM access (Lambda execution role) - *for environment data*
+2. Deep SOC 2 compliance knowledge - *for audit-ready guidance*
+
+**Together, these make CARL uniquely valuable.**
