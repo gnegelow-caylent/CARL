@@ -273,32 +273,33 @@ CARL's problems are **multi-step workflows**, perfect for agents:
 ### Agent Architecture Proposal
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    CARL Agent Core                      │
-├─────────────────────────────────────────────────────────┤
-│  Agent Orchestrator (orchestrator.py)                   │
-│  - Routes tasks to specialized agents                   │
-│  - Manages agent lifecycle                              │
-│  - Handles agent communication                          │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         CARL Agent Core                               │
+├──────────────────────────────────────────────────────────────────────┤
+│  Agent Orchestrator (orchestrator.py)                                 │
+│  - Routes tasks to specialized agents                                 │
+│  - Manages agent lifecycle                                            │
+│  - Handles agent communication                                        │
+└──────────────────────────────────────────────────────────────────────┘
                            │
-        ┌──────────────────┼──────────────────┬──────────────────┐
-        ▼                  ▼                  ▼                  ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ Architect/   │  │ Remediation  │  │ Compliance   │  │ Incident     │
-│ CodeBuild    │  │ Agent        │  │ Agent        │  │ Response     │
-│ Agent        │  │              │  │              │  │ Agent        │
-├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
-│ Tools:       │  │ Tools:       │  │ Tools:       │  │ Tools:       │
-│ - Patterns   │  │ - AWS API    │  │ - Scanner    │  │ - PagerDuty  │
-│ - AWS Scan   │  │ - Terraform  │  │ - Findings   │  │ - Slack      │
-│ - Pricing    │  │ - Git        │  │ - Jira       │  │ - Jira       │
-│ - Terraform  │  │ - Bedrock    │  │ - Bedrock    │  │ - Bedrock    │
-│ - Git/PR     │  │              │  │              │  │              │
-│ - Bedrock    │  │              │  │              │  │              │
-└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
-        │                  │                  │                  │
-        └──────────────────┼──────────────────┼──────────────────┘
+        ┌──────────────────┼──────────────────┬──────────────────┬─────────────┐
+        ▼                  ▼                  ▼                  ▼             ▼
+┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐
+│ Advisory    │  │ Architect/   │  │ Remediation  │  │ Compliance   │  │ Incident    │
+│ Agent ✅    │  │ CodeBuild    │  │ Agent        │  │ Agent        │  │ Response    │
+│             │  │ Agent        │  │              │  │              │  │ Agent       │
+├─────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤  ├─────────────┤
+│ Tools:      │  │ Tools:       │  │ Tools:       │  │ Tools:       │  │ Tools:      │
+│ - Env Scan  │  │ - Patterns   │  │ - AWS API    │  │ - Scanner    │  │ - PagerDuty │
+│ - Compliance│  │ - AWS Scan   │  │ - Terraform  │  │ - Findings   │  │ - Slack     │
+│ - Analysis  │  │ - Pricing    │  │ - Git        │  │ - Jira       │  │ - Jira      │
+│ - BestPrac  │  │ - Terraform  │  │ - Bedrock    │  │ - Bedrock    │  │ - Bedrock   │
+│ - Clarify   │  │ - Git/PR     │  │              │  │              │  │             │
+│ - Handoff   │  │ - Bedrock    │  │              │  │              │  │             │
+│ - Bedrock   │  │              │  │              │  │              │  │             │
+└─────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  └─────────────┘
+        │                  │                  │                  │                │
+        └──────────────────┼──────────────────┼──────────────────┼────────────────┘
                            ▼
                 ┌──────────────────┐
                 │  Shared Tools    │
@@ -380,29 +381,36 @@ response = bedrock_agent.invoke_agent(
 ### Phase 2: Agent Foundation (3-4 weeks)
 **Goal**: Build agent infrastructure
 
-1. **Agent Orchestrator** (1 week)
+1. ✅ **Advisory Agent** (Done)
+   - Intelligent Q&A with environment awareness
+   - Multi-step reasoning for complex questions
+   - Scans relevant AWS resources
+   - Provides tailored recommendations
+   - Factors in SOC 2 compliance
+   - Hands off to other agents when needed
+2. **Agent Orchestrator** (1 week)
    - Routes tasks to specialized agents
    - Manages agent sessions
    - Handles callbacks to Slack
-2. **Architect/CodeBuild Agent** (1.5 weeks) 🎯 **HIGH PRIORITY**
+3. **Architect/CodeBuild Agent** (1.5 weeks) 🎯 **HIGH PRIORITY**
    - Interactive requirements gathering
    - Scans existing environment
    - Selects appropriate patterns
    - Generates customized Terraform
    - Validates best practices
    - Creates PRs with justification
-3. **Remediation Agent** (1.5 weeks)
+4. **Remediation Agent** (1.5 weeks)
    - Investigates findings
    - Generates fixes
    - Creates PRs
    - Verifies results
-4. **Shared Agent Tools** (1 week)
+5. **Shared Agent Tools** (1 week)
    - AWS API wrapper
    - Terraform helper
    - GitHub integration
    - DynamoDB state management
 
-**Outcome**: `/carl build <requirement>` intelligently generates infrastructure + `/carl fix <finding-id>` automatically remediates issues
+**Outcome**: `/carl ask` provides intelligent answers + `/carl build <requirement>` intelligently generates infrastructure + `/carl fix <finding-id>` automatically remediates issues
 
 ### Phase 3: Advanced Agents (4-6 weeks)
 **Goal**: Full autonomous capabilities

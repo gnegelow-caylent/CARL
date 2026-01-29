@@ -573,6 +573,308 @@ Complete AWS environment bootstrap automation from scratch.
 
 ---
 
+## AI Agent Architecture
+
+### Overview
+
+CARL uses **AWS Bedrock Agents** for autonomous multi-step workflows. Each agent is specialized for a specific domain and can reason, plan, use tools, and collaborate with other agents.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                         CARL Agent System                             │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  User Command (Slack)                                                 │
+│       │                                                               │
+│       ▼                                                               │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │               Agent Orchestrator (Future)                       │  │
+│  │  - Routes tasks to specialized agents                           │  │
+│  │  - Manages agent sessions and state                             │  │
+│  │  - Handles inter-agent communication                            │  │
+│  │  - Aggregates results                                           │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│       │                                                               │
+│       ├────────────┬──────────────┬──────────────┬──────────────┐    │
+│       ▼            ▼              ▼              ▼              ▼    │
+│  ┌─────────┐  ┌────────────┐  ┌─────────┐  ┌──────────┐  ┌────────┐│
+│  │Advisory │  │ Architect/ │  │Remedia- │  │Compliance│  │Incident││
+│  │ Agent   │  │ CodeBuild  │  │tion     │  │  Agent   │  │Response││
+│  │   ✅    │  │  Agent     │  │ Agent   │  │          │  │ Agent  ││
+│  └─────────┘  └────────────┘  └─────────┘  └──────────┘  └────────┘│
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Capabilities
+
+**1. Advisory Agent** ✅ **LIVE**
+
+**Purpose:** Intelligent Q&A with environment awareness and compliance knowledge
+
+**What It Does:**
+- Analyzes complex questions to understand user intent
+- Scans relevant AWS resources based on question context
+- Provides tailored recommendations using actual environment data
+- Factors in SOC 2 compliance requirements
+- Asks clarifying questions when more information is needed
+- Hands off to other agents (Architect) for code generation
+
+**Example:**
+```
+User: "How do I stand up a web server?"
+
+Agent autonomously:
+1. Scans VPCs, subnets, security groups, load balancers
+2. Retrieves SOC 2 requirements for web servers
+3. Analyzes current architecture
+4. Provides specific recommendation:
+   "I see you have VPC vpc-abc123 with 3 public subnets. For a
+   SOC 2-compliant web server, I recommend..."
+5. Offers to hand off to Architect Agent for Terraform generation
+```
+
+**Tools:**
+- `scan_environment` - Targeted AWS resource scanning
+- `get_compliance_requirements` - SOC 2 requirements lookup
+- `analyze_architecture` - Current setup analysis
+- `get_best_practices` - AWS best practices retrieval
+- `check_existing_resources` - Resource existence checks
+- `ask_clarification` - Interactive follow-up questions
+- `handoff_to_architect` - Transfer to code generation agent
+
+**Cost:** ~$0.003/question | **Implementation:** `advisory_agent.py` | **Docs:** `ADVISORY_AGENT.md`
+
+**Commands:** `/carl ask <question>`
+
+---
+
+**2. Architect/CodeBuild Agent** (Planned)
+
+**Purpose:** AI-driven infrastructure code generation with pattern selection
+
+**What It Does:**
+- Interactive requirements gathering (asks questions about HA, traffic, etc.)
+- Scans existing environment to avoid duplicates
+- Selects appropriate architecture patterns from 43+ available
+- Generates customized Terraform code
+- Validates against AWS best practices
+- Estimates costs accurately
+- Creates GitHub PRs with architectural justification
+- Responds to review feedback
+
+**Example:**
+```
+User: "/carl build networking/production-vpc"
+
+Agent autonomously:
+1. Scans existing VPCs, Transit Gateways
+2. Asks clarifying questions (traffic volume, HA needs)
+3. Selects patterns (multi-AZ VPC, VPC endpoints, TGW attachment)
+4. Generates Terraform code (850 lines)
+5. Validates (flow logs ✓, multi-AZ ✓, endpoints ✓)
+6. Calculates cost (~$220/month)
+7. Creates PR with justification
+8. Posts to Slack with summary
+```
+
+**Tools:**
+- Architecture patterns (43+)
+- AWS pricing data
+- Resource detection
+- Terraform generation
+- GitHub PR creation
+- Cost estimation
+
+**Status:** Planned for Phase 2 | **Priority:** HIGH
+
+**Commands:** `/carl build <blueprint>`, `/carl architect <question>`
+
+---
+
+**3. Remediation Agent** (Planned)
+
+**Purpose:** Autonomous issue remediation with validation
+
+**What It Does:**
+- Investigates findings to understand root cause
+- Generates fix (Terraform or AWS CLI)
+- Validates fix would work without breaking dependencies
+- Creates GitHub PR with remediation
+- Applies change (with approval workflow)
+- Verifies fix succeeded
+- Updates finding status
+
+**Example:**
+```
+User: "/carl fix finding-abc123"
+
+Agent autonomously:
+1. Retrieves finding details (S3 bucket missing encryption)
+2. Checks bucket configuration
+3. Determines safe remediation (enable AES-256)
+4. Generates Terraform code
+5. Creates PR with fix
+6. After approval, applies change
+7. Verifies encryption enabled
+8. Closes finding
+```
+
+**Tools:**
+- Finding investigation
+- AWS API access
+- Terraform generation
+- Git/GitHub integration
+- Change validation
+
+**Status:** Planned for Phase 2 | **Priority:** HIGH
+
+**Commands:** `/carl fix <finding-id>`, `/carl remediate <resource>`
+
+---
+
+**4. Compliance Agent** (Planned)
+
+**Purpose:** End-to-end SOC 2 compliance management
+
+**What It Does:**
+- Full environment scan across all accounts
+- Maps findings to 43 SOC 2 controls
+- Identifies compliance gaps
+- Generates 4-phase remediation plan
+- Creates Jira epic with child stories
+- Tracks remediation progress
+- Reports compliance status
+- Generates audit-ready reports
+
+**Example:**
+```
+User: "/carl compliance get-ready-for-soc2"
+
+Agent autonomously:
+1. Scans environment (156 resources)
+2. Analyzes findings against SOC 2
+3. Calculates coverage (23/43 controls = 53%)
+4. Generates 4-phase remediation plan
+5. Creates Jira epic with 37 stories
+6. Posts roadmap to Slack
+Result: Clear path from 53% → 100% in 4-6 weeks
+```
+
+**Tools:**
+- Environment scanner
+- SOC 2 control mapping
+- Gap analysis
+- Remediation planning
+- Jira integration
+- Report generation
+
+**Status:** Planned for Phase 3 | **Priority:** HIGH
+
+**Commands:** `/carl compliance assess`, `/carl compliance status`
+
+---
+
+**5. Incident Response Agent** (Planned)
+
+**Purpose:** Autonomous incident detection, triage, and coordination
+
+**What It Does:**
+- Detects critical security findings
+- Assesses severity and impact scope
+- Checks if related to known incidents
+- Creates incident ticket
+- Notifies stakeholders (PagerDuty, Slack)
+- Suggests containment steps
+- Coordinates remediation
+- Documents incident timeline
+- Verifies remediation complete
+
+**Example:**
+```
+Critical Finding: "Security group allows SSH from 0.0.0.0/0"
+
+Agent autonomously:
+1. Assesses severity (CRITICAL - public SSH)
+2. Determines impact (production VPC, 3 EC2 instances)
+3. Creates PagerDuty incident
+4. Notifies security team in Slack
+5. Suggests containment: "Restrict SG to office IP immediately"
+6. Links to runbook
+7. Tracks remediation progress
+8. Closes incident after verification
+```
+
+**Tools:**
+- Finding analysis
+- Impact assessment
+- PagerDuty integration
+- Slack notifications
+- Runbook retrieval
+- Remediation tracking
+
+**Status:** Planned for Phase 3 | **Priority:** MEDIUM
+
+**Commands:** `/carl incident <finding-id>`, `/carl incident list`
+
+---
+
+### Agent Implementation: AWS Bedrock Agents
+
+**Why Bedrock Agents?**
+
+✅ No need to build orchestration logic (AWS handles it)
+✅ Built-in reasoning and planning
+✅ Error handling and retries
+✅ Tool calling framework
+✅ Session management
+✅ Cost-effective ($0.002/invocation + model costs)
+
+**How It Works:**
+
+```python
+# Initialize agent
+from services.advisory_agent import AdvisoryAgent
+
+agent = AdvisoryAgent(agent_id="advisory-agent-id")
+
+# Invoke with question
+result = agent.ask_question(
+    question="How do I stand up a web server?",
+    session_id="user-session-123"
+)
+
+# Agent autonomously:
+# 1. Plans steps (what resources to scan)
+# 2. Calls tools (scan_environment, get_compliance_requirements)
+# 3. Reasons about results
+# 4. Generates tailored response
+# 5. Returns answer + actions taken
+```
+
+**Agent Configuration:**
+
+Each agent is configured in AWS Bedrock with:
+- **Agent Instructions:** System prompt defining agent's role and behavior
+- **Action Groups:** Sets of tools the agent can use
+- **Knowledge Bases:** Static patterns, pricing data, SOC 2 mappings (RAG)
+- **Lambda Functions:** Tool implementations
+
+**Cost Model:**
+
+| Agent Type | Per Invocation | Monthly (100 uses) |
+|------------|----------------|-------------------|
+| Advisory | $0.003 | $0.30 |
+| Architect | $0.01 | $1.00 |
+| Remediation | $0.01 | $1.00 |
+| Compliance | $0.02 | $2.00 |
+| Incident | $0.005 | $0.50 |
+| **Total** | - | **$4.80/month** |
+
+**ROI:** Saves 20+ hours/month of engineering time = **$2,000+/month value**
+
+---
+
 ## AWS Services Stack
 
 ### Security & Compliance Services (Per Account)
