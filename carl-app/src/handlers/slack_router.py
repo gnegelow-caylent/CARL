@@ -1366,7 +1366,6 @@ def handle_ask_command_fallback(
 
     # Get context and generate response
     bedrock = get_bedrock_service()
-    findings_service = get_findings_service()
 
     question_lower = question.lower()
     context = ""
@@ -1461,21 +1460,9 @@ def handle_ask_command_fallback(
         logger.error(f"Failed to scan environment: {e}", exc_info=True)
         context += f"\nNote: Live scan encountered an error: {str(e)}\n\n"
 
-    # Add stored findings as backup context
-    summary = findings_service.get_compliance_summary()
-    recent_findings = findings_service.get_recent_findings(limit=5)
-
-    total_findings = summary.get('critical', 0) + summary.get('high', 0) + summary.get('medium', 0) + summary.get('low', 0)
-    if total_findings > 0:
-        context += f"""
-\n*Stored Findings Summary:*
-- Critical: {summary.get('critical', 0)}
-- High: {summary.get('high', 0)}
-- Medium: {summary.get('medium', 0)}
-- Low: {summary.get('low', 0)}
-"""
-        logger.info(f"Added stored findings context: {total_findings} findings")
-
+    # Generate AI response using live scan data only
+    # Note: No stored findings lookup - /carl ask is scan-first
+    # For stored findings, users should use /carl status or /carl findings
     response = bedrock.ask_compliance_question(question, context)
 
     # Format and post response with better structure
