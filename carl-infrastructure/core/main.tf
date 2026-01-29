@@ -477,10 +477,10 @@ resource "aws_iam_role_policy" "bedrock" {
           "bedrock:InvokeAgent",
           "bedrock:GetAgent"
         ]
-        Resource = var.enable_compliance_agent ? [
-          module.compliance_agent[0].agent_arn,
-          module.compliance_agent[0].agent_alias_arn
-        ] : []
+        Resource = [
+          "arn:aws:bedrock:${local.region}:${local.account_id}:agent/*",
+          "arn:aws:bedrock:${local.region}:${local.account_id}:agent-alias/*/*"
+        ]
       },
       {
         Effect = "Allow"
