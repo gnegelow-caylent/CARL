@@ -3928,14 +3928,14 @@ def handle_jira_sync(
 
             # Sync to Jira
             result = jira_sync.sync_finding_to_jira(
-                finding_id=finding["finding_id"],
+                finding_id=finding["id"],  # Fixed: use "id" not "finding_id"
                 title=finding["title"],
                 severity=finding["severity"],
                 resource_type=finding.get("resource_type", "Unknown"),
                 resource_id=finding["resource_id"],
                 compliance_status=finding.get("compliance_status", "FAILED"),
-                recommendation=finding.get("recommendation", "Review this finding"),
-                aws_account_id=finding.get("aws_account_id", "N/A"),
+                recommendation=finding.get("remediation_steps", "Review this finding"),  # Fixed: use "remediation_steps"
+                aws_account_id=finding.get("account_id", "N/A"),  # Fixed: use "account_id"
                 region=finding.get("region", "us-east-1")
             )
 
