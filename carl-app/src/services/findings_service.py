@@ -59,7 +59,15 @@ class FindingsService:
                 item = items[0] if items else None
 
             if item:
-                return Finding.from_dynamodb_item(item).to_dict()
+                finding_dict = Finding.from_dynamodb_item(item).to_dict()
+                # Add back fields that exist in DynamoDB but not in Finding model
+                if "jira_ticket_id" in item:
+                    finding_dict["jira_ticket_id"] = item["jira_ticket_id"]
+                if "jira_url" in item:
+                    finding_dict["jira_url"] = item["jira_url"]
+                if "jira_created_at" in item:
+                    finding_dict["jira_created_at"] = item["jira_created_at"]
+                return finding_dict
             return None
 
         except Exception as e:
@@ -94,8 +102,20 @@ class FindingsService:
             if status:
                 items = [i for i in items if i.get("status") == status]
 
-            # Convert to dicts
-            return [Finding.from_dynamodb_item(item).to_dict() for item in items]
+            # Convert to dicts, preserving extra fields like jira_ticket_id
+            results = []
+            for item in items:
+                finding_dict = Finding.from_dynamodb_item(item).to_dict()
+                # Add back fields that exist in DynamoDB but not in Finding model
+                if "jira_ticket_id" in item:
+                    finding_dict["jira_ticket_id"] = item["jira_ticket_id"]
+                if "jira_url" in item:
+                    finding_dict["jira_url"] = item["jira_url"]
+                if "jira_created_at" in item:
+                    finding_dict["jira_created_at"] = item["jira_created_at"]
+                results.append(finding_dict)
+
+            return results
 
         except Exception as e:
             logger.exception("Error getting recent findings")
@@ -116,7 +136,20 @@ class FindingsService:
             if status:
                 items = [i for i in items if i.get("status") == status]
 
-            return [Finding.from_dynamodb_item(item).to_dict() for item in items]
+            # Convert to dicts, preserving extra fields like jira_ticket_id
+            results = []
+            for item in items:
+                finding_dict = Finding.from_dynamodb_item(item).to_dict()
+                # Add back fields that exist in DynamoDB but not in Finding model
+                if "jira_ticket_id" in item:
+                    finding_dict["jira_ticket_id"] = item["jira_ticket_id"]
+                if "jira_url" in item:
+                    finding_dict["jira_url"] = item["jira_url"]
+                if "jira_created_at" in item:
+                    finding_dict["jira_created_at"] = item["jira_created_at"]
+                results.append(finding_dict)
+
+            return results
 
         except Exception as e:
             logger.exception(f"Error getting findings for control: {control_id}")
