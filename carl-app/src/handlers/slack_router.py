@@ -1277,7 +1277,90 @@ def handle_ask_command(
 def handle_ask_command_sync(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
-    """Synchronous version of ask command (for async processing or fallback)."""
+    """Synchronous version of ask command - uses Advisory Agent."""
+    import os
+    from services.advisory_agent import AdvisoryAgent
+
+    # Check if Advisory Agent is configured
+    advisory_agent_id = os.environ.get("ADVISORY_AGENT_ID")
+
+    if not advisory_agent_id:
+        logger.warning("Advisory Agent not configured, falling back to basic Q&A")
+        return handle_ask_command_fallback(slack, channel_id, user_id, question)
+
+    logger.info(f"Invoking Advisory Agent for question: {question[:100]}...")
+
+    try:
+        # Initialize Advisory Agent
+        agent = AdvisoryAgent(agent_id=advisory_agent_id)
+
+        # Invoke the agent
+        result = agent.ask_question(
+            question=question,
+            session_id=f"slack-{user_id}-{channel_id}",
+            enable_trace=False
+        )
+
+        if not result.get('success'):
+            error_msg = result.get('error', 'Unknown error')
+            slack.post_message(
+                channel_id,
+                text=f"❌ Advisory Agent encountered an error: {error_msg}"
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Get the agent's response
+        response_text = result.get('response', 'No response from agent.')
+        actions_taken = result.get('actions', [])
+
+        # Format and post response
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "💬 CARL Advisory Agent"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": response_text
+                }
+            }
+        ]
+
+        # Show actions taken if any
+        if actions_taken:
+            actions_text = "\n".join([f"• {action.get('action', 'Unknown action')}" for action in actions_taken[:3]])
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"🔍 Agent actions: {len(actions_taken)} steps\n{actions_text}"
+                    }
+                ]
+            })
+
+        slack.post_message(channel_id, blocks=blocks)
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.exception(f"Advisory Agent failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Advisory Agent failed: {str(e)}\n\nFalling back to basic Q&A..."
+        )
+        return handle_ask_command_fallback(slack, channel_id, user_id, question)
+
+
+def handle_ask_command_fallback(
+    slack: SlackService, channel_id: str, user_id: str, question: str
+) -> dict:
+    """Fallback ask command without Advisory Agent - basic Q&A with environment scanning."""
     import os
     from services.evidence_collector import EvidenceCollector
 

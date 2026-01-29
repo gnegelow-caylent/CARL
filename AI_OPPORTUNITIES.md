@@ -225,7 +225,16 @@ risk_score = bedrock.calculate_contextual_risk(
 
 CARL's problems are **multi-step workflows**, perfect for agents:
 
-1. **Architect/CodeBuild Agent** - "Build me a production VPC"
+1. **Advisory Agent** ✅ **BUILT** - "How do I stand up a web server?"
+   - Analyzes question to understand intent
+   - Scans relevant AWS resources based on question
+   - Provides tailored recommendations using YOUR environment
+   - Factors in SOC 2 compliance requirements
+   - Asks clarifying questions when needed
+   - Hands off to Architect Agent for code generation
+   - Uses AWS Bedrock Agents for multi-step reasoning
+
+2. **Architect/CodeBuild Agent** - "Build me a production VPC"
    - Asks clarifying questions (traffic, public/private, HA?)
    - Scans existing environment (what's already there?)
    - Selects appropriate patterns (43+ available)
@@ -235,7 +244,7 @@ CARL's problems are **multi-step workflows**, perfect for agents:
    - Creates PR with architectural justification
    - Responds to review feedback
 
-2. **Remediation Agent** - "Fix this finding"
+3. **Remediation Agent** - "Fix this finding"
    - Investigates the resource
    - Determines root cause
    - Generates fix (Terraform/CLI)
@@ -243,7 +252,7 @@ CARL's problems are **multi-step workflows**, perfect for agents:
    - Creates PR or applies change
    - Verifies fix succeeded
 
-3. **Compliance Agent** - "Get us SOC 2 ready"
+4. **Compliance Agent** - "Get us SOC 2 ready"
    - Scans environment
    - Identifies gaps
    - Prioritizes by impact
@@ -252,7 +261,7 @@ CARL's problems are **multi-step workflows**, perfect for agents:
    - Tracks progress
    - Reports status
 
-4. **Incident Response Agent** - "Handle this critical finding"
+5. **Incident Response Agent** - "Handle this critical finding"
    - Assesses severity
    - Checks if related to known incidents
    - Determines impact scope
