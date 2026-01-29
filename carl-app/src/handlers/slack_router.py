@@ -3183,7 +3183,11 @@ def handle_finding_details(payload: dict, finding_id: str) -> dict:
     findings_service = get_findings_service()
     bedrock = get_bedrock_service()
 
-    finding = findings_service.get_finding(finding_id)
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    finding = findings_service.get_finding(finding_id, account_id)
     if not finding:
         slack.post_message(channel, text=f"Finding {finding_id} not found.")
         return {"statusCode": 200, "body": ""}
@@ -3898,7 +3902,19 @@ def handle_evidence_list_command(
 
         # Get all findings to match with evidence
         all_findings = findings_service.get_recent_findings(limit=100)
-        findings_by_resource = {f.get('resource_id'): f for f in all_findings}
+
+        # Create lookup dict - try both exact resource_id match and partial match
+        findings_by_resource = {}
+        for f in all_findings:
+            resource_id = f.get('resource_id', '')
+            findings_by_resource[resource_id] = f
+            # Also index by last part of resource ID (after last /)
+            if '/' in resource_id:
+                resource_name = resource_id.split('/')[-1]
+                if resource_name not in findings_by_resource:
+                    findings_by_resource[resource_name] = f
+
+        logger.info(f"Loaded {len(all_findings)} findings, indexed {len(findings_by_resource)} resource IDs")
 
         # Build Slack blocks
         blocks = [
@@ -3922,8 +3938,19 @@ def handle_evidence_list_command(
 
         # Display each evidence item (limited to 10 to avoid Slack's 50 block limit)
         for evidence in evidence_items[:10]:
-            # Check if there's a finding for this resource
+            # Check if there's a finding for this resource - try exact match first, then partial
             resource_finding = findings_by_resource.get(evidence.resource_id)
+
+            # If no exact match, try partial match (last part of resource ID)
+            if not resource_finding and '/' in evidence.resource_id:
+                resource_name = evidence.resource_id.split('/')[-1]
+                resource_finding = findings_by_resource.get(resource_name)
+
+            # Log for debugging
+            if resource_finding:
+                logger.info(f"Matched evidence {evidence.resource_id} to finding {resource_finding.get('id')}")
+            else:
+                logger.debug(f"No finding match for evidence resource: {evidence.resource_id}")
 
             # Determine status and severity
             if resource_finding:
