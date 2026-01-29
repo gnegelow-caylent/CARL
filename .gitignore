@@ -65,3 +65,5 @@ lambda.zip
 tmp/
 temp/
 *.tmp
+tfplan
+*.tfplan
