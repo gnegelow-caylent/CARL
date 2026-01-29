@@ -328,10 +328,7 @@ data "aws_iam_policy_document" "carl_deployer" {
       "bedrock:GetAgentAlias",
       "bedrock:ListAgentAliases"
     ]
-    resources = [
-      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:agent/*",
-      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:agent-alias/*/*"
-    ]
+    resources = ["*"]
   }
 
   # EC2 (for VPC resource discovery)
