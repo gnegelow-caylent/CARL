@@ -84,19 +84,28 @@ class FindingsService:
         try:
             if severity:
                 # Use GSI for severity
-                response = self.table.query(
-                    IndexName="severity-timestamp-index",
-                    KeyConditionExpression=Key("severity").eq(severity),
-                    ScanIndexForward=False,  # Most recent first
-                    Limit=limit,
-                )
+                try:
+                    response = self.table.query(
+                        IndexName="severity-timestamp-index",
+                        KeyConditionExpression=Key("severity").eq(severity),
+                        ScanIndexForward=False,  # Most recent first
+                        Limit=limit,
+                    )
+                    items = response.get("Items", [])
+                except Exception as gsi_error:
+                    # GSI might not exist yet - fall back to scan with filter
+                    logger.warning(f"GSI query failed, falling back to scan: {gsi_error}")
+                    response = self.table.scan(Limit=100)  # Scan more to ensure we get enough after filtering
+                    items = response.get("Items", [])
+                    # Client-side filter by severity
+                    items = [i for i in items if i.get("severity") == severity]
+                    items = items[:limit]  # Limit after filtering
             else:
                 # Scan recent items
                 response = self.table.scan(
                     Limit=limit,
                 )
-
-            items = response.get("Items", [])
+                items = response.get("Items", [])
 
             # Filter by status if provided
             if status:
