@@ -3017,7 +3017,7 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_finding_ignore_button(payload, finding_id)
             elif action_id.startswith("finding_details_"):
                 finding_id = action_id.replace("finding_details_", "")
-                return handle_finding_details_async(payload, finding_id)
+                return handle_finding_details(payload, finding_id)
             elif action_id.startswith("approve_remediation_"):
                 remediation_id = action_id.replace("approve_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, True)
@@ -4212,6 +4212,57 @@ def handle_evidence_list_command(
                         "type": "actions",
                         "elements": action_buttons
                     })
+
+        # Add section showing unmatched findings with issues
+        unmatched_findings = [f for f in all_findings if not f.get('jira_ticket_id') and f.get('status') not in ['ACCEPTED_RISK', 'IGNORED', 'SUPPRESSED', 'REMEDIATED']]
+
+        if unmatched_findings and len(unmatched_findings) > 0:
+            logger.info(f"🔍 DEBUG: Found {len(unmatched_findings)} findings without tickets")
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*🎫 {len(unmatched_findings)} Finding(s) Need Tickets*"
+                }
+            })
+
+            # Show up to 3 findings that need tickets
+            for finding in unmatched_findings[:3]:
+                finding_id = finding.get('id', '')
+                severity = finding.get('severity', 'UNKNOWN')
+
+                severity_emoji = {
+                    'CRITICAL': '🔴',
+                    'HIGH': '🟠',
+                    'MEDIUM': '🟡',
+                    'LOW': '🔵',
+                    'INFORMATIONAL': 'ℹ️'
+                }.get(severity, '⚠️')
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{severity_emoji} *{severity}* | {finding.get('title', 'Unknown')}\nResource: `{finding.get('resource_id', 'N/A')}`"
+                    }
+                })
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "🎫 Create Ticket"},
+                            "action_id": f"finding_create_ticket_{finding_id}",
+                            "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "ℹ️ Details"},
+                            "action_id": f"finding_details_{finding_id}",
+                        }
+                    ]
+                })
 
         # Add footer with helpful commands
         blocks.append({"type": "divider"})
