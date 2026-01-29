@@ -993,10 +993,13 @@ module "foundation" {
   source = "../modules/foundation"
   count  = var.enable_foundation ? 1 : 0
 
-  project_name        = "carl"
-  environment         = var.environment
-  kms_key_arn         = ""
-  lambda_package_path = local.lambda_zip_path
+  project_name         = "carl"
+  environment          = var.environment
+  aws_region           = var.region
+  kms_key_arn          = ""
+  lambda_package_path  = local.lambda_zip_path
+  slack_bot_token      = var.slack_bot_token
+  slack_signing_secret = var.slack_signing_secret
 
   tags = merge(var.tags, {
     Feature = "foundation"

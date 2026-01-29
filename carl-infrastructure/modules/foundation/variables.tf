@@ -13,8 +13,9 @@ variable "aws_region" {
 }
 
 variable "kms_key_arn" {
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
+  description = "Optional KMS key ARN - leave empty to create new key"
 }
 
 variable "lambda_package_path" {
