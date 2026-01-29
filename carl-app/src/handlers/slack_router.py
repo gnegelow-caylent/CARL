@@ -4280,8 +4280,9 @@ def handle_compliance_assess_sync(
         from services.compliance_agent import ComplianceAgent
         import os
 
-        # Get agent ID from environment (will be configured via CDK/CloudFormation)
+        # Get agent ID and alias ID from environment (will be configured via CDK/CloudFormation)
         agent_id = os.environ.get("COMPLIANCE_AGENT_ID")
+        agent_alias_id = os.environ.get("COMPLIANCE_AGENT_ALIAS_ID", "PROD")
 
         if not agent_id:
             # Agent not configured yet - use fallback approach
@@ -4289,7 +4290,7 @@ def handle_compliance_assess_sync(
             return handle_compliance_assess_fallback(slack, channel_id, user_id)
 
         # Initialize agent
-        agent = ComplianceAgent(agent_id=agent_id)
+        agent = ComplianceAgent(agent_id=agent_id, agent_alias_id=agent_alias_id)
 
         # Run assessment
         result = agent.assess_compliance(

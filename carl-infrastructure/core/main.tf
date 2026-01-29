@@ -818,7 +818,8 @@ resource "aws_lambda_function" "carl" {
       BEDROCK_REGION   = local.region
 
       # Bedrock Compliance Agent (optional, only set if enabled)
-      COMPLIANCE_AGENT_ID = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : ""
+      COMPLIANCE_AGENT_ID       = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : ""
+      COMPLIANCE_AGENT_ALIAS_ID = var.enable_compliance_agent ? module.compliance_agent[0].agent_alias_id : ""
 
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
