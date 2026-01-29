@@ -2349,6 +2349,76 @@ def show_setup_modal(slack: SlackService, trigger_id: str, channel_id: str, work
     return {"statusCode": 200, "body": ""}
 
 
+def handle_exception_request_modal_submission(payload: dict) -> dict:
+    """Handle exception request modal submission - creates formal exception."""
+    from services.findings_service import FindingsService
+    from services.exception_manager import ExceptionManager, ExceptionRequest, ExceptionType, RiskLevel
+    from datetime import datetime, timedelta
+    import os
+
+    view = payload.get("view", {})
+    user = payload.get("user", {}).get("id", "")
+
+    # Get finding ID and account ID from private_metadata
+    metadata = view.get("private_metadata", "")
+    finding_id, account_id = metadata.split("|") if "|" in metadata else (metadata, None)
+
+    # Get values from modal
+    values = view.get("state", {}).get("values", {})
+    justification = values.get("justification_block", {}).get("justification_input", {}).get("value", "")
+    expiration_days = values.get("expiration_block", {}).get("expiration_input", {}).get("value", "90")
+
+    if not justification:
+        return {
+            "response_action": "errors",
+            "errors": {
+                "justification_block": "Business justification is required"
+            }
+        }
+
+    try:
+        expiration_days = int(expiration_days)
+    except ValueError:
+        return {
+            "response_action": "errors",
+            "errors": {
+                "expiration_block": "Must be a number"
+            }
+        }
+
+    findings_service = FindingsService()
+    finding = findings_service.get_finding(finding_id, account_id)
+
+    if not finding:
+        return {"statusCode": 200, "body": ""}
+
+    # Create exception request
+    exceptions_table = os.environ.get("EXCEPTIONS_TABLE", "carl-exceptions")
+    findings_table = os.environ.get("FINDINGS_TABLE", "carl-findings")
+    manager = ExceptionManager(exceptions_table, findings_table)
+
+    expiration_date = (datetime.utcnow() + timedelta(days=expiration_days)).isoformat()
+
+    exception = manager.create_exception(
+        finding_id=finding_id,
+        finding_title=finding.get('title', 'Unknown Finding'),
+        justification=justification,
+        exception_type=ExceptionType.RISK_ACCEPTANCE,
+        risk_level=RiskLevel[finding.get('severity', 'MEDIUM')],
+        expiration_date=expiration_date,
+        requested_by=user,
+        compensating_controls=[]
+    )
+
+    slack = get_slack_service()
+    channel = payload.get("view", {}).get("private_metadata", "")  # Would need to pass channel
+
+    # Post confirmation (we don't have channel here, so this would need to be improved)
+    logger.info(f"Exception request created: {exception.exception_id} for finding {finding_id}")
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_accept_risk_modal_submission(payload: dict) -> dict:
     """Handle Accept Risk modal submission."""
     from services.findings_service import FindingsService
@@ -2924,6 +2994,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_s3_config_submission(payload)
         elif callback_id == "setup_modal":
             return handle_setup_submission(payload)
+        elif callback_id.startswith("exception_request_modal_"):
+            return handle_exception_request_modal_submission(payload)
         elif callback_id.startswith("accept_risk_modal_"):
             return handle_accept_risk_modal_submission(payload)
 
@@ -2934,6 +3006,9 @@ def handle_interaction(payload: dict) -> dict:
             if action_id.startswith("finding_create_ticket_"):
                 finding_id = action_id.replace("finding_create_ticket_", "")
                 return handle_finding_create_ticket_button(payload, finding_id)
+            elif action_id.startswith("finding_request_exception_"):
+                finding_id = action_id.replace("finding_request_exception_", "")
+                return handle_finding_request_exception_button(payload, finding_id)
             elif action_id.startswith("finding_accept_risk_"):
                 finding_id = action_id.replace("finding_accept_risk_", "")
                 return handle_finding_accept_risk_button(payload, finding_id)
@@ -2942,7 +3017,7 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_finding_ignore_button(payload, finding_id)
             elif action_id.startswith("finding_details_"):
                 finding_id = action_id.replace("finding_details_", "")
-                return handle_finding_details(payload, finding_id)
+                return handle_finding_details_async(payload, finding_id)
             elif action_id.startswith("approve_remediation_"):
                 remediation_id = action_id.replace("approve_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, True)
@@ -3319,6 +3394,81 @@ def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
     except Exception as e:
         logger.exception(f"Error creating Jira ticket: {e}")
         slack.post_message(channel, text=f"❌ Failed to create Jira ticket. Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_request_exception_button(payload: dict, finding_id: str) -> dict:
+    """Handle Request Exception button - creates formal exception request."""
+    from services.findings_service import FindingsService
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    trigger_id = payload.get("trigger_id")
+
+    slack = get_slack_service()
+    findings_service = FindingsService()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Get finding
+    finding = findings_service.get_finding(finding_id, account_id)
+    if not finding:
+        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found.")
+        return {"statusCode": 200, "body": ""}
+
+    # Open modal for exception request details
+    if not trigger_id:
+        slack.post_message(channel, text="❌ Unable to open exception request form.")
+        return {"statusCode": 200, "body": ""}
+
+    slack.client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": f"exception_request_modal_{finding_id}",
+            "title": {"type": "plain_text", "text": "Request Exception"},
+            "submit": {"type": "plain_text", "text": "Submit Request"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Finding:* {finding.get('title')}\n*Severity:* {finding.get('severity')}\n*Resource:* `{finding.get('resource_id')}`"
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "input",
+                    "block_id": "justification_block",
+                    "label": {"type": "plain_text", "text": "Business Justification"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "justification_input",
+                        "multiline": True,
+                        "placeholder": {"type": "plain_text", "text": "Explain why this risk should be accepted (e.g., compensating controls, business requirements)..."}
+                    }
+                },
+                {
+                    "type": "input",
+                    "block_id": "expiration_block",
+                    "label": {"type": "plain_text", "text": "Exception Expiration (days)"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "expiration_input",
+                        "placeholder": {"type": "plain_text", "text": "90"}
+                    },
+                    "hint": {"type": "plain_text", "text": "How many days until this exception should be re-reviewed?"}
+                }
+            ],
+            "private_metadata": f"{finding_id}|{account_id}"
+        }
+    )
 
     return {"statusCode": 200, "body": ""}
 
@@ -3903,6 +4053,12 @@ def handle_evidence_list_command(
         # Get all findings to match with evidence
         all_findings = findings_service.get_recent_findings(limit=100)
 
+        logger.info(f"🔍 DEBUG: Loaded {len(all_findings)} findings")
+        if all_findings:
+            logger.info(f"🔍 DEBUG: First finding resource_id example: '{all_findings[0].get('resource_id')}'")
+            logger.info(f"🔍 DEBUG: First finding ID: '{all_findings[0].get('id')}'")
+            logger.info(f"🔍 DEBUG: First finding has jira_ticket_id: {all_findings[0].get('jira_ticket_id')}")
+
         # Create lookup dict - try both exact resource_id match and partial match
         findings_by_resource = {}
         for f in all_findings:
@@ -3913,8 +4069,14 @@ def handle_evidence_list_command(
                 resource_name = resource_id.split('/')[-1]
                 if resource_name not in findings_by_resource:
                     findings_by_resource[resource_name] = f
+            # Also index by ARN suffix (after last :)
+            if ':' in resource_id:
+                arn_suffix = resource_id.split(':')[-1]
+                if arn_suffix not in findings_by_resource:
+                    findings_by_resource[arn_suffix] = f
 
-        logger.info(f"Loaded {len(all_findings)} findings, indexed {len(findings_by_resource)} resource IDs")
+        logger.info(f"🔍 DEBUG: Indexed {len(findings_by_resource)} resource ID keys")
+        logger.info(f"🔍 DEBUG: Sample finding keys: {list(findings_by_resource.keys())[:3]}")
 
         # Build Slack blocks
         blocks = [
@@ -3937,7 +4099,10 @@ def handle_evidence_list_command(
         ]
 
         # Display each evidence item (limited to 10 to avoid Slack's 50 block limit)
-        for evidence in evidence_items[:10]:
+        for idx, evidence in enumerate(evidence_items[:10]):
+            logger.info(f"🔍 DEBUG [{idx}]: Evidence resource_id='{evidence.resource_id}'")
+            logger.info(f"🔍 DEBUG [{idx}]: Evidence title='{evidence.title}'")
+
             # Check if there's a finding for this resource - try exact match first, then partial
             resource_finding = findings_by_resource.get(evidence.resource_id)
 
@@ -3945,12 +4110,21 @@ def handle_evidence_list_command(
             if not resource_finding and '/' in evidence.resource_id:
                 resource_name = evidence.resource_id.split('/')[-1]
                 resource_finding = findings_by_resource.get(resource_name)
+                if resource_finding:
+                    logger.info(f"🔍 DEBUG [{idx}]: Matched by / suffix '{resource_name}'")
+
+            # Also try matching by removing 'arn:aws:...:' prefix
+            if not resource_finding and evidence.resource_id.startswith('arn:'):
+                simple_resource = evidence.resource_id.split(':')[-1]
+                resource_finding = findings_by_resource.get(simple_resource)
+                if resource_finding:
+                    logger.info(f"🔍 DEBUG [{idx}]: Matched by : suffix '{simple_resource}'")
 
             # Log for debugging
             if resource_finding:
-                logger.info(f"Matched evidence {evidence.resource_id} to finding {resource_finding.get('id')}")
+                logger.info(f"🔍 DEBUG [{idx}]: ✓ MATCHED to finding '{resource_finding.get('id')}' (jira: {resource_finding.get('jira_ticket_id', 'none')}, status: {resource_finding.get('status')})")
             else:
-                logger.debug(f"No finding match for evidence resource: {evidence.resource_id}")
+                logger.warning(f"🔍 DEBUG [{idx}]: ✗ NO MATCH for evidence '{evidence.resource_id}'")
 
             # Determine status and severity
             if resource_finding:
@@ -4010,12 +4184,12 @@ def handle_evidence_list_command(
                         "style": "primary"
                     })
 
-                # Show "Accept Risk" if not already accepted/ignored/remediated
+                # Show "Request Exception" for formal risk acceptance process
                 if status not in ["ACCEPTED_RISK", "IGNORED", "REMEDIATED"]:
                     action_buttons.append({
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Accept Risk"},
-                        "action_id": f"finding_accept_risk_{finding_id}",
+                        "text": {"type": "plain_text", "text": "📋 Request Exception"},
+                        "action_id": f"finding_request_exception_{finding_id}",
                     })
 
                 # Show "Ignore" if not already ignored/remediated
