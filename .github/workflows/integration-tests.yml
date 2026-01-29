@@ -50,24 +50,43 @@ jobs:
           pip install -r requirements-dev.txt
           pip install pytest-timeout
 
+      - name: Set environment
+        id: env
+        run: |
+          ENV="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
+          ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "environment_upper=$ENV_UPPER" >> $GITHUB_OUTPUT
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', inputs.environment || github.event.inputs.environment || 'dev')] }}
+          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', steps.env.outputs.environment_upper)] || secrets.AWS_ROLE_ARN_DEV }}
           aws-region: us-east-1
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.6.0'
+          terraform_wrapper: false
 
       - name: Run API health check
         run: |
-          ENVIRONMENT="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
 
           # Get API endpoint from Terraform output
           cd carl-infrastructure/core
-          terraform init
+          terraform init \
+            -backend-config="bucket=carl-tfstate-${{ steps.account.outputs.account_id }}" \
+            -backend-config="key=core/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -input=false
           API_ENDPOINT=$(terraform output -raw api_endpoint 2>/dev/null || echo "")
 
           if [ -z "$API_ENDPOINT" ]; then
@@ -89,7 +108,7 @@ jobs:
 
       - name: Test DynamoDB tables
         run: |
-          ENVIRONMENT="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
 
           # Check config table exists
           aws dynamodb describe-table --table-name "carl-$ENVIRONMENT-config" || exit 1
@@ -97,7 +116,7 @@ jobs:
 
       - name: Test Lambda function
         run: |
-          ENVIRONMENT="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
           FUNCTION_NAME="carl-$ENVIRONMENT-api"
 
           # Check Lambda exists and get configuration
@@ -119,7 +138,7 @@ jobs:
 
       - name: Test SSM parameters
         run: |
-          ENVIRONMENT="${{ inputs.environment || github.event.inputs.environment || 'dev' }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
 
           # Check Slack parameters exist
           aws ssm get-parameter --name "/$ENVIRONMENT/carl/slack/bot-token" --with-decryption > /dev/null || exit 1
@@ -133,7 +152,7 @@ jobs:
           pytest tests/integration/ -v --timeout=300
 
       - name: Test Slack webhook (optional)
-        if: ${{ (inputs.environment || github.event.inputs.environment || 'dev') == 'dev' }}
+        if: ${{ steps.env.outputs.environment == 'dev' }}
         continue-on-error: true
         run: |
           cd carl-infrastructure/core
@@ -150,7 +169,7 @@ jobs:
         run: |
           echo "### Integration Test Results 🧪" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ inputs.environment || github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "All integration tests completed successfully! ✅" >> $GITHUB_STEP_SUMMARY
