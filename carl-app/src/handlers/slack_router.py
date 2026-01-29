@@ -3238,6 +3238,33 @@ def handle_evidence_command(
 
             slack.post_message(channel_id, text="\n".join(summary_lines))
 
+            # Create findings from security issues detected in evidence
+            slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
+
+            findings = collector.create_findings_from_evidence(results)
+
+            # Store findings in DynamoDB
+            findings_service = get_findings_service()
+            stored_count = 0
+            for finding in findings:
+                try:
+                    findings_service.store_finding(finding)
+                    stored_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to store finding {finding.id}: {e}")
+
+            if stored_count > 0:
+                slack.post_message(
+                    channel_id,
+                    text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
+                         f"Run `/carl jira sync` to create Jira tickets for these issues."
+                )
+            else:
+                slack.post_message(
+                    channel_id,
+                    text="✓ No new security issues found (all findings already exist)."
+                )
+
         elif subcommand == "status":
             coverage = collector.get_control_coverage()
 
