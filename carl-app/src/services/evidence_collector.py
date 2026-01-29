@@ -728,24 +728,33 @@ class EvidenceCollector:
             content_str = json.dumps(content, default=str).lower()
             bucket_name = content.get("bucket_name", "unknown")
 
-            # Unencrypted bucket
-            if content.get("encryption") is None:
+            # Unencrypted bucket (or unable to determine due to permissions)
+            encryption = content.get("encryption")
+            if encryption is None or encryption == "ERROR":
                 # Use stable ID based on account + bucket + issue type
                 finding_key = f"{evidence.account_id}-s3-{bucket_name}-encryption"
+                # Determine appropriate title based on whether we could check or not
+                if encryption == "ERROR":
+                    title = f"S3 Bucket Encryption Status Unknown: {bucket_name}"
+                    description = f"S3 bucket '{bucket_name}' encryption status could not be verified (permissions issue). Verify encryption is enabled."
+                else:
+                    title = f"S3 Bucket Not Encrypted: {bucket_name}"
+                    description = f"S3 bucket '{bucket_name}' does not have default encryption enabled. Data at rest is not encrypted."
+
                 findings.append(Finding(
                     id=f"finding-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
-                    title=f"S3 Bucket Not Encrypted: {bucket_name}",
-                    description=f"S3 bucket '{bucket_name}' does not have default encryption enabled. Data at rest is not encrypted.",
+                    title=title,
+                    description=description,
                     resource_type="AWS::S3::Bucket",
                     resource_id=evidence.resource_id,
                     account_id=evidence.account_id,
                     region=evidence.region,
                     control_ids=[c.value if isinstance(c, SOC2Control) else c for c in evidence.controls],
                     status=FindingStatus.NEW,
-                    remediation_steps=f"Enable default encryption for bucket '{bucket_name}' using AES-256 or KMS encryption.",
-                    raw_finding={"evidence_id": evidence.evidence_id, "bucket": bucket_name, "source": "evidence_collector"}
+                    remediation_steps=f"Enable default encryption for bucket '{bucket_name}' using AES-256 or KMS encryption. If encryption is already enabled, grant s3:GetEncryptionConfiguration permission to verify.",
+                    raw_finding={"evidence_id": evidence.evidence_id, "bucket": bucket_name, "source": "evidence_collector", "encryption_status": encryption}
                 ))
 
             # No versioning (check for None, "Disabled", or "Suspended")
