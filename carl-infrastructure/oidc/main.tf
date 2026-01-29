@@ -292,7 +292,7 @@ data "aws_iam_policy_document" "carl_deployer" {
     ]
   }
 
-  # Bedrock (read-only)
+  # Bedrock (model invocation)
   statement {
     sid    = "BedrockAccess"
     effect = "Allow"
@@ -303,6 +303,34 @@ data "aws_iam_policy_document" "carl_deployer" {
     ]
     resources = [
       "arn:aws:bedrock:${var.region}::foundation-model/*"
+    ]
+  }
+
+  # Bedrock Agent Management
+  statement {
+    sid    = "BedrockAgentManagement"
+    effect = "Allow"
+    actions = [
+      "bedrock:CreateAgent",
+      "bedrock:UpdateAgent",
+      "bedrock:DeleteAgent",
+      "bedrock:GetAgent",
+      "bedrock:ListAgents",
+      "bedrock:PrepareAgent",
+      "bedrock:CreateAgentActionGroup",
+      "bedrock:UpdateAgentActionGroup",
+      "bedrock:DeleteAgentActionGroup",
+      "bedrock:GetAgentActionGroup",
+      "bedrock:ListAgentActionGroups",
+      "bedrock:CreateAgentAlias",
+      "bedrock:UpdateAgentAlias",
+      "bedrock:DeleteAgentAlias",
+      "bedrock:GetAgentAlias",
+      "bedrock:ListAgentAliases"
+    ]
+    resources = [
+      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:agent/*",
+      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:agent-alias/*/*"
     ]
   }
 
