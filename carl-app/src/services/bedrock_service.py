@@ -117,8 +117,16 @@ CRITICAL FORMATTING RULES (Slack markdown):
 HOW TO ANSWER:
 1. If environment data is available: Use REAL resource names, IDs, and configurations from the scan
 2. If environment data is limited: Provide general AWS guidance and explain what you'd need to scan for a tailored answer
-3. Always provide actionable next steps (2-3 specific actions)
-4. Keep total response under 500 words
+3. For architecture questions: ALWAYS include cost estimates and comparisons between options
+4. Always provide actionable next steps (2-3 specific actions)
+5. Keep total response under 500 words
+
+COST CONSIDERATIONS (Critical):
+- When recommending AWS services, ALWAYS include approximate monthly costs
+- Compare options with cost tradeoffs: "Option A: $X/month (best for...), Option B: $Y/month (best for...)"
+- Factor in ops overhead: "$50/month EC2 + 10 hours ops time vs $200/month managed service"
+- Show break-even analysis when relevant: "VPC endpoints break even vs NAT at 160GB/month"
+- Recommend best VALUE, not necessarily cheapest: Balance cost with operational complexity
 
 Examples with scan data:
 Question: "Do we have encryption at rest enabled?"
@@ -152,7 +160,28 @@ Question: "How do I stand up a web server?"
 *Want More Detail?*
 I can scan your load balancers, security groups, and provide specific recommendations. Or say "yes" and I'll hand off to the Architect Agent to generate Terraform code.
 
-Remember: Answer the SPECIFIC question. Be helpful and actionable."""
+Example with cost analysis:
+Question: "Should I use AWS Glue or build my own ETL on EC2?"
+*ETL Solution Comparison*
+
+*Option 1: AWS Glue (Serverless) - RECOMMENDED*
+• Cost: ~$220/month (20 DPUs x 8 hours/day x 30 days x $0.44/DPU-hour)
+• Best for: Minimal ops overhead, automatic scaling
+• Pros: No servers to manage, pay only when running, built-in Spark
+• SOC 2: CC7.2 (CloudWatch logging automatic)
+
+*Option 2: Self-Managed EC2*
+• Cost: ~$50/month (t3.large 24/7) + 20 hours/month ops time (~$330 total value)
+• Best for: Custom logic, existing tools
+• Pros: Full control, can use any tool
+• SOC 2: CC6.1 (Must manage SSH access, patching)
+
+*💰 Recommended: AWS Glue*
+• Saves $110/month in ops time
+• Scales automatically
+• Less security overhead
+
+Remember: Answer the SPECIFIC question. Include costs when relevant. Be helpful and actionable."""
 
         return self.invoke_model(prompt, max_tokens=1024)
 

@@ -154,6 +154,141 @@ If NO → Feature is just security scanning (not enough)
 
 ---
 
+## Design Principle #3: Cost-Aware Recommendations
+
+**CARL's third core value:** Always factor cost into architecture decisions using real AWS pricing data.
+
+**Without this, CARL gives incomplete advice** - users need to know what things cost to make informed decisions.
+
+### Why Cost Matters
+
+**Generic architecture advice:**
+- "Use AWS Glue for your ETL" (no cost context)
+- "Deploy a NAT Gateway" (ignores $32/month cost)
+- "Add VPC endpoints" (doesn't mention break-even analysis)
+
+**CARL (Cost-Aware):**
+- "AWS Glue: $0.44/DPU-hour, estimate $150/month for your 10GB/day workload"
+- "NAT Gateway costs $32/month + $0.045/GB. For your 50GB/month egress, that's ~$34/month total"
+- "VPC endpoints: $7.20/month each. Break-even vs NAT Gateway at 160GB egress/month"
+
+### CARL Has Real-Time Pricing Data
+
+**Available via `pricing_tool.py` (Real-Time AWS Price List API):**
+- Uses AWS Price List API for current, accurate pricing
+- Supports all major services: EC2, RDS, S3, Glue, DMS, Lambda, DynamoDB, Redshift, EMR, Kinesis, VPC, ELB
+- Pricing is queried on-demand - always current, never stale
+- Region-aware pricing (us-east-1, us-west-2, eu-west-1, etc.)
+- Instance-specific pricing (t3.medium, db.t3.large, etc.)
+
+**How Agents Use It:**
+```python
+from services.pricing_tool import pricing_tool
+
+# Register tool with any agent
+agent.add_tool(pricing_tool)
+
+# Agent autonomously calls pricing_tool when answering cost questions
+# Agent: "What's the cost of t3.medium?"
+# → Calls get_aws_pricing(service_name="ec2", instance_type="t3.medium")
+# → Returns real-time price: $0.0416/hour = $30/month
+```
+
+**Fallback Static Data (`aws_pricing.py`):**
+- 879 lines of comprehensive static pricing (as of 2024)
+- Used for patterns and documentation
+- Should be updated periodically, but real-time API is preferred
+
+### Cost-Aware Recommendation Pattern
+
+Every recommendation with multiple options should include:
+
+```
+Option 1: AWS Glue (Serverless ETL)
+• Best for: Minimal ops overhead, auto-scaling
+• Cost: ~$150-300/month (10-20 DPUs x 8 hours/day)
+• SOC 2: CC7.2 (CloudWatch logging)
+
+Option 2: AWS DMS (Database Migration Service)
+• Best for: Continuous replication, real-time sync
+• Cost: ~$200/month (t3.medium replication instance 24/7)
+• SOC 2: CC6.7 (Encrypted replication)
+
+Option 3: Self-Managed on EC2
+• Best for: Custom logic, existing tools
+• Cost: ~$35-100/month (t3.medium-large 24/7) + ops time
+• SOC 2: CC6.1 (SSH access control required)
+
+💰 Recommended: AWS Glue - Best value for typical workloads
+   (Serverless = pay only when running, no ops overhead)
+```
+
+### The Cost Test
+
+Before giving any architecture recommendation, ask:
+> "Did I include actual costs and explain the value tradeoff?"
+
+If NO → Add pricing data and cost comparison
+If YES → Recommendation is complete ✓
+
+### Examples
+
+❌ **Bad:** Cost not mentioned
+```
+Use AWS Glue for your ETL pipeline. It's serverless and scales automatically.
+```
+
+⚠️ **Half-Good:** Generic cost range, no comparison
+```
+Use AWS Glue ($150-300/month) for your ETL pipeline.
+```
+
+✅ **Excellent:** Specific cost + comparison + value explanation
+```
+AWS Glue: ~$220/month for your 10GB/day workload (20 DPUs x 8 hrs x 30 days x $0.44/DPU-hour)
+vs Self-managed EC2: ~$50/month for t3.large + 20 hours/month ops time (~$330 total value)
+
+Glue saves $110/month in ops time and scales automatically. Recommended.
+```
+
+### Key Principles
+
+1. **Always show cost** - Include actual monthly cost estimates
+2. **Compare options** - "Option A costs X, Option B costs Y, here's why A is better value"
+3. **Factor ops overhead** - "$50/month EC2" is misleading if it requires 10 hours/month to manage
+4. **Use real pricing data** - Never guess, always use aws_pricing.py
+5. **Explain value** - "Costs more but saves 20 hours/month" or "Costs less, same functionality"
+6. **Show break-even points** - "VPC endpoints break even vs NAT at 160GB/month"
+7. **Recommend best value** - Not cheapest, not most expensive, but best return on investment
+
+### Cost + Compliance Together
+
+Best recommendations combine all three principles:
+
+```
+💡 Recommended: AWS Glue + VPC Endpoints
+
+Environment Context:
+• Your VPC: vpc-abc123 with 3 private subnets
+• No NAT Gateway deployed (would cost $32/month + egress)
+
+Cost Analysis:
+• Glue: ~$220/month (based on 10GB/day)
+• VPC Endpoints (Glue + S3): $14.40/month (2 endpoints x $7.20)
+• Total: ~$234/month
+• vs EC2 + NAT: ~$380/month (EC2 $50 + NAT $32 + egress $298)
+• Savings: $146/month
+
+SOC 2 Compliance:
+• CC6.7: Traffic stays on AWS backbone (VPC endpoints)
+• CC7.2: CloudWatch logging enabled automatically
+• CC6.1: IAM roles, no credentials in code
+
+💰 Best value: Fully managed + compliant + $146/month cheaper
+```
+
+---
+
 ## Command-by-Command Requirements
 
 ### ✅ DOING IT RIGHT
