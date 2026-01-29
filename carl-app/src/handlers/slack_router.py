@@ -1415,31 +1415,43 @@ def handle_ask_command_fallback(
         scanning_tools = create_scanning_tools(collector)
 
         # Create scanning agent with tools + learned context
-        base_instructions = """You are a scanning agent for AWS compliance assessment.
+        base_instructions = """You are CARL's intelligent AWS assistant.
 
-Your job: Analyze the user's question and intelligently decide which AWS resources to scan.
+Your job: Analyze the user's question and provide helpful answers about AWS.
 
-Available tools:
+QUESTION TYPES:
+
+1. **Compliance/Security Questions** (about existing resources):
+   - "Is my VPC secure?"
+   - "Do I have MFA enabled?"
+   - "Are my S3 buckets encrypted?"
+   → ACTION: Scan relevant resources using tools, report actual state
+
+2. **Architecture/Design Questions** (about what to build):
+   - "What IoT services should I use?"
+   - "How do I design a serverless app?"
+   - "What's the best way to build X?"
+   → ACTION: Don't scan (nothing deployed yet). Respond: "ARCHITECTURE_QUESTION: Provide design guidance"
+
+Available scanning tools (use ONLY for compliance/security questions):
 - scan_iam: IAM users, roles, policies, MFA, password policies
 - scan_s3: S3 buckets, encryption, public access, versioning
 - scan_vpc: VPCs, security groups, flow logs, network configuration
 - scan_cloudtrail: CloudTrail audit logging configuration
 - scan_security_hub: Security Hub findings and enabled standards
-- scan_all: Comprehensive scan of all resources (use for broad questions)
+- scan_all: Comprehensive scan of all resources
 
 Instructions:
-1. Analyze the question to understand what AWS resources are relevant
-2. Call the appropriate scanning tool(s) - you can call multiple tools if needed
-3. Return the scan results so they can be used to answer the question
+1. Determine if this is a compliance question or architecture question
+2. If compliance → scan relevant resources, return findings
+3. If architecture → respond with "ARCHITECTURE_QUESTION" (don't scan, provide guidance instead)
+4. Be helpful - never refuse to answer or say "that's not my job"
 
 Examples:
-- "Do I have MFA enabled?" → scan_iam
-- "Are my S3 buckets encrypted?" → scan_s3
-- "How is my VPC configured?" → scan_vpc
-- "What's my overall security posture?" → scan_all
-- "Tell me about my database connectivity" → scan_vpc (network config)
-
-Be intelligent: Use context clues to decide what to scan. Don't just match keywords."""
+- "Do I have MFA enabled?" → scan_iam (compliance)
+- "How is my VPC configured?" → scan_vpc (compliance)
+- "What IoT services should I use?" → ARCHITECTURE_QUESTION (design guidance)
+- "How do I build a data pipeline?" → ARCHITECTURE_QUESTION (design guidance)
 
         # Add learned context if available
         if learned_context:
@@ -1458,7 +1470,25 @@ Be intelligent: Use context clues to decide what to scan. Don't just match keywo
 
         logger.info(f"Agent scan results: {scan_results_raw[:500]}...")  # Log first 500 chars
 
-        # Parse scan results and build context
+        # Check if this is an architecture question
+        if "ARCHITECTURE_QUESTION" in scan_results_raw:
+            logger.info("Detected architecture/design question - providing guidance")
+
+            # Use architecture advisor for design questions
+            from services.architecture_advisor import ArchitectureAdvisor
+
+            advisor = ArchitectureAdvisor()
+            response = advisor.get_recommendation(question)
+
+            # Format and post response
+            formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Architecture Guidance")
+            for block_group in formatted_blocks:
+                slack.post_message(channel_id, blocks=block_group)
+
+            # No feedback buttons for architecture questions (not learning yet)
+            return {"statusCode": 200, "body": ""}
+
+        # Parse scan results and build context (compliance questions)
         try:
             # The agent returns a text response, extract JSON from it
             # Look for JSON blocks in the response
