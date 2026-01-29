@@ -999,9 +999,9 @@ def handle_findings_ignore_command(
 def handle_findings_create_ticket_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Handle /carl findings create-ticket <id> [<id> ...] command."""
+    """Handle /carl findings create-ticket <id> [<id> ...] command - uses AI-enhanced logic."""
     from services.findings_service import FindingsService
-    from services.jira_service import JiraService
+    from services.jira_security_sync import JiraSecuritySync
 
     findings_service = FindingsService()
 
@@ -1018,9 +1018,9 @@ def handle_findings_create_ticket_command(
     import boto3
     account_id = boto3.client('sts').get_caller_identity()['Account']
 
-    # Get Jira service
+    # Get Jira sync service (uses AI for ticket descriptions)
     try:
-        jira = JiraService()
+        jira_sync = JiraSecuritySync()
     except Exception as e:
         logger.error(f"Failed to initialize Jira service: {e}")
         slack.post_message(
@@ -1045,27 +1045,24 @@ def handle_findings_create_ticket_command(
                 failed.append(f"{finding_id} (already has ticket)")
                 continue
 
-            # Create Jira ticket
-            ticket_id = jira.create_finding_ticket(
+            # Create Jira ticket using AI-enhanced sync logic
+            result = jira_sync.sync_finding_to_jira(
+                finding_id=finding_id,
                 title=finding.get('title', 'Security Finding'),
-                description=finding.get('description', ''),
                 severity=finding.get('severity', 'MEDIUM'),
-                resource=finding.get('resource_id', 'N/A'),
-                finding_id=finding_id
+                resource_type=finding.get('resource_type', 'Unknown'),
+                resource_id=finding.get('resource_id', 'N/A'),
+                compliance_status=finding.get('compliance_status', 'FAILED'),
+                recommendation=finding.get('remediation_steps', finding.get('description', 'Review this finding')),
+                aws_account_id=account_id,
+                region=finding.get('region', 'us-east-1'),
+                metadata={"control_ids": finding.get('control_ids', [])}  # Pass SOC 2 controls for AI context
             )
 
-            if ticket_id:
-                # Update finding with Jira ticket ID
-                findings_service.update_finding(
-                    finding_id=finding_id,
-                    account_id=account_id,
-                    jira_ticket_id=ticket_id,
-                    jira_url=f"{jira.base_url}/browse/{ticket_id}",
-                    jira_created_at=datetime.utcnow().isoformat()
-                )
-                created.append((finding_id, ticket_id))
+            if result["success"]:
+                created.append((finding_id, result['jira_key'], result['jira_url']))
             else:
-                failed.append(f"{finding_id} (ticket creation failed)")
+                failed.append(f"{finding_id} ({result.get('error', 'unknown error')})")
 
         except Exception as e:
             logger.exception(f"Error creating ticket for {finding_id}")
@@ -1075,8 +1072,8 @@ def handle_findings_create_ticket_command(
     result_text = []
     if created:
         result_text.append(f"✅ Created {len(created)} ticket(s):")
-        for fid, ticket_id in created:
-            result_text.append(f"  • `{fid}` → {ticket_id}")
+        for fid, ticket_id, ticket_url in created:
+            result_text.append(f"  • `{fid}` → <{ticket_url}|{ticket_id}>")
 
     if failed:
         result_text.append(f"\n❌ Failed {len(failed)} finding(s):")
@@ -3252,10 +3249,10 @@ def handle_finding_details(payload: dict, finding_id: str) -> dict:
 
 
 def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
-    """Handle Create Ticket button click."""
+    """Handle Create Ticket button click - uses same AI-enhanced logic as jira sync."""
     from datetime import datetime
     from services.findings_service import FindingsService
-    from services.jira_service import JiraService
+    from services.jira_security_sync import JiraSecuritySync
 
     channel = payload.get("channel", {}).get("id", "")
     user = payload.get("user", {}).get("id", "")
@@ -3281,27 +3278,25 @@ def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
         )
         return {"statusCode": 200, "body": ""}
 
-    # Create Jira ticket
+    # Create Jira ticket using AI-enhanced sync logic (same as /carl jira sync)
     try:
-        jira = JiraService()
-        ticket_id = jira.create_finding_ticket(
+        jira_sync = JiraSecuritySync()
+
+        # Use sync_finding_to_jira which generates AI-enhanced ticket descriptions
+        result = jira_sync.sync_finding_to_jira(
+            finding_id=finding_id,
             title=finding.get('title', 'Security Finding'),
-            description=finding.get('description', ''),
             severity=finding.get('severity', 'MEDIUM'),
-            resource=finding.get('resource_id', 'N/A'),
-            finding_id=finding_id
+            resource_type=finding.get('resource_type', 'Unknown'),
+            resource_id=finding.get('resource_id', 'N/A'),
+            compliance_status=finding.get('compliance_status', 'FAILED'),
+            recommendation=finding.get('remediation_steps', finding.get('description', 'Review this finding')),
+            aws_account_id=account_id,
+            region=finding.get('region', 'us-east-1'),
+            metadata={"control_ids": finding.get('control_ids', [])}  # Pass SOC 2 controls for AI context
         )
 
-        if ticket_id:
-            # Update finding with Jira ticket ID
-            findings_service.update_finding(
-                finding_id=finding_id,
-                account_id=account_id,
-                jira_ticket_id=ticket_id,
-                jira_url=f"{jira.base_url}/browse/{ticket_id}",
-                jira_created_at=datetime.utcnow().isoformat()
-            )
-
+        if result["success"]:
             slack.post_message(
                 channel,
                 blocks=[
@@ -3309,17 +3304,17 @@ def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"✅ Created Jira ticket for finding `{finding_id}`\n🔗 <{jira.base_url}/browse/{ticket_id}|{ticket_id}>"
+                            "text": f"✅ Created Jira ticket for finding `{finding_id}`\n🔗 <{result['jira_url']}|{result['jira_key']}>"
                         }
                     }
                 ]
             )
         else:
-            slack.post_message(channel, text=f"❌ Failed to create Jira ticket for finding `{finding_id}`")
+            slack.post_message(channel, text=f"❌ Failed to create Jira ticket: {result.get('error', 'Unknown error')}")
 
     except Exception as e:
         logger.exception(f"Error creating Jira ticket: {e}")
-        slack.post_message(channel, text=f"❌ Jira is not configured. Please set up Jira credentials first.")
+        slack.post_message(channel, text=f"❌ Failed to create Jira ticket. Error: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 
