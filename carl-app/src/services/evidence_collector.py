@@ -699,8 +699,9 @@ class EvidenceCollector:
 
             # Users without MFA
             if "mfa_devices" in str(content).lower() and content.get("mfa_enabled") == False:
+                finding_key = f"{evidence.evidence_id}-mfa"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-mfa".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
                     title=f"IAM User Without MFA: {content.get('user_name', 'Unknown')}",
@@ -722,8 +723,9 @@ class EvidenceCollector:
 
             # Unencrypted bucket
             if content.get("encryption") is None:
+                finding_key = f"{evidence.evidence_id}-encryption"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-encryption".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"S3 Bucket Not Encrypted: {bucket_name}",
@@ -740,8 +742,9 @@ class EvidenceCollector:
 
             # No versioning
             if content.get("versioning") in ["Disabled", None]:
+                finding_key = f"{evidence.evidence_id}-versioning"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-versioning".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
                     title=f"S3 Bucket Versioning Disabled: {bucket_name}",
@@ -764,8 +767,9 @@ class EvidenceCollector:
                 public_block.get("IgnorePublicAcls"),
                 public_block.get("RestrictPublicBuckets")
             ]):
+                finding_key = f"{evidence.evidence_id}-public"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-public".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"S3 Bucket Public Access Not Fully Blocked: {bucket_name}",
@@ -787,8 +791,9 @@ class EvidenceCollector:
             # No flow logs
             if "flow_logs_enabled" in content_str and content.get("flow_logs_enabled") == False:
                 vpc_id = content.get("vpc_id", "unknown")
+                finding_key = f"{evidence.evidence_id}-flowlogs"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-flowlogs".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.MEDIUM,
                     title=f"VPC Flow Logs Not Enabled: {vpc_id}",
@@ -807,8 +812,9 @@ class EvidenceCollector:
             risky_sgs = content.get("risky_security_groups", [])
             if risky_sgs and len(risky_sgs) > 0:
                 sg_info = risky_sgs[0]  # Report first one
+                finding_key = f"{evidence.evidence_id}-sg-{sg_info['id']}"
                 return Finding(
-                    id=f"evidence-{hashlib.md5(f"{evidence.evidence_id}-sg-{sg_info['id']}".encode()).hexdigest()[:12]}",
+                    id=f"evidence-{hashlib.md5(finding_key.encode()).hexdigest()[:12]}",
                     source=FindingSource.CONFIG,
                     severity=FindingSeverity.HIGH,
                     title=f"Overly Permissive Security Group: {sg_info['name']}",
