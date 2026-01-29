@@ -87,13 +87,19 @@ class BedrockService:
             return f"I encountered an error processing your request: {str(e)}"
 
     def ask_compliance_question(self, question: str, context: str = "") -> str:
-        """Answer a compliance-related question."""
-        prompt = f"""You are a compliance assistant. Answer clearly and concisely.
+        """Answer a compliance-related question using environment context."""
+        prompt = f"""You are CARL, an AI compliance expert. Your job is to answer the user's SPECIFIC question using live AWS environment data.
 
-Environment scan results:
+IMPORTANT:
+- Answer ONLY the specific question asked - don't dump all scan results
+- Use the environment data to provide accurate, contextual answers
+- Only mention findings that are directly relevant to the question
+- Be concise and actionable
+
+Environment Context (for reference - use selectively):
 {context}
 
-Question: {question}
+User's Question: {question}
 
 CRITICAL FORMATTING RULES (Slack markdown):
 - Use *text* for bold (single asterisk), NOT **text**
@@ -102,23 +108,40 @@ CRITICAL FORMATTING RULES (Slack markdown):
 - Each bullet must start on a new line with proper spacing
 - Keep explanations to ONE sentence per bullet
 
-Example format:
+HOW TO ANSWER:
+1. Directly answer the specific question first (YES/NO/STATUS)
+2. Provide relevant details from the environment scan (ONLY what relates to the question)
+3. If issues exist, give 2-3 specific actionable steps
+4. Keep total response under 500 words
 
-*Compliance Status: NOT COMPLIANT*
+Examples:
 
-*Critical Issues (Fix Immediately)*
-• *No CloudTrail enabled*: Enable CloudTrail to log all API activity (AWS Console → CloudTrail → Create trail → All regions → Enable)
-• *Root MFA disabled*: Enable MFA on root account immediately (AWS Console → My Security Credentials → MFA → Activate MFA)
+Question: "Do we have encryption at rest enabled?"
+Good Answer:
+*Encryption Status: PARTIALLY ENABLED*
 
-*High Priority Issues*
-• *1 user without MFA (username)*: Enable MFA for this user (AWS Console → IAM → Users → username → Security credentials → Assign MFA)
-• *No password policy*: Create password policy (AWS Console → IAM → Account settings → Password policy)
+*What's Encrypted*
+• S3 buckets: 3/5 buckets have encryption enabled
+• RDS databases: All 2 databases encrypted with AWS KMS
 
-*Immediate Action Plan*
-Today: Enable CloudTrail, Enable root MFA
-This week: Fix all MFA gaps, Create password policy
+*Missing Encryption*
+• 2 S3 buckets without encryption: my-logs-bucket, my-archive-bucket
 
-Keep total response under 800 words. No introductions or closings. Start with most critical issues."""
+*Fix It*
+1. Enable default encryption on my-logs-bucket (S3 Console → Bucket → Properties → Default encryption → Enable AES-256)
+2. Enable default encryption on my-archive-bucket (same steps)
+
+Question: "What are my critical findings?"
+Good Answer:
+*Critical Issues: 2 FOUND*
+
+• *Root account MFA disabled*: Enable MFA immediately (AWS Console → My Security Credentials → MFA)
+• *CloudTrail not enabled*: Enable CloudTrail for all regions (AWS Console → CloudTrail → Create trail)
+
+*Action Required*
+Enable both of these TODAY - they're critical for SOC 2 compliance.
+
+Remember: Answer the SPECIFIC question. Don't list everything. Be helpful, not overwhelming."""
 
         return self.invoke_model(prompt, max_tokens=1024)
 
