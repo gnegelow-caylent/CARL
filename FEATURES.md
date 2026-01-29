@@ -71,8 +71,12 @@ This document provides a clear view of what CARL can do today vs what's planned 
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Automated Evidence Collection | ✅ Live | Collects screenshots, configs, logs automatically |
-| Evidence Storage (S3) | ✅ Live | Secure storage with encryption and retention |
+| Automated Evidence Collection | ✅ Live | Collects IAM, S3, network, security service configs automatically |
+| **Security Findings Detection** | ✅ Live | Analyzes evidence to detect security issues (weak password policies, unencrypted S3, etc.) |
+| **Stable Finding IDs** | ✅ Live | Content-based IDs prevent duplicates across evidence collection runs |
+| **Multiple Findings Per Resource** | ✅ Live | S3 bucket with 3 issues = 3 distinct findings |
+| **Jira Ticket Sync** | ✅ Live | Auto-sync findings to Jira with duplicate prevention |
+| Evidence Storage (DynamoDB + S3) | ✅ Live | Secure storage with encryption and retention |
 | Evidence Coverage Tracking | ✅ Live | Shows which controls have evidence |
 | Report Generation | ✅ Live | Executive, detailed, and control-specific reports |
 | Audit-Ready Export | ✅ Live | PDF/JSON exports for auditors |

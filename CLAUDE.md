@@ -46,6 +46,35 @@ An AI-powered AWS compliance bot that:
 
 See `SMART_GENERATION.md` for complete details.
 
+### Evidence Collection & Jira Sync Fixed 🔧 (January 28, 2026)
+
+**Complete Pipeline Working:** Evidence collection now automatically creates findings and syncs to Jira!
+
+**Major Fixes:**
+1. ✅ **Security Findings Detection** - Evidence analysis creates Finding objects for all issues
+2. ✅ **Stable Finding IDs** - Content-based IDs (account+resource+issue) prevent duplicates
+3. ✅ **Multiple Findings Per Resource** - One S3 bucket with 3 issues = 3 findings
+4. ✅ **Jira Duplicate Prevention** - Checks for existing tickets before creating new ones
+5. ✅ **S3 Encryption Detection** - Handles both None and "ERROR" (permission denied)
+6. ✅ **IAM Permissions** - Comprehensive read-only policy for evidence collection
+7. ✅ **DynamoDB Composite Keys** - Fixed Query/Update operations for pk+sk schema
+8. ✅ **Field Name Mappings** - Fixed Finding.to_dict() field references
+
+**What Works Now:**
+- `/carl evidence collect` → Scans AWS → Creates findings for all detected issues
+- `/carl jira sync` → Creates Jira tickets for new findings only (no duplicates)
+- Findings tracked: IAM password policies, S3 encryption, security groups, VPC flow logs
+
+**Bug Fixes:**
+- Fixed 6 nested f-string syntax errors (SyntaxError)
+- Fixed KeyError 'finding_id' (wrong field name)
+- Added missing update_finding() method to FindingsService
+- Fixed jira_ticket_id preservation in get_finding()
+- Changed to standard Jira issue types (Task, not custom types)
+- Fixed evidence_collector to return lists (multiple findings per resource)
+
+See `EVIDENCE_AND_FINDINGS.md` for complete documentation.
+
 ### Bootstrap Automation Released 🚀 (January 27, 2026)
 
 **5 Critical Capabilities Added:**
@@ -299,6 +328,7 @@ For detailed guides and reference materials:
 ### Technical Guides
 - **[SMART_GENERATION.md](./SMART_GENERATION.md)** - Smart infrastructure generation (environment-aware code generation)
 - **[BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md)** - Complete AWS environment bootstrap automation
+- **[EVIDENCE_AND_FINDINGS.md](./EVIDENCE_AND_FINDINGS.md)** - Evidence collection, findings detection, and Jira sync pipeline
 - **[SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md)** - Async processing, modals, button handlers
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Full technical architecture and component diagrams
 
