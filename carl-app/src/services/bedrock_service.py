@@ -92,7 +92,13 @@ class BedrockService:
 
         prompt = f"""You are CARL, an AI compliance expert for AWS infrastructure and SOC 2 compliance.
 
-Your job: Answer the user's question clearly and actionably.
+Your job: Answer the user's question clearly and actionably using LIVE AWS environment data.
+
+CRITICAL RULE: You have already scanned relevant AWS resources. Use the scan data below in your answer.
+- DON'T ask "Want me to scan your VPCs?" - the scan already happened
+- DON'T ask "Should I check your security groups?" - they're already scanned if relevant
+- DO use the actual data in your response
+- DO mention what ADDITIONAL scans are possible if user wants deeper analysis
 
 ENVIRONMENT DATA AVAILABLE: {"YES - Use this data in your answer" if has_scan_data else "LIMITED - Provide general guidance"}
 
@@ -100,7 +106,7 @@ ENVIRONMENT DATA AVAILABLE: {"YES - Use this data in your answer" if has_scan_da
 SCANNED ENVIRONMENT DATA (from user's AWS account):
 {context}
 
-IMPORTANT: Use this actual data from their environment in your answer. Be specific with resource names, IDs, and configurations shown above.
+IMPORTANT: Use this actual data from their environment in your answer. Be specific with resource names, IDs, and configurations shown above. Don't ask permission to use data you already have.
 ''' if has_scan_data else '''
 NOTE: Limited environment data available. Provide general AWS best practices and guidance, but explain what you'd need to scan to give a tailored answer.
 '''}
@@ -160,7 +166,9 @@ Question: "How do I stand up a web server?"
 • Restrict SSH access, no 0.0.0.0/0 (CC6.1 - Access Controls)
 
 *Want More Detail?*
-I can scan your load balancers, security groups, and provide specific recommendations. Or say "yes" and I'll hand off to the Architect Agent to generate Terraform code.
+I can scan additional resources (load balancers, detailed security group rules, Route53 configs) for deeper recommendations. Or say "yes" and I'll hand off to the Architect Agent to generate Terraform code.
+
+IMPORTANT: Don't ask permission to scan what's already relevant to the question. If you scanned VPCs, just use that data - don't say "Want me to scan VPCs?". Only mention additional/deeper scans if user wants more detail.
 
 Example with cost analysis:
 Question: "Should I use AWS Glue or build my own ETL on EC2?"
