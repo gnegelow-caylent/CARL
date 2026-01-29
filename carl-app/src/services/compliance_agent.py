@@ -37,11 +37,48 @@ class ComplianceAgent:
 
         Args:
             agent_id: Bedrock Agent ID (if None, will be created/configured)
-            agent_alias_id: Agent alias (PROD, DEV, etc.)
+            agent_alias_id: Agent alias name or ID (PROD, DEV, etc.)
         """
         self.client = boto3.client('bedrock-agent-runtime')
-        self.agent_id = agent_id  # Will be configured via environment or CDK
-        self.agent_alias_id = agent_alias_id
+        self.bedrock_agent_client = boto3.client('bedrock-agent')
+        self.agent_id = agent_id
+
+        # Resolve alias name to ID if needed
+        self.agent_alias_id = self._resolve_alias_id(agent_id, agent_alias_id)
+
+    def _resolve_alias_id(self, agent_id: str, alias_name_or_id: str) -> str:
+        """
+        Resolve alias name to ID. If already an ID, return as-is.
+
+        Args:
+            agent_id: Bedrock Agent ID
+            alias_name_or_id: Alias name (e.g., "PROD") or ID
+
+        Returns:
+            Alias ID
+        """
+        # If it looks like an ID (alphanumeric, ~10 chars), return as-is
+        if len(alias_name_or_id) > 5 and alias_name_or_id.isalnum():
+            return alias_name_or_id
+
+        # Otherwise, look up by name
+        try:
+            response = self.bedrock_agent_client.list_agent_aliases(
+                agentId=agent_id,
+                maxResults=10
+            )
+
+            for alias_summary in response.get('agentAliasSummaries', []):
+                if alias_summary['agentAliasName'] == alias_name_or_id:
+                    return alias_summary['agentAliasId']
+
+            # If not found, return the input (will fail later with better error)
+            logger.warning(f"Alias '{alias_name_or_id}' not found, using as-is")
+            return alias_name_or_id
+
+        except Exception as e:
+            logger.warning(f"Failed to resolve alias name: {e}")
+            return alias_name_or_id
 
     def assess_compliance(
         self,
