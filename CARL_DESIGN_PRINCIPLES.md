@@ -289,6 +289,172 @@ SOC 2 Compliance:
 
 ---
 
+## Design Principle #4: Continuous Learning & Environment Adaptation
+
+**CARL's fourth core value:** AI that learns your environment and adapts to your usage patterns.
+
+**Without this, CARL is just a static tool** - users need intelligence that improves with every interaction.
+
+### Why Continuous Learning Matters
+
+**Static Rule-Based Approach:**
+- "If question contains 'MFA', scan IAM" (rigid keyword matching)
+- "If question contains 'bucket', scan S3" (brittle pattern matching)
+- Requires 114+ lines of hardcoded if/else statements
+- Can't handle new AWS services without code changes
+- Doesn't learn from user behavior
+
+**CARL (Adaptive Intelligence):**
+- AI analyzes question semantics: "Do I have MFA enabled?" → understands this needs IAM scan
+- AI recognizes context: "How's my database connectivity?" → understands this needs VPC + RDS scan
+- AI learns patterns: User frequently asks about security groups → prioritizes network scans
+- AI adapts to new services: AWS releases new service → AI can scan it without code changes
+
+### How CARL Learns Your Environment
+
+**1. Intelligent Scanning Decisions**
+- Agent analyzes user questions using natural language understanding
+- Agent decides which AWS resources to scan based on context
+- No hardcoded keywords - AI reasons about what's needed
+
+**Before (Static Keywords - 114 lines):**
+```python
+if any(kw in question for kw in ['mfa', 'multi-factor', 'iam user', 'password', ...]):
+    scan_iam()
+if any(kw in question for kw in ['vpc', 'network', 'security group', 'firewall', ...]):
+    scan_vpc()
+# ...100+ more lines
+```
+
+**After (AI-Driven - Scalable):**
+```python
+agent = Agent(tools=[scan_iam, scan_s3, scan_vpc, scan_cloudtrail, ...])
+agent.execute("Analyze question and scan relevant AWS resources")
+# AI decides what to scan based on question semantics
+```
+
+**2. Context Awareness**
+- AI remembers what resources exist in your environment
+- AI understands relationships: "database connectivity" requires both VPC and database scans
+- AI prioritizes based on what you have: If no RDS, doesn't waste time scanning RDS
+
+**3. Adaptive Recommendations**
+- The more CARL scans your environment, the better it understands your architecture
+- Recommendations become more specific: "Your t3.medium instances in vpc-abc123..."
+- Cost estimates become more accurate: "Based on your typical usage pattern..."
+
+**4. Learning from Patterns**
+- User asks about security groups frequently → CARL proactively includes network security
+- User never asks about GuardDuty → CARL doesn't include it unless relevant
+- User's environment is multi-region → CARL automatically considers cross-region factors
+
+### Benefits of AI-Driven Scanning
+
+**Scalability:**
+- Static keywords: Need to update code for every AWS service (200+ services)
+- AI-driven: AI can reason about any AWS service without code changes
+
+**Flexibility:**
+- Static keywords: "web server" must be explicitly mapped to VPC scan
+- AI-driven: AI understands "I need a database for my app" requires VPC + RDS + security groups
+
+**Maintainability:**
+- Static keywords: 114 lines of if/else statements to maintain
+- AI-driven: 6 tool definitions, AI handles the decision logic
+
+**Intelligence:**
+- Static keywords: Can only match exact phrases
+- AI-driven: Understands synonyms, context, and intent
+
+### Implementation: Agent-Based Scanning
+
+**Created `scanning_tools.py` (340 lines):**
+- Wraps EvidenceCollector scanning functions as AgentCore Tools
+- 6 intelligent tools: scan_iam, scan_s3, scan_vpc, scan_cloudtrail, scan_security_hub, scan_all
+- Each tool has rich descriptions that help AI decide when to use it
+
+**Refactored `/carl ask` command:**
+- Removed 114 lines of static keyword matching
+- Now uses Agent with scanning tools
+- AI analyzes question → decides what to scan → scans → answers with context
+
+**Example:**
+```
+User: "How's my database connectivity configured?"
+
+AI Agent reasoning:
+1. "Database connectivity" involves network configuration
+2. Need to check VPC, security groups, subnets
+3. Should call scan_vpc tool
+4. [Calls scan_vpc]
+5. Receives: "vpc-abc123 has 3 security groups, 2 allow 0.0.0.0/0..."
+6. Answers: "Your VPC vpc-abc123 has database connectivity configured through..."
+```
+
+### Future Enhancements
+
+**Phase 1: Intelligent Scanning (Current - ✅ Complete)**
+- AI-driven scan decisions via AgentCore
+- Natural language understanding of questions
+- Dynamic tool selection
+
+**Phase 2: Memory & Context (Planned)**
+- Remember previous scans to avoid redundant AWS API calls
+- Build knowledge graph of your environment
+- Understand resource relationships: "This RDS instance is in VPC X with security group Y"
+
+**Phase 3: Predictive Intelligence (Future)**
+- "You usually ask about VPC after deploying RDS - here's your network config"
+- "Based on your scan history, these 3 resources might need attention"
+- "Your EC2 instances typically scale up on Fridays - cost will increase"
+
+**Phase 4: Self-Healing (Future)**
+- Detect when resources drift from compliant state
+- Automatically propose remediation based on past fixes
+- Learn which remediations you typically approve vs reject
+
+### The Continuous Learning Test
+
+Before implementing any feature, ask:
+> "Will this get smarter the more the user interacts with CARL?"
+
+If YES → Feature uses continuous learning ✓
+If NO → Consider how to make it adaptive
+
+### Examples
+
+❌ **Bad:** Static, never improves
+```python
+if "mfa" in question:
+    scan_iam()
+# Always the same logic, forever
+```
+
+✅ **Good:** Adaptive, learns context
+```python
+agent.execute("Analyze this question and scan relevant resources")
+# AI decides what to scan, can handle new question patterns
+# No code changes needed for new AWS services or question formats
+```
+
+### Key Principles
+
+1. **AI makes decisions** - Not hardcoded rules, AI reasoning
+2. **Learn from interactions** - Environment understanding improves over time
+3. **Adapt to patterns** - Recognize what users care about
+4. **Scalable intelligence** - No code changes for new services/questions
+5. **Context-aware** - Understand relationships between resources
+6. **Proactive** - Anticipate needs based on patterns
+
+### Why This Matters
+
+**Static tool:** Same answers forever, requires constant code updates
+**Adaptive AI:** Gets smarter with every scan, adapts to your environment
+
+This is the key difference between a tool and an intelligent assistant.
+
+---
+
 ## Command-by-Command Requirements
 
 ### ✅ DOING IT RIGHT

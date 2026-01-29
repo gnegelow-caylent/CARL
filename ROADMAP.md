@@ -17,6 +17,34 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 **Impact:** CARL now provides real-time AWS pricing data in all recommendations. Agents can autonomously query pricing when answering cost questions. Implements "always show cost" principle.
 
+### Intelligent Scanning System (January 29, 2026)
+- ✅ AI-driven scan decisions via AgentCore (replaces static keyword matching)
+- ✅ Scanning tools for AgentCore: scan_iam, scan_s3, scan_vpc, scan_cloudtrail, scan_security_hub, scan_all
+- ✅ Refactored `/carl ask` to use Agent-based intelligent scanning
+- ✅ Removed 114 lines of static keyword matching
+- ✅ Design Principle #4 documented: Continuous Learning & Environment Adaptation
+- ✅ Natural language understanding for scan decisions
+- ✅ 340+ lines of new code (scanning_tools.py)
+- ✅ Scalable to 200+ AWS services without code changes
+
+**Impact:** CARL now uses AI to intelligently decide what to scan based on user questions. No more brittle keyword matching. System continuously learns and adapts to your environment. Implements "continuous learning" principle.
+
+### Continuous Learning System - Phase 2 (January 29, 2026)
+- ✅ Scan history DynamoDB table for logging interactions
+- ✅ Resource knowledge graph table for tracking AWS resources
+- ✅ LearningService for interaction logging and pattern analysis
+- ✅ User feedback buttons (👍 👎) on all `/carl ask` responses
+- ✅ Feedback handler integration with Slack interactions
+- ✅ Pattern analyzer Lambda function (runs daily at 2am UTC)
+- ✅ CloudWatch metrics for learning progress tracking
+- ✅ Learned context injection into agent instructions
+- ✅ EventBridge schedule for automated pattern analysis
+- ✅ Complete documentation (CONTINUOUS_LEARNING.md)
+- ✅ 580+ lines of learning service code
+- ✅ 200+ lines of pattern analysis code
+
+**Impact:** CARL now learns from every interaction! Tracks which scans are useful, builds resource knowledge graph, adapts to your environment, and improves automatically over time. Feedback loop enables true continuous learning. Cost: ~$0.67/month.
+
 ### Smart Infrastructure Generation (January 28, 2026)
 - ✅ Resource detection service (scans AWS before generating code)
 - ✅ Environment-aware code generation (only creates missing resources)

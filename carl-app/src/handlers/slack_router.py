@@ -1360,21 +1360,38 @@ def handle_ask_command_sync(
 def handle_ask_command_fallback(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
-    """Fallback ask command without Advisory Agent - basic Q&A with environment scanning."""
-    import os
-    from services.evidence_collector import EvidenceCollector
+    """
+    Fallback ask command without Advisory Agent - AI-driven intelligent scanning.
 
-    # Get context and generate response
+    Uses AgentCore with scanning tools to intelligently decide what AWS resources
+    to scan based on the question. This replaces static keyword matching with
+    AI-driven scanning decisions.
+
+    NEW: Integrates with LearningService for continuous learning.
+    """
+    import os
+    import json
+    import time
+    from services.evidence_collector import EvidenceCollector
+    from services.scanning_tools import create_scanning_tools
+    from services.agent_core import Agent
+    from services.learning_service import LearningService
+
+    # Get Bedrock service for final response generation
     bedrock = get_bedrock_service()
 
-    question_lower = question.lower()
+    logger.info(f"Processing ask command with intelligent scanning: {question}")
+
+    # Track for learning
+    scan_start_time = time.time()
+    scans_performed = []
+    resources_found = []
+
     context = ""
 
-    # Intelligently scan based on the question topic
-    logger.info(f"Analyzing question to determine what to scan: {question}")
-
-    # Use evidence collector for targeted scans based on question
+    # Use agent-based intelligent scanning
     try:
+        # Initialize evidence collector
         evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
         evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
         collector = EvidenceCollector(
@@ -1382,93 +1399,213 @@ def handle_ask_command_fallback(
             evidence_table=evidence_table
         )
 
-        scan_results = {}
+        # Initialize learning service
+        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
 
-        # IAM/MFA questions
-        if any(kw in question_lower for kw in ['mfa', 'multi-factor', 'multi factor', 'iam user', 'password', 'access key', 'credential']):
-            logger.info("🔍 Scanning IAM/MFA based on question")
-            iam_evidence = collector.collect_iam_evidence()
-            scan_results['iam'] = iam_evidence
-            context += f"\n*IAM/MFA Scan Results (live data):*\n"
-            for evidence in iam_evidence:
-                if 'mfa' in evidence.title.lower() or 'password' in evidence.title.lower():
-                    context += f"• {evidence.title}: {evidence.description}\n"
+        learning_service = LearningService(
+            scan_history_table=scan_history_table,
+            resource_graph_table=resource_graph_table
+        )
 
-        # S3/Encryption questions
-        if any(kw in question_lower for kw in ['s3', 'bucket', 'encryption', 'encrypt']):
-            logger.info("🔍 Scanning S3 buckets based on question")
-            s3_evidence = collector.collect_s3_evidence()
-            scan_results['s3'] = s3_evidence
-            context += f"\n*S3 Bucket Scan Results (live data):*\n"
-            for evidence in s3_evidence:
-                context += f"• {evidence.title}: {evidence.description}\n"
+        # Get learned context to make agent smarter
+        learned_context = learning_service.get_learned_context(question)
 
-        # CloudTrail/Logging questions
-        if any(kw in question_lower for kw in ['cloudtrail', 'logging', 'log', 'audit trail', 'api activity']):
-            logger.info("🔍 Scanning CloudTrail based on question")
-            cloudtrail_evidence = collector.collect_cloudtrail_evidence()
-            scan_results['cloudtrail'] = cloudtrail_evidence
-            context += f"\n*CloudTrail Scan Results (live data):*\n"
-            for evidence in cloudtrail_evidence:
-                context += f"• {evidence.title}: {evidence.description}\n"
+        # Create scanning tools for the agent
+        scanning_tools = create_scanning_tools(collector)
 
-        # VPC/Network questions - including web server, EC2, infrastructure, database connectivity, ETL
-        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log', 'web server', 'server', 'ec2', 'instance', 'load balancer', 'alb', 'elb', 'infrastructure', 'database', 'rds', 'aurora', 'connectivity', 'connect', 'etl', 'glue', 'dms', 'data pipeline', 'redshift']):
-            logger.info("🔍 Scanning VPC/Network based on question")
-            vpc_evidence = collector.collect_vpc_evidence()
-            scan_results['vpc'] = vpc_evidence
-            context += f"\n*VPC/Network Scan Results (live data):*\n"
-            for evidence in vpc_evidence:
-                context += f"• {evidence.title}: {evidence.description}\n"
+        # Create scanning agent with tools + learned context
+        base_instructions = """You are a scanning agent for AWS compliance assessment.
 
-        # Security Hub questions
-        if any(kw in question_lower for kw in ['security hub', 'security service', 'guardduty']):
-            logger.info("🔍 Scanning Security Hub based on question")
-            securityhub_evidence = collector.collect_securityhub_evidence()
-            scan_results['securityhub'] = securityhub_evidence
-            context += f"\n*Security Hub Scan Results (live data):*\n"
-            for evidence in securityhub_evidence:
-                context += f"• {evidence.title}: {evidence.description}\n"
+Your job: Analyze the user's question and intelligently decide which AWS resources to scan.
 
-        # General compliance/overview questions - scan everything
-        if any(kw in question_lower for kw in ['compliant', 'compliance', 'overall', 'status', 'summary', 'everything', 'all']):
-            logger.info("🔍 Full environment scan for general question")
-            all_evidence = collector.collect_all_evidence()
-            scan_results = all_evidence
-            # Create summary
-            context += f"\n*Full Environment Scan (live data):*\n"
-            for category, evidence_list in all_evidence.items():
-                context += f"\n*{category.upper()}:*\n"
-                for evidence in evidence_list[:3]:  # Limit to 3 per category
-                    context += f"• {evidence.title}\n"
+Available tools:
+- scan_iam: IAM users, roles, policies, MFA, password policies
+- scan_s3: S3 buckets, encryption, public access, versioning
+- scan_vpc: VPCs, security groups, flow logs, network configuration
+- scan_cloudtrail: CloudTrail audit logging configuration
+- scan_security_hub: Security Hub findings and enabled standards
+- scan_all: Comprehensive scan of all resources (use for broad questions)
 
-        if not scan_results:
-            # If no specific scan was triggered, do a basic VPC scan for infrastructure questions
-            logger.info("No specific scan triggered - doing basic VPC scan as default")
-            try:
-                vpc_evidence = collector.collect_vpc_evidence()
-                scan_results['vpc'] = vpc_evidence
-                if vpc_evidence:
-                    context += f"\n*Your Current VPC Setup (scanned just now):*\n"
-                    for evidence in vpc_evidence[:5]:  # Show first 5
-                        context += f"• {evidence.title}\n"
-            except Exception as e:
-                logger.error(f"Default VPC scan failed: {e}")
-                context += f"\n*Note: Could not scan your current VPC setup.*\n"
+Instructions:
+1. Analyze the question to understand what AWS resources are relevant
+2. Call the appropriate scanning tool(s) - you can call multiple tools if needed
+3. Return the scan results so they can be used to answer the question
+
+Examples:
+- "Do I have MFA enabled?" → scan_iam
+- "Are my S3 buckets encrypted?" → scan_s3
+- "How is my VPC configured?" → scan_vpc
+- "What's my overall security posture?" → scan_all
+- "Tell me about my database connectivity" → scan_vpc (network config)
+
+Be intelligent: Use context clues to decide what to scan. Don't just match keywords."""
+
+        # Add learned context if available
+        if learned_context:
+            base_instructions += learned_context
+
+        scanning_agent = Agent(
+            tools=scanning_tools,
+            instructions=base_instructions
+        )
+
+        # Let the agent decide what to scan
+        logger.info("🤖 Agent analyzing question to determine what to scan")
+        scan_results_raw = scanning_agent.execute(
+            f"Analyze this question and scan relevant AWS resources: {question}"
+        )
+
+        logger.info(f"Agent scan results: {scan_results_raw[:500]}...")  # Log first 500 chars
+
+        # Parse scan results and build context
+        try:
+            # The agent returns a text response, extract JSON from it
+            # Look for JSON blocks in the response
+            scan_data = []
+            for line in scan_results_raw.split('\n'):
+                if line.strip().startswith('{') and line.strip().endswith('}'):
+                    try:
+                        scan_data.append(json.loads(line.strip()))
+                    except:
+                        pass
+
+            if scan_data:
+                context += "\n*Live AWS Environment Scan Results:*\n\n"
+                for result in scan_data:
+                    if result.get('success'):
+                        resource_type = result.get('resource_type', 'Unknown')
+                        summary = result.get('summary', 'No summary')
+                        details = result.get('details', {})
+
+                        # Track which scans were performed (for learning)
+                        scans_performed.append(f"scan_{resource_type.lower()}")
+
+                        context += f"*{resource_type} Scan:*\n"
+                        context += f"• {summary}\n"
+
+                        # Add relevant details
+                        if resource_type == "IAM" and details:
+                            if details.get('users_without_mfa'):
+                                context += f"• Users without MFA: {', '.join(details['users_without_mfa'][:5])}\n"
+                            if not details.get('password_policy_configured'):
+                                context += f"• Password policy NOT configured\n"
+
+                        elif resource_type == "S3" and details:
+                            if details.get('unencrypted_buckets'):
+                                context += f"• Unencrypted buckets: {', '.join(details['unencrypted_buckets'][:5])}\n"
+                            if details.get('public_access_issues'):
+                                context += f"• Buckets with public access issues: {len(details['public_access_issues'])}\n"
+
+                        elif resource_type == "VPC" and details:
+                            if details.get('vpcs_without_flow_logs'):
+                                context += f"• VPCs without flow logs: {', '.join(details['vpcs_without_flow_logs'])}\n"
+                            if details.get('risky_security_groups'):
+                                context += f"• Risky security groups: {len(details['risky_security_groups'])}\n"
+
+                        elif resource_type == "CloudTrail" and details:
+                            if details.get('trails_not_logging'):
+                                context += f"• Trails not logging: {', '.join(details['trails_not_logging'])}\n"
+
+                        elif resource_type == "SecurityHub" and details:
+                            findings = details.get('findings_by_severity', {})
+                            if findings:
+                                context += f"• Findings: {sum(findings.values())} total\n"
+
+                        elif resource_type == "ALL" and details:
+                            context += f"• IAM: {details.get('iam', 0)} items\n"
+                            context += f"• S3: {details.get('s3', 0)} items\n"
+                            context += f"• VPC: {details.get('vpc', 0)} items\n"
+                            context += f"• CloudTrail: {details.get('cloudtrail', 0)} items\n"
+                            context += f"• Security Hub: {details.get('security_hub', 0)} items\n"
+
+                        context += "\n"
+            else:
+                # Fallback: include raw agent response as context
+                context += f"\n*Scan Results:*\n{scan_results_raw}\n\n"
+
+        except Exception as parse_error:
+            logger.warning(f"Could not parse scan results JSON: {parse_error}")
+            # Use raw response as context
+            context += f"\n*Scan Results:*\n{scan_results_raw}\n\n"
 
     except Exception as e:
-        logger.error(f"Failed to scan environment: {e}", exc_info=True)
-        context += f"\nNote: Live scan encountered an error: {str(e)}\n\n"
+        logger.error(f"Agent-based scanning failed: {e}", exc_info=True)
+        context += f"\nNote: Environment scan encountered an error: {str(e)}\n\n"
 
-    # Generate AI response using live scan data only
+    # Generate AI response using scan data
     # Note: No stored findings lookup - /carl ask is scan-first
     # For stored findings, users should use /carl status or /carl findings
     response = bedrock.ask_compliance_question(question, context)
+
+    # Calculate scan duration
+    scan_duration_ms = int((time.time() - scan_start_time) * 1000)
+
+    # Log interaction for learning (fire and forget - don't block on errors)
+    interaction_id = None
+    try:
+        learning_service = LearningService(
+            scan_history_table=os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history"),
+            resource_graph_table=os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+        )
+
+        interaction_id = learning_service.log_interaction(
+            user_id=user_id,
+            question=question,
+            scans_performed=scans_performed,
+            resources_found=resources_found,
+            scan_duration_ms=scan_duration_ms,
+            metadata={"channel_id": channel_id}
+        )
+
+        logger.info(f"Logged interaction {interaction_id} for learning")
+    except Exception as e:
+        logger.warning(f"Failed to log interaction for learning: {e}")
 
     # Format and post response with better structure
     formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Response")
     for block_group in formatted_blocks:
         slack.post_message(channel_id, blocks=block_group)
+
+    # Add feedback buttons if interaction was logged
+    if interaction_id:
+        feedback_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_Was this answer helpful?_"
+                }
+            },
+            {
+                "type": "actions",
+                "block_id": f"feedback_{interaction_id}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "👍 Yes",
+                            "emoji": True
+                        },
+                        "value": f"{interaction_id}:helpful",
+                        "action_id": "feedback_positive"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "👎 No",
+                            "emoji": True
+                        },
+                        "value": f"{interaction_id}:not_helpful",
+                        "action_id": "feedback_negative"
+                    }
+                ]
+            }
+        ]
+
+        slack.post_message(channel_id, blocks=feedback_blocks)
 
     return {"statusCode": 200, "body": ""}
 
@@ -3307,8 +3444,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_foundation_explain(payload, action)
             elif action_id.startswith("foundation_compare_"):
                 return handle_foundation_compare(payload, action)
-            elif action_id.startswith("feedback_"):
-                return handle_feedback(payload, action)
+            elif action_id == "feedback_positive" or action_id == "feedback_negative":
+                return handle_learning_feedback(payload, action)
             elif action_id == "deploy_infrastructure":
                 return handle_deploy_review(payload, action)
             elif action_id == "confirm_deploy":
@@ -4152,6 +4289,67 @@ def handle_feedback(payload: dict, action: dict) -> dict:
             text="What improvement would you suggest? Reply with your suggestion and CARL will learn from it.",
         )
         logger.info(f"Improvement request from {user} for: {question_context}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_learning_feedback(payload: dict, action: dict) -> dict:
+    """
+    Handle feedback on /carl ask responses for continuous learning.
+
+    This records whether the AI's scan decisions and answers were helpful,
+    enabling the system to learn and improve over time.
+    """
+    import os
+    from services.learning_service import LearningService
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    action_id = action.get("action_id", "")
+    value = action.get("value", "")  # Format: "interaction_id:helpful" or "interaction_id:not_helpful"
+
+    try:
+        # Parse interaction ID from value
+        parts = value.split(":", 1)
+        if len(parts) != 2:
+            logger.error(f"Invalid feedback value format: {value}")
+            return {"statusCode": 200, "body": ""}
+
+        interaction_id = parts[0]
+        feedback_type = parts[1]
+        was_useful = (feedback_type == "helpful")
+
+        # Record feedback in learning service
+        learning_service = LearningService(
+            scan_history_table=os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history"),
+            resource_graph_table=os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+        )
+
+        learning_service.record_feedback(interaction_id, was_useful)
+
+        # Update the message to show feedback was recorded
+        if was_useful:
+            response_text = "✅ Thanks! This helps CARL learn what scans are most useful for your environment."
+        else:
+            response_text = "📝 Thanks for the feedback! CARL will adjust its scanning strategy to be more helpful."
+
+        # Remove the feedback buttons by updating the message
+        slack.post_message(
+            channel,
+            text=response_text,
+            replace_original=True  # This removes the buttons
+        )
+
+        logger.info(f"Recorded learning feedback: interaction={interaction_id}, useful={was_useful}, user={user}")
+
+    except Exception as e:
+        logger.error(f"Failed to handle learning feedback: {e}", exc_info=True)
+        slack.post_message(
+            channel,
+            text="⚠️ Failed to record feedback, but I appreciate you trying to help me learn!"
+        )
 
     return {"statusCode": 200, "body": ""}
 
