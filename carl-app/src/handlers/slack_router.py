@@ -3885,8 +3885,8 @@ def handle_evidence_list_command(
         )
         findings_service = get_findings_service()
 
-        # Get recent evidence items
-        evidence_items = collector.get_recent_evidence(limit=20, evidence_type=evidence_type_filter)
+        # Get recent evidence items (limit to 10 to stay under Slack's 50 block limit)
+        evidence_items = collector.get_recent_evidence(limit=10, evidence_type=evidence_type_filter)
 
         if not evidence_items:
             slack.post_message(
@@ -3920,8 +3920,8 @@ def handle_evidence_list_command(
             }
         ]
 
-        # Display each evidence item
-        for evidence in evidence_items[:20]:  # Show up to 20 items
+        # Display each evidence item (limited to 10 to avoid Slack's 50 block limit)
+        for evidence in evidence_items[:10]:
             # Check if there's a finding for this resource
             resource_finding = findings_by_resource.get(evidence.resource_id)
 
@@ -3960,13 +3960,15 @@ def handle_evidence_list_command(
                 f"Resource: `{evidence.resource_id}`"
             )
 
-            blocks.append({
+            # Add section with optional accessory button for compliant items
+            section_block = {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": evidence_text
                 }
-            })
+            }
+            blocks.append(section_block)
 
             # Add action buttons if there's a finding
             if resource_finding:
@@ -4010,15 +4012,14 @@ def handle_evidence_list_command(
                         "elements": action_buttons
                     })
 
-            blocks.append({"type": "divider"})
-
         # Add footer with helpful commands
+        blocks.append({"type": "divider"})
         blocks.append({
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💡 Run `/carl evidence collect` to refresh evidence | `/carl jira sync` to sync all findings"
+                    "text": "💡 Showing 10 most recent items | Run `/carl evidence collect` to refresh | `/carl jira sync` to sync all findings"
                 }
             ]
         })
