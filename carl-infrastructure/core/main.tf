@@ -474,6 +474,17 @@ resource "aws_iam_role_policy" "bedrock" {
       {
         Effect = "Allow"
         Action = [
+          "bedrock:InvokeAgent",
+          "bedrock:GetAgent"
+        ]
+        Resource = var.enable_compliance_agent ? [
+          module.compliance_agent[0].agent_arn,
+          module.compliance_agent[0].agent_alias_arn
+        ] : []
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "aws-marketplace:ViewSubscriptions",
           "aws-marketplace:Subscribe"
         ]
@@ -806,6 +817,9 @@ resource "aws_lambda_function" "carl" {
       BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
       BEDROCK_REGION   = local.region
 
+      # Bedrock Compliance Agent (optional, only set if enabled)
+      COMPLIANCE_AGENT_ID = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : ""
+
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
@@ -1018,6 +1032,20 @@ module "auto_remediation" {
   })
 }
 
+module "compliance_agent" {
+  source = "../modules/compliance-agent"
+  count  = var.enable_compliance_agent ? 1 : 0
+
+  name_prefix       = local.name_prefix
+  region            = var.region
+  tool_lambda_arn   = aws_lambda_function.carl.arn
+  tool_lambda_name  = aws_lambda_function.carl.function_name
+
+  tags = merge(var.tags, {
+    Feature = "compliance_agent"
+  })
+}
+
 # ============================================================================
 # KEEP LAMBDA WARM (Reduces cold starts for better Slack responsiveness)
 # ============================================================================
@@ -1144,4 +1172,14 @@ output "next_steps" {
 
     Documentation: https://github.com/your-org/carl
   EOT
+}
+
+output "compliance_agent_id" {
+  description = "Bedrock Compliance Agent ID (if enabled)"
+  value       = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : "Not enabled - set enable_compliance_agent=true to deploy"
+}
+
+output "compliance_agent_alias_id" {
+  description = "Bedrock Compliance Agent Alias ID (PROD)"
+  value       = var.enable_compliance_agent ? module.compliance_agent[0].agent_alias_id : null
 }

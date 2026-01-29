@@ -78,6 +78,12 @@ variable "enable_auto_remediation" {
   default     = false
 }
 
+variable "enable_compliance_agent" {
+  description = "Enable AWS Bedrock Compliance Agent for autonomous SOC 2 assessment"
+  type        = bool
+  default     = true
+}
+
 # ============================================================================
 # GITHUB INTEGRATION (For automatic feature deployment)
 # ============================================================================
