@@ -85,7 +85,8 @@ class JiraSecuritySync:
                 # Build resource ARN from resource_id
                 resource_arn = resource_id if resource_id.startswith("arn:") else f"arn:aws:{resource_type}:{region}:{aws_account_id}:{resource_id}"
 
-                result = self.jira.create_security_finding(
+                # create_security_finding() returns the issue key string, not a dict
+                jira_key = self.jira.create_security_finding(
                     finding_id=finding_id,
                     title=title,
                     severity=severity,
@@ -98,7 +99,6 @@ class JiraSecuritySync:
                     first_detected=datetime.utcnow().isoformat()
                 )
 
-                jira_key = result["key"]
                 jira_url = f"{self.jira.jira_url}/browse/{jira_key}"
 
                 # Store Jira ticket ID in DynamoDB
