@@ -2626,8 +2626,81 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_estimate_option_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
+            elif action_id == "evidence_collect_all":
+                return handle_evidence_collect_button(payload, action)
 
     return {"statusCode": 200, "body": "OK"}
+
+
+def handle_evidence_collect_button(payload: dict, action: dict) -> dict:
+    """Handle evidence collection button click."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+
+    channel_id = payload.get("channel", {}).get("id", "")
+    user_id = payload.get("user", {}).get("id", "")
+
+    if not channel_id:
+        return {"statusCode": 200, "body": "No channel"}
+
+    slack = get_slack_service()
+
+    # Acknowledge button click immediately
+    slack.post_message(channel_id, text="Starting evidence collection across all resources... This may take a few minutes.")
+
+    try:
+        evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+        evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
+
+        results = collector.collect_all_evidence()
+
+        total = sum(len(items) for items in results.values())
+        summary_lines = [f"*Evidence Collection Complete*\n\nCollected *{total}* evidence items:\n"]
+        for category, items in results.items():
+            summary_lines.append(f"• {category.upper()}: {len(items)} items")
+
+        slack.post_message(channel_id, text="\n".join(summary_lines))
+
+        # Create findings from security issues detected in evidence
+        slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
+
+        findings = collector.create_findings_from_evidence(results)
+
+        # Store findings in DynamoDB
+        findings_service = get_findings_service()
+        stored_count = 0
+        for finding in findings:
+            try:
+                findings_service.store_finding(finding)
+                stored_count += 1
+            except Exception as e:
+                logger.error(f"Failed to store finding {finding.id}: {e}")
+
+        if stored_count > 0:
+            slack.post_message(
+                channel_id,
+                text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
+                     f"Run `/carl jira sync` to create Jira tickets for these issues."
+            )
+        else:
+            slack.post_message(
+                channel_id,
+                text="✓ No new security issues found (all findings already exist)."
+            )
+
+    except Exception as e:
+        logger.exception("Error collecting evidence from button")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Evidence collection failed: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_foundation_answer(payload: dict, action: dict) -> dict:
