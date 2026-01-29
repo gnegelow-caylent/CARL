@@ -1036,10 +1036,10 @@ module "compliance_agent" {
   source = "../modules/compliance-agent"
   count  = var.enable_compliance_agent ? 1 : 0
 
-  name_prefix       = local.name_prefix
-  region            = var.region
-  tool_lambda_arn   = aws_lambda_function.carl.arn
-  tool_lambda_name  = aws_lambda_function.carl.function_name
+  name_prefix      = local.name_prefix
+  region           = var.region
+  tool_lambda_arn  = aws_lambda_function.carl.arn
+  tool_lambda_name = aws_lambda_function.carl.function_name
 
   tags = merge(var.tags, {
     Feature = "compliance_agent"
