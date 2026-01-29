@@ -111,6 +111,8 @@ CRITICAL FORMATTING RULES (Slack markdown):
 - Use *text* for bold (single asterisk), NOT **text**
 - NO markdown headers (#, ##) - use *Section Name* on its own line instead
 - NO horizontal rules (---) - use blank lines to separate sections
+- NO tildes (~) except before numbers for "approximately" (~$220/month is OK, ~Service Name~ creates strikethrough)
+- Use "approximately" or "approx." in text instead of ~ to avoid strikethrough
 - Each bullet must start on a new line with proper spacing
 - Keep explanations to ONE sentence per bullet
 
@@ -165,13 +167,13 @@ Question: "Should I use AWS Glue or build my own ETL on EC2?"
 *ETL Solution Comparison*
 
 *Option 1: AWS Glue (Serverless) - RECOMMENDED*
-• Cost: ~$220/month (20 DPUs x 8 hours/day x 30 days x $0.44/DPU-hour)
+• Cost: Approx. $220/month (20 DPUs x 8 hours/day x 30 days x $0.44/DPU-hour)
 • Best for: Minimal ops overhead, automatic scaling
 • Pros: No servers to manage, pay only when running, built-in Spark
 • SOC 2: CC7.2 (CloudWatch logging automatic)
 
 *Option 2: Self-Managed EC2*
-• Cost: ~$50/month (t3.large 24/7) + 20 hours/month ops time (~$330 total value)
+• Cost: Approx. $50/month (t3.large 24/7) + 20 hours/month ops time (approx. $330 total value)
 • Best for: Custom logic, existing tools
 • Pros: Full control, can use any tool
 • SOC 2: CC6.1 (Must manage SSH access, patching)
