@@ -1452,6 +1452,7 @@ Examples:
 - "How is my VPC configured?" → scan_vpc (compliance)
 - "What IoT services should I use?" → ARCHITECTURE_QUESTION (design guidance)
 - "How do I build a data pipeline?" → ARCHITECTURE_QUESTION (design guidance)
+"""
 
         # Add learned context if available
         if learned_context:
