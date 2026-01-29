@@ -185,6 +185,21 @@ class FindingsService:
             if not updates:
                 return True
 
+            # First, query to get the existing item and its sk
+            # (Table has composite keys: pk + sk)
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                Limit=1
+            )
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Finding {finding_id} not found for update")
+                return False
+
+            item = items[0]
+            pk = item["pk"]
+            sk = item["sk"]
+
             # Build update expression
             update_expr_parts = []
             expr_values = {}
@@ -203,8 +218,9 @@ class FindingsService:
 
             update_expr = "SET " + ", ".join(update_expr_parts)
 
+            # Update using both pk and sk
             self.table.update_item(
-                Key={"pk": f"ACCOUNT#{account_id}#FINDING#{finding_id}"},
+                Key={"pk": pk, "sk": sk},
                 UpdateExpression=update_expr,
                 ExpressionAttributeValues=expr_values,
                 ExpressionAttributeNames=expr_names,
@@ -226,6 +242,20 @@ class FindingsService:
     ) -> bool:
         """Update the status of a finding."""
         try:
+            # First, query to get the existing item and its sk
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                Limit=1
+            )
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Finding {finding_id} not found for status update")
+                return False
+
+            item = items[0]
+            pk = item["pk"]
+            sk = item["sk"]
+
             update_expr = "SET #status = :status, updated_at = :updated"
             expr_values: dict[str, Any] = {
                 ":status": status.value,
@@ -237,8 +267,9 @@ class FindingsService:
                 update_expr += ", remediation_id = :rid"
                 expr_values[":rid"] = remediation_id
 
+            # Update using both pk and sk
             self.table.update_item(
-                Key={"pk": f"ACCOUNT#{account_id}#FINDING#{finding_id}"},
+                Key={"pk": pk, "sk": sk},
                 UpdateExpression=update_expr,
                 ExpressionAttributeValues=expr_values,
                 ExpressionAttributeNames=expr_names,
@@ -260,8 +291,23 @@ class FindingsService:
     ) -> bool:
         """Suppress a finding."""
         try:
+            # First, query to get the existing item and its sk
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                Limit=1
+            )
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Finding {finding_id} not found for suppression")
+                return False
+
+            item = items[0]
+            pk = item["pk"]
+            sk = item["sk"]
+
+            # Update using both pk and sk
             self.table.update_item(
-                Key={"pk": f"ACCOUNT#{account_id}#FINDING#{finding_id}"},
+                Key={"pk": pk, "sk": sk},
                 UpdateExpression=(
                     "SET #status = :status, updated_at = :updated, "
                     "suppression_reason = :reason, suppressed_by = :by"
