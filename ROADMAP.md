@@ -496,6 +496,87 @@ Currently, findings are stored in DynamoDB indefinitely. There's no mechanism fo
 
 ---
 
+### Interactive Requirements Gathering for Architecture Questions
+
+**Status:** Documented for future implementation with Architect Agent
+
+**Problem:**
+Currently, when users ask architecture questions that need more details, CARL asks follow-up questions in text:
+```
+User: /carl ask I need an ETL solution
+CARL: "Tell me your database type, data volume, table count..."
+User: /carl ask SQL Server, 50GB daily, 100 tables (has to re-type context)
+```
+
+This works but is clunky for multi-parameter questions.
+
+**Proposed Solution:**
+
+**Phase 1: Advisory → Architect Handoff** (When Architect Agent is built)
+```
+User: /carl ask I need an ETL solution
+Advisory Agent: Detects this is an architecture/build question
+Advisory Agent: "This looks like an architecture project. Would you like me to hand off to the Architect Agent to design and build this?"
+User: yes
+Advisory Agent: Hands off to Architect Agent with context
+```
+
+**Phase 2: Architect Agent Interactive Forms**
+```
+Architect Agent: Opens Slack modal with structured form
+┌─────────────────────────────────────────┐
+│ ETL Solution Requirements               │
+├─────────────────────────────────────────┤
+│ Database Type: [SQL Server ▼]           │
+│ Data Volume:   [50] GB daily            │
+│ Table Count:   [100]                    │
+│ Target:        [Redshift ▼]             │
+│ Schedule:      [Hourly ▼]               │
+│                                         │
+│           [Cancel]  [Generate Code]     │
+└─────────────────────────────────────────┘
+
+Architect Agent:
+1. Scans user's VPC, security groups
+2. Selects appropriate patterns (Glue vs DMS vs EMR)
+3. Generates Terraform code
+4. Includes cost estimates
+5. Creates GitHub PR
+```
+
+**Benefits:**
+- Clean separation: Advisory = Q&A, Architect = Build
+- Structured data collection (forms better than chat for multi-param)
+- User doesn't lose context between questions
+- Architect Agent can have complex multi-step workflows
+- Handoff pattern works for other agents too (Remediation, Compliance)
+
+**Implementation Considerations:**
+- Advisory Agent needs `handoff_to_architect` tool (already defined in ADVISORY_AGENT.md)
+- Architect Agent needs modal/form UI components
+- Need session management to preserve context across handoff
+- Slack modals support up to 10 form fields with validation
+
+**Estimated Effort:**
+- Phase 1 (Handoff): 1-2 days (when Architect Agent exists)
+- Phase 2 (Interactive Forms): 1 week (modal UI, form processing, validation)
+
+**Priority:** Medium - Implement with Architect Agent (Phase 2 of roadmap)
+
+**Current Workaround:**
+- User can re-ask with more details: `/carl ask SQL Server ETL, 50GB daily, 100 tables`
+- Works fine, just requires typing context again
+- Good enough until Architect Agent is built
+
+**Related Pattern:**
+This handoff pattern can be used for:
+- Advisory → Architect (architecture questions)
+- Advisory → Remediation (fix requests)
+- Advisory → Compliance (compliance assessment requests)
+- Creates clean agent specialization
+
+---
+
 ## 📊 Summary Timeline
 
 | Phase | Timeframe | Focus | Key Deliverables |
