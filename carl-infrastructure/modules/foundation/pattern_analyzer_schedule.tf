@@ -24,9 +24,9 @@ resource "aws_lambda_function" "pattern_analyzer" {
   timeout       = 60  # 1 minute should be enough for pattern analysis
   memory_size   = 512
 
-  # Code is deployed separately
-  filename         = "placeholder.zip"  # Replace with actual deployment artifact
-  source_code_hash = filebase64sha256("placeholder.zip")
+  # Code is deployed via GitHub Actions workflow
+  filename         = var.lambda_package_path
+  source_code_hash = filebase64sha256(var.lambda_package_path)
 
   environment {
     variables = {
@@ -112,20 +112,4 @@ resource "aws_iam_role_policy" "pattern_analyzer_tables" {
       }
     ]
   })
-}
-
-# Outputs
-output "pattern_analyzer_function_name" {
-  description = "Name of the pattern analyzer Lambda function"
-  value       = aws_lambda_function.pattern_analyzer.function_name
-}
-
-output "pattern_analyzer_function_arn" {
-  description = "ARN of the pattern analyzer Lambda function"
-  value       = aws_lambda_function.pattern_analyzer.arn
-}
-
-output "pattern_analysis_rule_name" {
-  description = "Name of the EventBridge rule for pattern analysis"
-  value       = aws_cloudwatch_event_rule.pattern_analysis.name
 }

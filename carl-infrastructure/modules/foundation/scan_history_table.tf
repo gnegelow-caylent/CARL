@@ -126,24 +126,3 @@ resource "aws_dynamodb_table" "resource_graph" {
     Purpose     = "continuous-learning"
   }
 }
-
-# Outputs
-output "scan_history_table_name" {
-  description = "Name of the scan history table"
-  value       = aws_dynamodb_table.scan_history.name
-}
-
-output "scan_history_table_arn" {
-  description = "ARN of the scan history table"
-  value       = aws_dynamodb_table.scan_history.arn
-}
-
-output "resource_graph_table_name" {
-  description = "Name of the resource graph table"
-  value       = aws_dynamodb_table.resource_graph.name
-}
-
-output "resource_graph_table_arn" {
-  description = "ARN of the resource graph table"
-  value       = aws_dynamodb_table.resource_graph.arn
-}

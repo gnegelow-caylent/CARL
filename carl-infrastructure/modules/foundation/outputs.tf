@@ -204,3 +204,19 @@ output "resource_graph_table_arn" {
   description = "ARN of the resource knowledge graph table"
   value       = aws_dynamodb_table.resource_graph.arn
 }
+
+# Pattern Analyzer Lambda
+output "pattern_analyzer_function_name" {
+  description = "Name of the pattern analyzer Lambda function"
+  value       = aws_lambda_function.pattern_analyzer.function_name
+}
+
+output "pattern_analyzer_function_arn" {
+  description = "ARN of the pattern analyzer Lambda function"
+  value       = aws_lambda_function.pattern_analyzer.arn
+}
+
+output "pattern_analysis_rule_name" {
+  description = "Name of the EventBridge rule for pattern analysis"
+  value       = aws_cloudwatch_event_rule.pattern_analysis.name
+}
