@@ -88,18 +88,22 @@ class BedrockService:
 
     def ask_compliance_question(self, question: str, context: str = "") -> str:
         """Answer a compliance-related question using environment context."""
-        prompt = f"""You are CARL, an AI compliance expert. Your job is to answer the user's SPECIFIC question using LIVE AWS environment data that was just scanned.
+        has_scan_data = context and len(context.strip()) > 50
 
-IMPORTANT:
-- The environment data below was scanned LIVE from the user's AWS account based on their question
-- Answer with REAL data from the scan (not hypothetical)
-- If the scan found MFA data, IAM users, S3 buckets, etc. - USE THAT ACTUAL DATA
-- Be specific with resource names, counts, and statuses from the scan
-- Only mention findings that are directly relevant to the question
-- Be concise and actionable
+        prompt = f"""You are CARL, an AI compliance expert for AWS infrastructure and SOC 2 compliance.
 
-Live Environment Scan Results:
+Your job: Answer the user's question clearly and actionably.
+
+ENVIRONMENT DATA AVAILABLE: {"YES - Use this data in your answer" if has_scan_data else "LIMITED - Provide general guidance"}
+
+{f'''
+SCANNED ENVIRONMENT DATA (from user's AWS account):
 {context}
+
+IMPORTANT: Use this actual data from their environment in your answer. Be specific with resource names, IDs, and configurations shown above.
+''' if has_scan_data else '''
+NOTE: Limited environment data available. Provide general AWS best practices and guidance, but explain what you'd need to scan to give a tailored answer.
+'''}
 
 User's Question: {question}
 
@@ -111,39 +115,44 @@ CRITICAL FORMATTING RULES (Slack markdown):
 - Keep explanations to ONE sentence per bullet
 
 HOW TO ANSWER:
-1. Directly answer the specific question first (YES/NO/STATUS)
-2. Provide relevant details from the environment scan (ONLY what relates to the question)
-3. If issues exist, give 2-3 specific actionable steps
+1. If environment data is available: Use REAL resource names, IDs, and configurations from the scan
+2. If environment data is limited: Provide general AWS guidance and explain what you'd need to scan for a tailored answer
+3. Always provide actionable next steps (2-3 specific actions)
 4. Keep total response under 500 words
 
-Examples:
-
+Examples with scan data:
 Question: "Do we have encryption at rest enabled?"
-Good Answer:
 *Encryption Status: PARTIALLY ENABLED*
 
-*What's Encrypted*
-• S3 buckets: 3/5 buckets have encryption enabled
-• RDS databases: All 2 databases encrypted with AWS KMS
-
-*Missing Encryption*
-• 2 S3 buckets without encryption: my-logs-bucket, my-archive-bucket
+*What's Encrypted (from your account)*
+• S3 buckets: 3/5 buckets encrypted (my-prod-data, my-backups, my-logs)
+• 2 buckets NOT encrypted: my-archive-bucket, my-temp-storage
 
 *Fix It*
-1. Enable default encryption on my-logs-bucket (S3 Console → Bucket → Properties → Default encryption → Enable AES-256)
-2. Enable default encryption on my-archive-bucket (same steps)
+1. Enable default encryption on my-archive-bucket (S3 Console → Bucket → Properties → Default encryption)
+2. Enable default encryption on my-temp-storage (same steps)
 
-Question: "What are my critical findings?"
-Good Answer:
-*Critical Issues: 2 FOUND*
+Example with limited scan data:
+Question: "How do I stand up a web server?"
+*Web Server Deployment on AWS*
 
-• *Root account MFA disabled*: Enable MFA immediately (AWS Console → My Security Credentials → MFA)
-• *CloudTrail not enabled*: Enable CloudTrail for all regions (AWS Console → CloudTrail → Create trail)
+*Your Current Setup*
+• I scanned your VPCs and found: vpc-abc123 in us-east-1 with 3 subnets
 
-*Action Required*
-Enable both of these TODAY - they're critical for SOC 2 compliance.
+*Recommended Approach*
+1. *Deploy EC2 instances* in your existing VPC (vpc-abc123)
+2. *Add Application Load Balancer* for traffic distribution
+3. *Configure security groups* to allow HTTPS (443) from internet
 
-Remember: Answer the SPECIFIC question. Don't list everything. Be helpful, not overwhelming."""
+*SOC 2 Requirements*
+• Force HTTPS with ACM certificate (CC6.7 - Encryption in Transit)
+• Enable ALB access logs (CC7.2 - Monitoring)
+• Restrict SSH access, no 0.0.0.0/0 (CC6.1 - Access Controls)
+
+*Want More Detail?*
+I can scan your load balancers, security groups, and provide specific recommendations. Or say "yes" and I'll hand off to the Architect Agent to generate Terraform code.
+
+Remember: Answer the SPECIFIC question. Be helpful and actionable."""
 
         return self.invoke_model(prompt, max_tokens=1024)
 

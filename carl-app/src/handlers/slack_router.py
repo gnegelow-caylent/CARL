@@ -1413,8 +1413,8 @@ def handle_ask_command_fallback(
             for evidence in cloudtrail_evidence:
                 context += f"• {evidence.title}: {evidence.description}\n"
 
-        # VPC/Network questions
-        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log']):
+        # VPC/Network questions - including web server, EC2, infrastructure
+        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log', 'web server', 'server', 'ec2', 'instance', 'load balancer', 'alb', 'elb', 'infrastructure']):
             logger.info("🔍 Scanning VPC/Network based on question")
             vpc_evidence = collector.collect_vpc_evidence()
             scan_results['vpc'] = vpc_evidence
@@ -1444,8 +1444,18 @@ def handle_ask_command_fallback(
                     context += f"• {evidence.title}\n"
 
         if not scan_results:
-            # If no specific scan was triggered, still provide stored findings
-            logger.info("No targeted scan triggered, using stored findings")
+            # If no specific scan was triggered, do a basic VPC scan for infrastructure questions
+            logger.info("No specific scan triggered - doing basic VPC scan as default")
+            try:
+                vpc_evidence = collector.collect_vpc_evidence()
+                scan_results['vpc'] = vpc_evidence
+                if vpc_evidence:
+                    context += f"\n*Your Current VPC Setup (scanned just now):*\n"
+                    for evidence in vpc_evidence[:5]:  # Show first 5
+                        context += f"• {evidence.title}\n"
+            except Exception as e:
+                logger.error(f"Default VPC scan failed: {e}")
+                context += f"\n*Note: Could not scan your current VPC setup.*\n"
 
     except Exception as e:
         logger.error(f"Failed to scan environment: {e}", exc_info=True)
