@@ -1136,68 +1136,110 @@ def handle_ask_command_sync(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """Synchronous version of ask command (for async processing or fallback)."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+
     # Get context and generate response
     bedrock = get_bedrock_service()
     findings_service = get_findings_service()
 
-    # Check if question is about bad practices or environment scanning
     question_lower = question.lower()
-    should_scan = any(keyword in question_lower for keyword in [
-        'bad practice', 'misconfiguration', 'security issue',
-        'vulnerability', 'my environment', 'my aws', 'scan',
-        'check my', 'what\'s wrong', 'issues in my',
-        'compliant', 'compliance', 'my current', 'anything i need',
-        'environment compliant', 'need to do', 'fix it'
-    ])
-
     context = ""
 
-    if should_scan:
-        logger.info(f"Triggering AWS environment scan for question: {question}")
-        # Perform live AWS environment scan
-        try:
-            from services.aws_scanner import AWSScanner
-            scanner = AWSScanner()
-            scan_results = scanner.scan_environment()
-            scan_summary = scanner.get_summary(scan_results)
+    # Intelligently scan based on the question topic
+    logger.info(f"Analyzing question to determine what to scan: {question}")
 
-            # Store scanner findings in DynamoDB so they can be synced to Jira
-            try:
-                stored_ids = findings_service.store_scanner_findings(scan_results)
-                logger.info(f"Stored {len(stored_ids)} scanner findings in DynamoDB")
-            except Exception as store_error:
-                logger.error(f"Failed to store scanner findings: {store_error}", exc_info=True)
-                # Continue even if storage fails
+    # Use evidence collector for targeted scans based on question
+    try:
+        evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+        evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
 
-            context = f"""
-LIVE AWS ENVIRONMENT SCAN RESULTS:
-{scan_summary}
+        scan_results = {}
 
-This is real data from the user's AWS account, scanned moments ago.
-"""
-            logger.info(f"AWS environment scan completed successfully. Summary length: {len(scan_summary)}")
-        except Exception as e:
-            logger.error(f"Failed to scan AWS environment: {e}", exc_info=True)
-            context = f"Note: Could not scan AWS environment: {str(e)}\n\n"
+        # IAM/MFA questions
+        if any(kw in question_lower for kw in ['mfa', 'multi-factor', 'multi factor', 'iam user', 'password', 'access key', 'credential']):
+            logger.info("🔍 Scanning IAM/MFA based on question")
+            iam_evidence = collector.collect_iam_evidence()
+            scan_results['iam'] = iam_evidence
+            context += f"\n*IAM/MFA Scan Results (live data):*\n"
+            for evidence in iam_evidence:
+                if 'mfa' in evidence.title.lower() or 'password' in evidence.title.lower():
+                    context += f"• {evidence.title}: {evidence.description}\n"
 
-    # Add Security Hub findings ONLY if there are actual issues
+        # S3/Encryption questions
+        if any(kw in question_lower for kw in ['s3', 'bucket', 'encryption', 'encrypt']):
+            logger.info("🔍 Scanning S3 buckets based on question")
+            s3_evidence = collector.collect_s3_evidence()
+            scan_results['s3'] = s3_evidence
+            context += f"\n*S3 Bucket Scan Results (live data):*\n"
+            for evidence in s3_evidence:
+                context += f"• {evidence.title}: {evidence.description}\n"
+
+        # CloudTrail/Logging questions
+        if any(kw in question_lower for kw in ['cloudtrail', 'logging', 'log', 'audit trail', 'api activity']):
+            logger.info("🔍 Scanning CloudTrail based on question")
+            cloudtrail_evidence = collector.collect_cloudtrail_evidence()
+            scan_results['cloudtrail'] = cloudtrail_evidence
+            context += f"\n*CloudTrail Scan Results (live data):*\n"
+            for evidence in cloudtrail_evidence:
+                context += f"• {evidence.title}: {evidence.description}\n"
+
+        # VPC/Network questions
+        if any(kw in question_lower for kw in ['vpc', 'network', 'security group', 'firewall', 'flow log']):
+            logger.info("🔍 Scanning VPC/Network based on question")
+            vpc_evidence = collector.collect_vpc_evidence()
+            scan_results['vpc'] = vpc_evidence
+            context += f"\n*VPC/Network Scan Results (live data):*\n"
+            for evidence in vpc_evidence:
+                context += f"• {evidence.title}: {evidence.description}\n"
+
+        # Security Hub questions
+        if any(kw in question_lower for kw in ['security hub', 'security service', 'guardduty']):
+            logger.info("🔍 Scanning Security Hub based on question")
+            securityhub_evidence = collector.collect_securityhub_evidence()
+            scan_results['securityhub'] = securityhub_evidence
+            context += f"\n*Security Hub Scan Results (live data):*\n"
+            for evidence in securityhub_evidence:
+                context += f"• {evidence.title}: {evidence.description}\n"
+
+        # General compliance/overview questions - scan everything
+        if any(kw in question_lower for kw in ['compliant', 'compliance', 'overall', 'status', 'summary', 'everything', 'all']):
+            logger.info("🔍 Full environment scan for general question")
+            all_evidence = collector.collect_all_evidence()
+            scan_results = all_evidence
+            # Create summary
+            context += f"\n*Full Environment Scan (live data):*\n"
+            for category, evidence_list in all_evidence.items():
+                context += f"\n*{category.upper()}:*\n"
+                for evidence in evidence_list[:3]:  # Limit to 3 per category
+                    context += f"• {evidence.title}\n"
+
+        if not scan_results:
+            # If no specific scan was triggered, still provide stored findings
+            logger.info("No targeted scan triggered, using stored findings")
+
+    except Exception as e:
+        logger.error(f"Failed to scan environment: {e}", exc_info=True)
+        context += f"\nNote: Live scan encountered an error: {str(e)}\n\n"
+
+    # Add stored findings as backup context
     summary = findings_service.get_compliance_summary()
     recent_findings = findings_service.get_recent_findings(limit=5)
 
-    # Only add Security Hub context if there are findings
     total_findings = summary.get('critical', 0) + summary.get('high', 0) + summary.get('medium', 0) + summary.get('low', 0)
-    if total_findings > 0 or recent_findings:
+    if total_findings > 0:
         context += f"""
-Security Hub compliance summary:
-- Critical findings: {summary.get('critical', 0)}
-- High findings: {summary.get('high', 0)}
-- Medium findings: {summary.get('medium', 0)}
-- Low findings: {summary.get('low', 0)}
-
-Recent Security Hub findings:
-{json.dumps(recent_findings, indent=2)}
+\n*Stored Findings Summary:*
+- Critical: {summary.get('critical', 0)}
+- High: {summary.get('high', 0)}
+- Medium: {summary.get('medium', 0)}
+- Low: {summary.get('low', 0)}
 """
-        logger.info(f"Added Security Hub context: {total_findings} findings")
+        logger.info(f"Added stored findings context: {total_findings} findings")
 
     response = bedrock.ask_compliance_question(question, context)
 
