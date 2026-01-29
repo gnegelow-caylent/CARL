@@ -428,6 +428,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("control_id")
         )
 
+    if event.get("action") == "process_evidence_collect_async":
+        logger.info("Processing async evidence collection")
+        slack = get_slack_service()
+        return handle_evidence_collect_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id")
+        )
+
     if event.get("action") == "process_vpc_config_async":
         logger.info("Processing async VPC config submission")
         slack = get_slack_service()
@@ -3210,8 +3219,10 @@ def handle_feedback(payload: dict, action: dict) -> dict:
 def handle_evidence_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Handle /carl evidence command - audit evidence collection."""
+    """Handle /carl evidence command - audit evidence collection (async wrapper)."""
     import os
+    import json
+    import boto3
     from services.evidence_collector import EvidenceCollector
 
     parts = args.split() if args else []
@@ -3227,43 +3238,32 @@ def handle_evidence_command(
         )
 
         if subcommand == "collect":
-            slack.post_message(channel_id, text="Starting evidence collection across all resources... This may take a few minutes.")
+            # Post initial message
+            slack.post_message(
+                channel_id,
+                text="🔍 *Starting evidence collection across all resources...*\n\n"
+                     "_This may take a few minutes. I'll post results when complete._"
+            )
 
-            results = collector.collect_all_evidence()
-
-            total = sum(len(items) for items in results.values())
-            summary_lines = [f"*Evidence Collection Complete*\n\nCollected *{total}* evidence items:\n"]
-            for category, items in results.items():
-                summary_lines.append(f"• {category.upper()}: {len(items)} items")
-
-            slack.post_message(channel_id, text="\n".join(summary_lines))
-
-            # Create findings from security issues detected in evidence
-            slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
-
-            findings = collector.create_findings_from_evidence(results)
-
-            # Store findings in DynamoDB
-            findings_service = get_findings_service()
-            stored_count = 0
-            for finding in findings:
-                try:
-                    findings_service.store_finding(finding)
-                    stored_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to store finding {finding.id}: {e}")
-
-            if stored_count > 0:
-                slack.post_message(
-                    channel_id,
-                    text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
-                         f"Run `/carl jira sync` to create Jira tickets for these issues."
+            # Invoke async processing in background
+            try:
+                lambda_client = boto3.client('lambda')
+                lambda_client.invoke(
+                    FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps({
+                        'action': 'process_evidence_collect_async',
+                        'channel_id': channel_id,
+                        'user_id': user_id
+                    })
                 )
-            else:
-                slack.post_message(
-                    channel_id,
-                    text="✓ No new security issues found (all findings already exist)."
-                )
+            except Exception as e:
+                logger.error(f"Failed to invoke async evidence collection: {e}")
+                # Fallback to synchronous if async fails
+                return handle_evidence_collect_sync(slack, channel_id, user_id)
+
+            # Return empty 200 OK immediately to Slack (prevents timeout)
+            return {"statusCode": 200, "body": ""}
 
         elif subcommand == "status":
             coverage = collector.get_control_coverage()
@@ -3314,6 +3314,65 @@ def handle_evidence_command(
     except Exception as e:
         logger.exception("Error in evidence command")
         slack.post_message(channel_id, text=f"Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: str) -> dict:
+    """Synchronous version of evidence collect - does the actual work."""
+    import os
+    from services.evidence_collector import EvidenceCollector
+
+    evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+    evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+
+    try:
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
+
+        # Collect evidence
+        results = collector.collect_all_evidence()
+
+        # Post collection summary
+        total = sum(len(items) for items in results.values())
+        summary_lines = [f"*Evidence Collection Complete*\n\nCollected *{total}* evidence items:\n"]
+        for category, items in results.items():
+            summary_lines.append(f"• {category.upper()}: {len(items)} items")
+
+        slack.post_message(channel_id, text="\n".join(summary_lines))
+
+        # Create findings from security issues detected in evidence
+        slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
+
+        findings = collector.create_findings_from_evidence(results)
+
+        # Store findings in DynamoDB
+        findings_service = get_findings_service()
+        stored_count = 0
+        for finding in findings:
+            try:
+                findings_service.store_finding(finding)
+                stored_count += 1
+            except Exception as e:
+                logger.error(f"Failed to store finding {finding.id}: {e}")
+
+        if stored_count > 0:
+            slack.post_message(
+                channel_id,
+                text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
+                     f"Run `/carl jira sync` to create Jira tickets for these issues."
+            )
+        else:
+            slack.post_message(
+                channel_id,
+                text="✓ No new security issues found (all findings already exist)."
+            )
+
+    except Exception as e:
+        logger.exception("Error collecting evidence")
+        slack.post_message(channel_id, text=f"❌ Evidence collection failed: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 
