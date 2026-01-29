@@ -69,7 +69,7 @@ variable "enable_foundation" {
 variable "enable_drift_detection" {
   description = "Enable infrastructure drift detection"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_auto_remediation" {

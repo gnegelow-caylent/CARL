@@ -2,6 +2,7 @@
 
 Handles automatic synchronization of Security Hub findings with Jira tickets.
 """
+import os
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -237,7 +238,7 @@ class JiraSecuritySync:
             jira_url = f"{self.jira.jira_url}/browse/{jira_key}"
 
             # Store in DynamoDB
-            drift_table = get_table("carl-drift-detections")
+            drift_table = get_table(os.environ.get("DRIFT_TABLE", "carl-dev-drift"))
             drift_table.update_item(
                 Key={"drift_id": drift_id},
                 UpdateExpression="SET jira_ticket_id = :jira_key, jira_url = :jira_url, jira_created_at = :created",

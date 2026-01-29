@@ -797,6 +797,7 @@ resource "aws_lambda_function" "carl" {
       EVIDENCE_TABLE   = "${local.name_prefix}-evidence"
       FINDINGS_TABLE   = "${local.name_prefix}-findings"
       EXCEPTIONS_TABLE = "${local.name_prefix}-exceptions"
+      DRIFT_TABLE      = var.enable_drift_detection ? module.drift_detection[0].table_name : "${local.name_prefix}-drift"
       SETUP_TABLE_NAME = aws_dynamodb_table.setup_config.name
       EVIDENCE_BUCKET  = "${local.name_prefix}-evidence"
       REPORTS_BUCKET   = "${local.name_prefix}-reports"

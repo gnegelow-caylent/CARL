@@ -4044,7 +4044,7 @@ def handle_jira_status(
 
         # Get exception and drift stats
         exceptions_table = get_table("carl-risk-exceptions")
-        drift_table = get_table("carl-drift-detections")
+        drift_table = get_table(os.environ.get("DRIFT_TABLE", "carl-dev-drift"))
 
         exceptions_scan = exceptions_table.scan(
             ProjectionExpression="exception_id, jira_ticket_id"
