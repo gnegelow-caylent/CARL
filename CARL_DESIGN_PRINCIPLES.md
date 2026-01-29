@@ -2,9 +2,16 @@
 
 ## The Fundamental Rule: ALWAYS USE LIVE AWS DATA
 
-**CARL's entire value proposition:** It sits IN your AWS environment with credentials and live access.
+**CARL's entire value proposition:** It runs as a Lambda function IN your AWS environment with IAM role-based access to AWS APIs.
 
 **Without this, CARL is just generic AI advice** - which users can get from ChatGPT for free.
+
+### How CARL Gets AWS Access
+- CARL runs as an AWS Lambda function
+- Lambda execution role grants specific IAM permissions (read-only for scanning)
+- No credentials stored - uses AWS IAM roles and policies
+- Can call AWS APIs (IAM, S3, EC2, VPC, CloudTrail, etc.) through boto3
+- Permissions defined in Terraform IAM policies
 
 ---
 
@@ -135,4 +142,4 @@ If NO → Feature is using CARL's advantage correctly
 4. `/carl foundation start` - Detect existing resources
 5. `/carl findings` - Add live scan option
 
-**The goal:** Make every command impossible to replicate without AWS credentials.
+**The goal:** Make every command impossible to replicate without AWS IAM access (Lambda execution role).
