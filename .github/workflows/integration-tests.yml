@@ -90,11 +90,11 @@ jobs:
 
           echo "Found API Gateway: $API_ID"
 
-          # Get the default stage invoke URL
-          API_ENDPOINT=$(aws apigatewayv2 get-stages --api-id "$API_ID" --query "Items[?StageName=='\$default'].InvokeUrl" --output text)
+          # For HTTP APIs, get ApiEndpoint directly (not from stage)
+          API_ENDPOINT=$(aws apigatewayv2 get-api --api-id "$API_ID" --query "ApiEndpoint" --output text)
 
           if [ -z "$API_ENDPOINT" ]; then
-            echo "ERROR: Could not get API endpoint for stage \$default"
+            echo "ERROR: Could not get API endpoint"
             exit 1
           fi
 

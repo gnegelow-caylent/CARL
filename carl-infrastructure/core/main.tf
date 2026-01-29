@@ -1057,12 +1057,12 @@ resource "aws_lambda_permission" "allow_cloudwatch" {
 
 output "api_endpoint" {
   description = "CARL API endpoint (configure in Slack)"
-  value       = aws_apigatewayv2_stage.default.invoke_url
+  value       = aws_apigatewayv2_api.carl.api_endpoint
 }
 
 output "slack_webhook_url" {
   description = "Slack webhook URL (use in Slack App settings)"
-  value       = "${aws_apigatewayv2_stage.default.invoke_url}/slack"
+  value       = "${aws_apigatewayv2_api.carl.api_endpoint}/slack"
 }
 
 output "lambda_function_name" {
