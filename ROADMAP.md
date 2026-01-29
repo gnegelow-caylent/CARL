@@ -438,6 +438,53 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
+## 🔮 Future/Optional Features
+
+These are features that have been discussed and designed but deferred for later consideration. They are not currently on the roadmap but may be added based on user feedback and business priorities.
+
+### Historical Findings & Compliance Reporting
+
+**Status:** Documented for future consideration
+
+**Problem:**
+Currently, findings are stored in DynamoDB indefinitely. There's no mechanism for:
+- Historical analysis ("Show me all findings from Q1 2026")
+- Compliance trend reporting ("We had 50 findings in January, 30 in February")
+- Long-term audit evidence ("Prove we maintained <10 critical findings all year")
+
+**Proposed Solution:**
+1. **Add DynamoDB TTL** - Auto-expire findings after configurable period (default 90 days)
+2. **Archive to S3** - Before deletion, archive findings to S3 in Parquet/JSON format
+3. **Historical Reporting** - New commands to query archived data:
+   - `/carl findings history --from 2026-01-01 --to 2026-03-31`
+   - `/carl report trends --period quarterly`
+   - `/carl evidence audit-trail --control CC6.1 --year 2026`
+
+**Benefits:**
+- SOC 2 auditors can see historical compliance posture
+- Track remediation velocity over time
+- Prove continuous compliance for certification
+- Reduce DynamoDB storage costs (move cold data to S3)
+
+**Implementation Considerations:**
+- DynamoDB TTL is free
+- S3 archival is cheap (~$0.023/GB/month in Standard-IA)
+- Need to design query interface for archived data (Athena?)
+- Re-scanning creates fresh findings anyway, so expiration is safe
+- State fields (jira_ticket_id, ignored, exception_id) should be preserved even after TTL
+
+**Estimated Effort:** 1-2 weeks
+
+**Priority:** Low (current approach works fine, this is optimization + reporting enhancement)
+
+**Related Design Decision:**
+- We explicitly decided NOT to implement TTL in the initial release
+- Current behavior: Findings persist indefinitely, re-scans update existing findings
+- This is simpler and meets current needs (Jira deduplication, state tracking, audit trail)
+- TTL + archival is only needed if users request historical trend analysis
+
+---
+
 ## 📊 Summary Timeline
 
 | Phase | Timeframe | Focus | Key Deliverables |
