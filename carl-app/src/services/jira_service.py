@@ -154,10 +154,12 @@ class JiraService:
         region: str,
         soc2_controls: List[str],
         compliance_status: str,
-        first_detected: str
+        first_detected: str,
+        resource_type: str = None,
+        resource_id: str = None
     ) -> str:
         """
-        Create a Security Finding issue in Jira.
+        Create a Security Finding issue in Jira with AI-generated description.
 
         Returns:
             Jira issue key (e.g., "CARLSEC-123")
@@ -171,62 +173,243 @@ class JiraService:
             "INFORMATIONAL": "Lowest"
         }
 
+        # Generate intelligent, human-friendly description using AI
+        try:
+            from services.bedrock_service import BedrockService
+            bedrock = BedrockService()
+
+            ai_description = bedrock.generate_jira_ticket_description(
+                finding_title=title,
+                severity=severity,
+                resource_type=resource_type or "Unknown",
+                resource_id=resource_id or resource_arn.split(":")[-1] if resource_arn else "Unknown",
+                resource_arn=resource_arn,
+                account_id=account_id,
+                region=region,
+                raw_description=description,
+                soc2_controls=soc2_controls,
+                compliance_status=compliance_status
+            )
+
+            # Convert markdown to Jira ADF (Atlassian Document Format)
+            jira_description = self._markdown_to_adf(ai_description)
+
+        except Exception as e:
+            logger.warning(f"Failed to generate AI description, using template: {e}")
+            # Fallback to basic template
+            jira_description = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 2},
+                        "content": [{"type": "text", "text": "Finding Details"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": description}]
+                    },
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 3},
+                        "content": [{"type": "text", "text": "Affected Resource"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": f"ARN: {resource_arn}"}]
+                    },
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 3},
+                        "content": [{"type": "text", "text": "SOC 2 Controls"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": ", ".join(soc2_controls) if soc2_controls else "None"}]
+                    }
+                ]
+            }
+
         issue_data = {
             "fields": {
                 "project": {"key": self.PROJECT_SECURITY},
                 "summary": f"[{severity}] {title}",
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 2},
-                            "content": [{"type": "text", "text": "Finding Details"}]
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": description}]
-                        },
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 3},
-                            "content": [{"type": "text", "text": "Affected Resource"}]
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": f"ARN: {resource_arn}"}]
-                        },
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 3},
-                            "content": [{"type": "text", "text": "SOC 2 Controls"}]
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": ", ".join(soc2_controls)}]
-                        }
-                    ]
-                },
+                "description": jira_description,
                 "issuetype": {"name": self.ISSUE_TYPE_SECURITY_FINDING},
                 "priority": {"name": priority_map.get(severity, "Medium")},
-                "labels": ["security", "soc2", severity.lower()],
-                # Custom fields (IDs will be set after field creation)
-                # "customfield_10001": account_id,  # AWS Account ID
-                # "customfield_10002": region,      # AWS Region
-                # "customfield_10003": resource_arn, # Resource ARN
-                # "customfield_10004": finding_id,   # Finding ID
-                # "customfield_10005": soc2_controls, # SOC 2 Controls
-                # "customfield_10006": compliance_status, # Compliance Status
-                # "customfield_10007": first_detected, # First Detected
+                "labels": ["security", "soc2", "carl-generated", severity.lower()],
             }
         }
 
         result = self._make_request("POST", "issue", data=issue_data)
         issue_key = result.get("key")
 
-        logger.info(f"Created Jira issue {issue_key} for finding {finding_id}")
+        logger.info(f"Created AI-enhanced Jira issue {issue_key} for finding {finding_id}")
         return issue_key
+
+    def _markdown_to_adf(self, markdown_text: str) -> dict:
+        """
+        Convert markdown text to Jira's Atlassian Document Format (ADF).
+
+        This is a simplified converter that handles common markdown patterns.
+        For production, consider using a proper markdown->ADF library.
+        """
+        import re
+
+        content = []
+        lines = markdown_text.split('\n')
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            if not line:
+                i += 1
+                continue
+
+            # Headers (## Header)
+            if line.startswith('##'):
+                level = len(line) - len(line.lstrip('#'))
+                text = line.lstrip('#').strip()
+                content.append({
+                    "type": "heading",
+                    "attrs": {"level": min(level, 6)},
+                    "content": [{"type": "text", "text": text}]
+                })
+
+            # Bullet lists (• or -)
+            elif line.startswith('•') or line.startswith('- '):
+                list_items = []
+                while i < len(lines) and (lines[i].strip().startswith('•') or lines[i].strip().startswith('- ')):
+                    item_text = lines[i].strip().lstrip('•-').strip()
+
+                    # Handle checkboxes - [ ]
+                    if item_text.startswith('[ ]'):
+                        item_text = item_text[3:].strip()
+                        list_items.append({
+                            "type": "listItem",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": "☐ "},
+                                    {"type": "text", "text": item_text}
+                                ]
+                            }]
+                        })
+                    else:
+                        # Parse inline formatting (bold with *)
+                        parsed_content = self._parse_inline_formatting(item_text)
+                        list_items.append({
+                            "type": "listItem",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": parsed_content
+                            }]
+                        })
+                    i += 1
+
+                content.append({
+                    "type": "bulletList",
+                    "content": list_items
+                })
+                continue
+
+            # Numbered lists (1. )
+            elif re.match(r'^\d+\.', line):
+                list_items = []
+                while i < len(lines) and re.match(r'^\d+\.', lines[i].strip()):
+                    item_text = re.sub(r'^\d+\.\s*', '', lines[i].strip())
+                    parsed_content = self._parse_inline_formatting(item_text)
+                    list_items.append({
+                        "type": "listItem",
+                        "content": [{
+                            "type": "paragraph",
+                            "content": parsed_content
+                        }]
+                    })
+                    i += 1
+
+                content.append({
+                    "type": "orderedList",
+                    "content": list_items
+                })
+                continue
+
+            # Code blocks (indented or fenced)
+            elif line.startswith('```') or line.startswith('    '):
+                code_lines = []
+                if line.startswith('```'):
+                    i += 1
+                    while i < len(lines) and not lines[i].strip().startswith('```'):
+                        code_lines.append(lines[i])
+                        i += 1
+                    i += 1
+                else:
+                    while i < len(lines) and (lines[i].startswith('    ') or not lines[i].strip()):
+                        if lines[i].strip():
+                            code_lines.append(lines[i][4:])
+                        i += 1
+
+                content.append({
+                    "type": "codeBlock",
+                    "content": [{"type": "text", "text": '\n'.join(code_lines)}]
+                })
+                continue
+
+            # Regular paragraph
+            else:
+                parsed_content = self._parse_inline_formatting(line)
+                content.append({
+                    "type": "paragraph",
+                    "content": parsed_content
+                })
+
+            i += 1
+
+        return {
+            "type": "doc",
+            "version": 1,
+            "content": content
+        }
+
+    def _parse_inline_formatting(self, text: str) -> list:
+        """Parse inline formatting like *bold* and return ADF content nodes."""
+        import re
+
+        content = []
+        pattern = r'\*([^*]+)\*'  # Match *text*
+        last_end = 0
+
+        for match in re.finditer(pattern, text):
+            # Add text before the match
+            if match.start() > last_end:
+                content.append({
+                    "type": "text",
+                    "text": text[last_end:match.start()]
+                })
+
+            # Add bold text
+            content.append({
+                "type": "text",
+                "text": match.group(1),
+                "marks": [{"type": "strong"}]
+            })
+
+            last_end = match.end()
+
+        # Add remaining text
+        if last_end < len(text):
+            content.append({
+                "type": "text",
+                "text": text[last_end:]
+            })
+
+        # If no formatting found, return simple text
+        if not content:
+            content = [{"type": "text", "text": text}]
+
+        return content
 
     def update_finding_status(self, issue_key: str, status: str) -> None:
         """Update the status of a Security Finding issue."""
@@ -287,47 +470,70 @@ class JiraService:
         related_finding_key: Optional[str] = None
     ) -> str:
         """
-        Create a Risk Exception request in Jira.
+        Create a Risk Exception request in Jira with AI-generated description.
 
         Returns:
             Jira issue key
         """
+        # Generate intelligent description using AI
+        try:
+            from services.bedrock_service import BedrockService
+            bedrock = BedrockService()
+
+            ai_description = bedrock.generate_exception_request_description(
+                finding_title=finding_title,
+                risk_level=risk_level,
+                business_justification=business_justification,
+                compensating_controls=compensating_controls,
+                expiration_date=expiration_date,
+                requested_by=requested_by
+            )
+
+            jira_description = self._markdown_to_adf(ai_description)
+
+        except Exception as e:
+            logger.warning(f"Failed to generate AI exception description, using template: {e}")
+            # Fallback to template
+            jira_description = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 2},
+                        "content": [{"type": "text", "text": "Business Justification"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": business_justification}]
+                    },
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 2},
+                        "content": [{"type": "text", "text": "Compensating Controls"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": compensating_controls}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": f"Requested by: {requested_by}"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": f"Valid until: {expiration_date}"}]
+                    }
+                ]
+            }
+
         issue_data = {
             "fields": {
                 "project": {"key": self.PROJECT_SECURITY},
                 "summary": f"Exception Request: {finding_title}",
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 2},
-                            "content": [{"type": "text", "text": "Business Justification"}]
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": business_justification}]
-                        },
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 2},
-                            "content": [{"type": "text", "text": "Compensating Controls"}]
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": compensating_controls}]
-                        }
-                    ]
-                },
+                "description": jira_description,
                 "issuetype": {"name": self.ISSUE_TYPE_RISK_EXCEPTION},
-                "labels": ["exception", "risk-acceptance", risk_level.lower()],
-                # Custom fields
-                # "customfield_10020": requested_by,
-                # "customfield_10021": business_justification,
-                # "customfield_10022": compensating_controls,
-                # "customfield_10023": expiration_date,
-                # "customfield_10024": risk_level,
+                "labels": ["exception", "risk-acceptance", "carl-generated", risk_level.lower()],
             }
         }
 
@@ -336,9 +542,12 @@ class JiraService:
         issue_key = result.get("key")
 
         if related_finding_key:
-            self.link_issues(issue_key, related_finding_key, "relates to")
+            try:
+                self.link_issues(issue_key, related_finding_key, "relates to")
+            except Exception as e:
+                logger.warning(f"Failed to link exception to finding: {e}")
 
-        logger.info(f"Created exception request {issue_key}")
+        logger.info(f"Created AI-enhanced exception request {issue_key}")
         return issue_key
 
     def approve_exception(self, issue_key: str, approved_by: str, comments: str) -> None:
@@ -372,64 +581,100 @@ class JiraService:
         self,
         resource_type: str,
         resource_id: str,
-        expected_state: str,
-        actual_state: str,
         drift_type: str,
-        impact_level: str,
-        environment: str
-    ) -> str:
+        detected_at: str,
+        expected_state: Dict[str, Any],
+        actual_state: Dict[str, Any],
+        drift_details: str
+    ) -> dict:
         """
-        Create a Configuration Drift ticket in Jira.
+        Create a Configuration Drift ticket in Jira with AI-generated description.
 
         Returns:
-            Jira issue key
+            Dict with issue key
         """
+        # Extract attribute and values for AI context
+        attribute = "configuration"
+        expected_value = str(expected_state) if isinstance(expected_state, (dict, str)) else str(expected_state)
+        actual_value = str(actual_state) if isinstance(actual_state, (dict, str)) else str(actual_state)
+
+        # Determine severity from drift details or default to medium
+        severity = "MEDIUM"
+        if "critical" in drift_details.lower():
+            severity = "HIGH"
+        elif "minor" in drift_details.lower():
+            severity = "LOW"
+
+        # Generate intelligent description using AI
+        try:
+            from services.bedrock_service import BedrockService
+            bedrock = BedrockService()
+
+            ai_description = bedrock.generate_drift_ticket_description(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                drift_type=drift_type,
+                attribute=attribute,
+                expected_value=expected_value[:500],  # Limit length
+                actual_value=actual_value[:500],      # Limit length
+                severity=severity,
+                environment=os.environ.get("ENVIRONMENT", "dev")
+            )
+
+            jira_description = self._markdown_to_adf(ai_description)
+
+        except Exception as e:
+            logger.warning(f"Failed to generate AI drift description, using template: {e}")
+            # Fallback to template
+            jira_description = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 2},
+                        "content": [{"type": "text", "text": "Drift Details"}]
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": drift_details}]
+                    },
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 3},
+                        "content": [{"type": "text", "text": "Expected State"}]
+                    },
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": expected_value[:1000]}]
+                    },
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 3},
+                        "content": [{"type": "text", "text": "Actual State"}]
+                    },
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": actual_value[:1000]}]
+                    }
+                ]
+            }
+
         issue_data = {
             "fields": {
                 "project": {"key": self.PROJECT_SECURITY},
-                "summary": f"Drift Detected: {resource_type} - {resource_id}",
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 2},
-                            "content": [{"type": "text", "text": "Expected State"}]
-                        },
-                        {
-                            "type": "codeBlock",
-                            "content": [{"type": "text", "text": expected_state}]
-                        },
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 2},
-                            "content": [{"type": "text", "text": "Actual State"}]
-                        },
-                        {
-                            "type": "codeBlock",
-                            "content": [{"type": "text", "text": actual_state}]
-                        }
-                    ]
-                },
+                "summary": f"Drift: {resource_type} - {resource_id[:50]}",
+                "description": jira_description,
                 "issuetype": {"name": self.ISSUE_TYPE_DRIFT},
-                "labels": ["drift", "configuration", environment],
-                # Custom fields
-                # "customfield_10030": resource_type,
-                # "customfield_10031": resource_id,
-                # "customfield_10032": expected_state,
-                # "customfield_10033": actual_state,
-                # "customfield_10034": drift_type,
-                # "customfield_10035": impact_level,
-                # "customfield_10036": environment,
+                "labels": ["drift", "configuration", "carl-generated"],
             }
         }
 
         result = self._make_request("POST", "issue", data=issue_data)
         issue_key = result.get("key")
 
-        logger.info(f"Created drift ticket {issue_key} for {resource_id}")
-        return issue_key
+        logger.info(f"Created AI-enhanced drift ticket {issue_key} for {resource_id}")
+        return {"key": issue_key}
 
     def acknowledge_drift(self, issue_key: str, acknowledged_by: str, reason: str) -> None:
         """Acknowledge drift as expected."""

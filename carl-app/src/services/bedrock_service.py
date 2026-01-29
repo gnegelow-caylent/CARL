@@ -122,6 +122,226 @@ Keep total response under 800 words. No introductions or closings. Start with mo
 
         return self.invoke_model(prompt, max_tokens=1024)
 
+    def generate_jira_ticket_description(
+        self,
+        finding_title: str,
+        severity: str,
+        resource_type: str,
+        resource_id: str,
+        resource_arn: str,
+        account_id: str,
+        region: str,
+        raw_description: str,
+        soc2_controls: list[str],
+        compliance_status: str,
+    ) -> str:
+        """Generate a clear, actionable Jira ticket description using AI."""
+        prompt = f"""You are writing a Jira ticket for a security finding. Write it in a clear, professional, human-friendly way that an engineer can immediately understand and act on.
+
+FINDING DETAILS:
+- Title: {finding_title}
+- Severity: {severity}
+- Resource Type: {resource_type}
+- Resource ID: {resource_id}
+- Resource ARN: {resource_arn}
+- AWS Account: {account_id}
+- Region: {region}
+- Compliance Status: {compliance_status}
+- SOC 2 Controls: {', '.join(soc2_controls) if soc2_controls else 'None'}
+- Technical Description: {raw_description}
+
+Write a Jira ticket description following these EXACT sections (use h2 headers):
+
+## Problem Statement
+Write 2-3 sentences explaining what's wrong in plain English. Avoid jargon. Make it clear why this matters.
+
+## Business Impact
+1-2 sentences on the risk if this isn't fixed. Be specific about consequences (data exposure, compliance failure, security breach, etc.)
+
+## Affected Resource
+• *Type:* {resource_type}
+• *Identifier:* {resource_id}
+• *ARN:* {resource_arn}
+• *Account:* {account_id}
+• *Region:* {region}
+
+## Remediation Steps
+Number each step clearly. Be specific with AWS console paths or CLI commands. Include verification steps.
+
+1. [First action with specific console path or CLI command]
+2. [Second action with specific details]
+3. [Verification step]
+
+## Acceptance Criteria
+What needs to be true for this ticket to be considered done? Write 3-5 specific, testable criteria:
+- [ ] [Specific thing that must be true]
+- [ ] [Another testable condition]
+- [ ] [Verification completed]
+
+## SOC 2 Compliance
+{f"This finding affects SOC 2 controls: {', '.join(soc2_controls)}" if soc2_controls else "No specific SOC 2 controls mapped yet."}
+Explain briefly (1 sentence) why this matters for auditors.
+
+## References
+- AWS Documentation: [Include relevant AWS doc link if applicable]
+- CARL Finding ID: {resource_id[:50]}
+
+CRITICAL RULES:
+- Write like a human, not a robot
+- Be direct and actionable
+- No fluff or unnecessary text
+- Specific console paths, not "go to the console"
+- Include actual CLI commands when relevant
+- Make it so clear that anyone can follow the steps
+- Keep the whole response under 600 words
+- Use proper Jira markdown (## for headers, * for bullets, - [ ] for checkboxes)"""
+
+        return self.invoke_model(prompt, max_tokens=2048, temperature=0.5)
+
+    def generate_drift_ticket_description(
+        self,
+        resource_type: str,
+        resource_id: str,
+        drift_type: str,
+        attribute: str,
+        expected_value: str,
+        actual_value: str,
+        severity: str,
+        environment: str
+    ) -> str:
+        """Generate a clear, actionable Jira ticket for configuration drift."""
+        prompt = f"""You are writing a Jira ticket for a configuration drift detection. Make it clear what changed, why it matters, and how to fix it.
+
+DRIFT DETAILS:
+- Resource Type: {resource_type}
+- Resource ID: {resource_id}
+- Drift Type: {drift_type}
+- Attribute Changed: {attribute}
+- Expected Value: {expected_value}
+- Actual Value: {actual_value}
+- Severity: {severity}
+- Environment: {environment}
+
+Write a Jira ticket description following these EXACT sections:
+
+## What Changed
+Explain in 1-2 sentences what configuration drift was detected. Be specific about the resource and what changed.
+
+## Impact
+1-2 sentences on why this drift matters. Explain security implications, compliance risks, or operational impact.
+
+## Drift Details
+• *Resource:* {resource_type} - {resource_id}
+• *Attribute:* {attribute}
+• *Expected:* {expected_value}
+• *Actual:* {actual_value}
+• *Environment:* {environment}
+
+## Root Cause Analysis
+What likely caused this drift? Consider:
+- Manual changes via AWS console
+- Automated scripts or tools
+- Failed deployments
+- External processes
+
+## Remediation Steps
+Provide specific steps to fix this drift:
+
+1. [Verify the change was not intentional]
+2. [Specific AWS console path or CLI command to restore expected value]
+3. [Verify the change took effect]
+4. [Document the change in change log]
+
+## Prevention
+How to prevent this drift from happening again:
+- [ ] [Specific control or process]
+- [ ] [Monitoring or alerting]
+- [ ] [Infrastructure as code update]
+
+## Acceptance Criteria
+- [ ] Resource configuration matches expected value
+- [ ] Change is documented
+- [ ] Drift no longer detected in next scan
+
+CRITICAL RULES:
+- Be specific, not generic
+- Include actual CLI commands or console paths
+- Assume this might have been an intentional change - ask them to verify first
+- Keep under 500 words
+- Use proper Jira markdown"""
+
+        return self.invoke_model(prompt, max_tokens=2048, temperature=0.5)
+
+    def generate_exception_request_description(
+        self,
+        finding_title: str,
+        risk_level: str,
+        business_justification: str,
+        compensating_controls: str,
+        expiration_date: str,
+        requested_by: str
+    ) -> str:
+        """Generate a clear risk exception request description."""
+        prompt = f"""You are writing a Jira ticket for a risk exception request. This is a formal request to accept a security risk instead of fixing it. Make it professional and thorough.
+
+EXCEPTION REQUEST DETAILS:
+- Finding: {finding_title}
+- Risk Level: {risk_level}
+- Requested By: {requested_by}
+- Expiration Date: {expiration_date}
+- Business Justification: {business_justification}
+- Compensating Controls: {compensating_controls}
+
+Write a Jira ticket description following these EXACT sections:
+
+## Exception Request Summary
+1-2 sentences explaining what risk is being accepted and why.
+
+## Original Finding
+Brief description of the security issue that prompted this exception request.
+
+## Business Justification
+{business_justification}
+
+*Why this matters:* [Add 1 sentence about the business value or constraint]
+
+## Compensating Controls
+{compensating_controls}
+
+*How these reduce risk:* [Explain briefly how compensating controls mitigate the original risk]
+
+## Risk Assessment
+• *Risk Level:* {risk_level}
+• *Requested By:* {requested_by}
+• *Valid Until:* {expiration_date}
+• *Residual Risk:* [High/Medium/Low after compensating controls]
+
+## Approval Requirements
+This exception request requires:
+- [ ] Security team review
+- [ ] Engineering manager approval
+- [ ] Compliance officer acknowledgment (for SOC 2 controls)
+
+## Expiration and Review
+- This exception expires on {expiration_date}
+- A review will be scheduled 30 days before expiration
+- The exception will be automatically revoked if compensating controls are not maintained
+
+## Acceptance Criteria
+- [ ] All required approvals obtained
+- [ ] Compensating controls implemented and verified
+- [ ] Exception documented in compliance records
+- [ ] Calendar reminder set for expiration review
+
+CRITICAL RULES:
+- Professional tone (this is a formal request)
+- Clear about what risk is being accepted
+- Specific about compensating controls
+- Under 500 words
+- Use proper Jira markdown"""
+
+        return self.invoke_model(prompt, max_tokens=2048, temperature=0.4)
+
     def explain_finding(self, finding: dict[str, Any]) -> str:
         """Explain a security finding in plain language."""
         prompt = f"""Explain this security finding briefly:

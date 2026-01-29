@@ -95,6 +95,8 @@ class JiraSecuritySync:
                     resource_arn=resource_arn,   # Fixed: was resource_type/resource_id
                     account_id=aws_account_id,   # Fixed: was aws_account_id
                     region=region,
+                    resource_type=resource_type,  # Pass resource type for AI context
+                    resource_id=resource_id,       # Pass resource ID for AI context
                     soc2_controls=metadata.get("control_ids", []) if metadata else [],
                     compliance_status=compliance_status,
                     first_detected=datetime.utcnow().isoformat()
