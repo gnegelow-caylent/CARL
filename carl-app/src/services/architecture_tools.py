@@ -9,7 +9,7 @@ import json
 import os
 from typing import Any
 
-from agent_core import Tool
+from services.agent_core import Tool
 from services.architecture_advisor import ArchitectureAdvisor
 from services.pricing_tool import get_aws_pricing
 from services.pricing_prefetch_service import PricingPrefetchService

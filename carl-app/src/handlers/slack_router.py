@@ -1442,7 +1442,7 @@ def handle_architecture_question(
     - Learned context from past architecture decisions
     """
     import time
-    from agent_core import Agent
+    from services.agent_core import Agent
     from services.architecture_tools import create_architecture_tools
     from services.learning_service import LearningService
     from utils.formatting import format_markdown_to_blocks
@@ -2580,7 +2580,7 @@ def handle_recommend_command_sync(
     This is essentially the same as handle_architecture_question but triggered by /carl recommend.
     """
     import time
-    from agent_core import Agent
+    from services.agent_core import Agent
     from services.architecture_tools import create_architecture_tools
     from services.learning_service import LearningService
     from utils.formatting import format_markdown_to_blocks
