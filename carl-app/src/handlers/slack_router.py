@@ -204,6 +204,94 @@ def verify_slack_signature(
     return hmac.compare_digest(my_signature, signature)
 
 
+def is_response_too_verbose(response: str) -> bool:
+    """
+    Detect if response needs condensing using intelligent heuristics.
+
+    Returns True if response is too long/verbose.
+    """
+    word_count = len(response.split())
+    section_count = response.count('***OPTION')
+
+    # Too many words per option (indicates verbose descriptions)
+    if section_count > 0 and word_count / section_count > 200:
+        logger.info(f"Response verbose: {word_count / section_count:.0f} words per option (>200)")
+        return True
+
+    # Too long overall
+    if word_count > 800:
+        logger.info(f"Response verbose: {word_count} total words (>800)")
+        return True
+
+    # Too many bold headers (indicates excessive sections)
+    bold_count = response.count('**')
+    if bold_count > 30:
+        logger.info(f"Response verbose: {bold_count} bold markers (>30)")
+        return True
+
+    return False
+
+
+def condense_response(verbose_response: str) -> str:
+    """
+    Use AI to intelligently condense verbose responses while keeping key information.
+
+    Uses Claude Haiku for fast, cheap condensing.
+    """
+    from services.agent_core import Agent
+
+    logger.info("Condensing verbose response with AI...")
+
+    condenser_agent = Agent(
+        tools=[],  # No tools needed for condensing
+        instructions="""You condense architecture recommendations to be more scannable.
+
+Your job: Take verbose responses and make them concise while keeping all critical information.
+
+What to keep:
+- Option structure (Option 1, Option 2, etc.)
+- Costs and pricing
+- Service names
+- Key tradeoffs
+- Final recommendation
+
+What to remove/reduce:
+- Reduce bullet points to 3-5 per option (cut redundant/obvious ones)
+- Remove separate "Network Requirements" or "SOC 2 Compliance" sections (fold critical points into option bullets)
+- Remove "Questions to help refine?" sections
+- Remove "When to choose Option X" paragraphs after recommendation
+- Keep recommendation to 2-3 sentences maximum
+
+Output the condensed version with the same markdown structure (***OPTION***, ---, **bold**, etc.)""",
+        model_id="us.anthropic.claude-haiku-3-5-20250110-v1:0"  # Fast and cheap
+    )
+
+    condensed = condenser_agent.execute(
+        f"Condense this response to be more scannable while keeping critical info:\n\n{verbose_response}"
+    )
+
+    logger.info(f"Condensed {len(verbose_response.split())} words → {len(condensed.split())} words")
+
+    return condensed
+
+
+def normalize_formatting(response: str) -> str:
+    """
+    Simple formatting cleanup - normalize asterisk patterns.
+
+    Instead of complex regex, just standardize to expected patterns.
+    """
+    import re
+
+    # Convert any 3+ asterisks to exactly 3
+    response = re.sub(r'\*{3,}', '***', response)
+
+    # Convert any 2 asterisks surrounded by spaces to bold (clean up spacing)
+    response = re.sub(r'\s\*\*\s', ' **', response)
+
+    return response
+
+
 def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[list[dict]]:
     """
     Convert markdown text to formatted Slack blocks.
@@ -211,18 +299,8 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
     """
     import re
 
-    # Preprocess: Aggressively clean up all asterisk formatting issues
-    # Fix ****text*** (4+ on one side, 3 on other) -> ***text***
-    markdown_text = re.sub(r'\*{4,}([^*]+)\*{3}', r'***\1***', markdown_text)
-    markdown_text = re.sub(r'\*{3}([^*]+)\*{4,}', r'***\1***', markdown_text)
-    # Fix ****text**** (4+ on both sides) -> ***text***
-    markdown_text = re.sub(r'\*{4,}([^*]+)\*{4,}', r'***\1***', markdown_text)
-    # Fix patterns like "*** — ***" (emphasis around em dash)
-    markdown_text = re.sub(r'\*{3}\s*—\s*\*{3}', ' — ', markdown_text)
-    # Fix list items starting with "* **" (e.g., "* **text***")
-    markdown_text = re.sub(r'^\* \*\*', '**', markdown_text, flags=re.MULTILINE)
-    # Clean up trailing excessive asterisks at end of lines
-    markdown_text = re.sub(r'\*{3,}$', '', markdown_text, flags=re.MULTILINE)
+    # Simple normalization (complex cleanup moved to normalize_formatting())
+    markdown_text = normalize_formatting(markdown_text)
 
     blocks = []
 
@@ -2679,51 +2757,44 @@ Available tools:
 Guidelines:
 1. ALWAYS show 2-3 OPTIONS with tradeoffs - let user choose
 2. ALWAYS include cost information - use get_aws_pricing for accuracy
-3. BE CONCISE - Each option should be 5-7 bullet points MAX
-4. NO separate sections for "Network Requirements" or "SOC 2 Compliance Notes" - fold those into option bullets
+3. Explain key tradeoffs clearly (cost vs complexity, scalability vs simplicity)
+4. Consider SOC 2 compliance requirements
 5. Recommend best VALUE (not always cheapest - factor in operational overhead)
-6. End with ONE simple sentence recommendation - don't repeat all details again
+6. Be thorough - include relevant details about architecture, networking, compliance
 
-Response Format (FOLLOW EXACTLY):
+Response Format:
 
 ***OPTION 1: Service Name*** RECOMMENDED (if applicable)
-**Best for:** One sentence maximum
+**Best for:** One sentence
 **Cost:** $X-Y/month
-**Key points:**
-- 3-5 concise bullets only (not 10+)
-- Include compliance note if relevant (one bullet)
-- Mention key tradeoff (one bullet)
+**Architecture/Details:**
+- List key components and how they work
+- Include compliance considerations if relevant
+- Mention networking requirements if needed
+- Note key tradeoffs
 
 ---
 
 ***OPTION 2: Service Name***
-**Best for:** One sentence maximum
+**Best for:** One sentence
 **Cost:** $X-Y/month
-**Key points:**
-- 3-5 concise bullets only
-- Include compliance if relevant
-- Mention key tradeoff
+**Architecture/Details:**
+- List key components
+- Tradeoffs and considerations
 
 ---
 
-***My Recommendation:*** One option name with 2-3 sentence reasoning maximum.
+***My Recommendation:*** State preferred option with reasoning.
 
 **Ready to build?** Click [Build This] below for interactive setup.
 
-Formatting (CRITICAL - follow exactly):
-- Use ***OPTION 1:*** for headers (exactly 3 asterisks, NEVER 4+)
-- Use --- on its own line to separate options
-- Use **text** for bold (exactly 2 asterisks)
-- NEVER use 4+ asterisks (****text**** is WRONG)
-- NEVER use * ** together (e.g., "* **text" is WRONG)
-- NO "Questions to help refine?" section at end
-- NO separate "Network Requirements" or "SOC 2 Compliance" sections
-- NO "When to choose Option X" paragraphs after recommendation
-- Keep it SHORT and SCANNABLE
+Formatting (simple rules):
+- Use ***OPTION 1:*** for option headers (3 asterisks)
+- Use --- to separate options
+- Use **text** for bold (2 asterisks)
+- Don't overthink formatting - system will clean it up
 
-Examples:
-- "IoT services?" → 3 options (IoT Core, Greengrass, SiteWise), costs, 3-5 bullets each, one brief recommendation
-- "Data pipeline?" → Glue vs EMR vs EC2, costs, concise bullets, one short recommendation
+Note: If response gets verbose, system will automatically condense it intelligently.
 """
 
         # Add learned context if available
@@ -2743,6 +2814,13 @@ Examples:
         )
 
         logger.info(f"Architecture agent response: {response[:500]}...")
+
+        # Intelligently condense if response is too verbose
+        if is_response_too_verbose(response):
+            response = condense_response(response)
+
+        # Normalize formatting (simple cleanup)
+        response = normalize_formatting(response)
 
         # Extract tools used and components mentioned (for learning)
         if "ec2" in response.lower():
