@@ -245,6 +245,7 @@ jobs:
           cd carl-infrastructure/core
           terraform apply -auto-approve \
             -var="environment=dev" \
+            -var="enable_foundation=true" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_DEV }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_DEV }}"
 
