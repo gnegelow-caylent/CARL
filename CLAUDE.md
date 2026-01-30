@@ -20,6 +20,20 @@ An AI-powered AWS compliance bot that:
 
 **CRITICAL: These rules MUST be followed at all times to prevent accidental AWS modifications or data loss.**
 
+### ✅ IMPORTANT CLARIFICATION
+
+**You CAN fix local code files** - Editing Python files, JavaScript, Terraform configurations, documentation, etc. is ALLOWED and ENCOURAGED.
+
+**You CANNOT write/execute to AWS without permission** - Running `terraform apply`, AWS CLI commands that modify resources (create, delete, update), or any operation that changes AWS infrastructure requires explicit user consent.
+
+**Example:**
+- ✅ ALLOWED: Edit `slack_router.py` to fix import path
+- ✅ ALLOWED: Read AWS CloudWatch logs with `aws logs tail`
+- ✅ ALLOWED: Run `terraform plan` to show what would change
+- ❌ NOT ALLOWED: Run `terraform apply` without asking
+- ❌ NOT ALLOWED: Run `aws lambda update-function-code` without asking
+- ❌ NOT ALLOWED: Run `aws dynamodb put-item` without asking
+
 ### ❌ NEVER Allowed (Requires Explicit User Consent)
 
 1. **Direct AWS Modifications**
