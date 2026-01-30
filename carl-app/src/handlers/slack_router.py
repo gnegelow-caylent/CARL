@@ -850,10 +850,13 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return handle_intelligent_build(slack, channel_id, user_id, requirement, trigger_id)
 
     if event.get("action") == "generate_terraform_async":
+        from datetime import datetime
+
         logger.info("Processing async Terraform generation")
         slack = get_slack_service()
         terraform_config = event.get("terraform_config", {})
         channel_id = terraform_config.get("channel_id")
+        user_id = terraform_config.get("user_id")
 
         # Post initial message
         vpc_display = f"Create New ({terraform_config.get('vpc_cidr')})" if terraform_config.get('vpc_cidr') else f"Use Existing ({terraform_config.get('vpc_id')})"
@@ -871,18 +874,39 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         try:
             terraform_code = _generate_terraform_with_ai(terraform_config)
 
-            # Post generated code
-            slack.post_message(
-                channel_id,
-                text=f"✅ *Terraform Code Generated!*\n\n```hcl\n{terraform_code[:2500]}```\n\n"
-                     "📋 *Next Steps:*\n"
-                     "• Review the generated code\n"
-                     "• Save to a `.tf` file in your Terraform workspace\n"
-                     "• Run `terraform init` and `terraform plan`\n"
-                     "• Apply with `terraform apply` when ready"
+            # Create blueprint name from requirement
+            requirement = terraform_config.get('requirement', 'infrastructure')
+            blueprint_name = f"{requirement[:50].replace(' ', '-').lower()}/{terraform_config.get('prefix', 'infra')}"
+
+            # Prepare metadata
+            metadata = {
+                "requirement": requirement,
+                "option_text": terraform_config.get('option_text', ''),
+                "vpc_id": terraform_config.get('vpc_id'),
+                "vpc_cidr": terraform_config.get('vpc_cidr'),
+                "prefix": terraform_config.get('prefix'),
+                "environment": terraform_config.get('environment'),
+                "use_transit_gateway": terraform_config.get('use_transit_gateway'),
+                "generated_at": datetime.now().isoformat(),
+                "generated_by": "CARL AI-driven infrastructure builder"
+            }
+
+            # Upload to GitHub and notify
+            github = get_github_service()
+            uploader = CodeUploader(github, slack)
+
+            upload_result = uploader.upload_and_notify(
+                channel_id=channel_id,
+                user_id=user_id,
+                blueprint_name=blueprint_name,
+                terraform_code=terraform_code,
+                metadata=metadata
             )
+
+            logger.info(f"Terraform uploaded to GitHub: {upload_result['pr_url']}")
+
         except Exception as e:
-            logger.exception(f"Error generating Terraform: {e}")
+            logger.exception(f"Error generating or uploading Terraform: {e}")
             slack.post_message(
                 channel_id,
                 text=f"❌ Failed to generate Terraform code: {str(e)}\n\nPlease try again or contact support."
