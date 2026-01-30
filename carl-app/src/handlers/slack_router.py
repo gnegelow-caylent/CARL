@@ -303,8 +303,8 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
             })
             continue
 
-        # Handle bold headers like ***OPTION 1:*** (flush before and start new section)
-        if line.strip().startswith('***') and '***' in line.strip()[3:]:
+        # Handle bold headers like ***OPTION 1:*** (convert to *OPTION 1:* for Slack)
+        if line.strip().startswith('***') and line.strip().endswith('***'):
             # Flush current section
             if current_section:
                 section_text = '\n'.join(current_section).strip()
@@ -318,8 +318,9 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
                     })
                 current_section = []
 
-            # Add the bold header to start new section
-            current_section.append(line)
+            # Convert ***text*** to *text* for Slack bold formatting
+            cleaned_line = line.strip()[3:-3]  # Remove *** from both ends
+            current_section.append(f"*{cleaned_line}*")
             continue
 
         # Handle bold/emphasized lines (likely important callouts)
@@ -2665,9 +2666,16 @@ Guidelines:
 6. Be specific - mention actual AWS services and configurations
 7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
 
+Formatting requirements:
+- Use ***OPTION 1:*** for option headers
+- Use --- to separate options
+- Use ** for bold emphasis
+- Keep sections concise and scannable
+
 After recommendations:
-- Mention: "To generate Terraform code for any of these options, use the [Build This] button below"
-- Available blueprints: networking/standard-vpc, security/basic-stack, security/soc2-stack
+- Mention: "Ready to build? Click the [Build This] button below and I'll walk you through an interactive setup"
+- Explain: "I'll ask about your environment (CIDR ranges, regions, naming conventions, etc.) and generate production-ready Terraform code"
+- DO NOT list specific blueprint names - keep it generic about the build process
 
 Examples:
 - "What IoT services should I use?" → Show 3 options (IoT Core, Greengrass, SiteWise) with costs and pros/cons
@@ -2734,50 +2742,35 @@ Examples:
         for block_group in formatted_blocks:
             slack.post_message(channel_id, blocks=block_group)
 
-        # Parse response for blueprint recommendations and add action buttons
-        build_buttons = []
-
-        # Simple heuristic: look for blueprint mentions in response
-        blueprint_mappings = {
-            "standard vpc": "networking/standard-vpc",
-            "basic security": "security/basic-stack",
-            "soc2": "security/soc2-stack",
-            "soc 2": "security/soc2-stack",
-        }
-
-        response_lower = response.lower()
-        for keyword, blueprint in blueprint_mappings.items():
-            if keyword in response_lower:
-                # Create a build button for this blueprint
-                build_buttons.append({
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f"🏗️ Build: {blueprint.split('/')[-1].replace('-', ' ').title()}",
-                        "emoji": True
-                    },
-                    "value": f"build:{blueprint}",
-                    "action_id": f"architecture_build_{blueprint.replace('/', '_').replace('-', '_')}",
-                    "style": "primary"
-                })
-
-        # If we found blueprints, add build action buttons
-        if build_buttons and len(build_buttons) <= 3:
-            action_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Ready to build? Select an option:_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"architecture_actions_{interaction_id}",
-                    "elements": build_buttons
+        # Add a single generic "Build This" button
+        # The build process will intelligently ask questions based on the context
+        action_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_Ready to generate Terraform code?_"
                 }
-            ]
-            slack.post_message(channel_id, blocks=action_blocks)
+            },
+            {
+                "type": "actions",
+                "block_id": f"architecture_actions_{interaction_id}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🏗️ Build This",
+                            "emoji": True
+                        },
+                        "value": f"build_context:{requirement[:100]}",
+                        "action_id": "architecture_build_from_recommendation",
+                        "style": "primary"
+                    }
+                ]
+            }
+        ]
+        slack.post_message(channel_id, blocks=action_blocks)
 
         # Add feedback buttons
         if interaction_id:
@@ -3857,14 +3850,30 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
     user_id = payload["user"]["id"]
     trigger_id = payload.get("trigger_id")
 
-    # Extract blueprint name from button value (format: build:<blueprint>)
+    # Extract context from button value
     button_value = action.get("value", "")
-    if button_value.startswith("build:"):
+
+    if button_value.startswith("build_context:"):
+        # New intelligent build - extract what user asked for
+        requirement = button_value.replace("build_context:", "")
+
+        logger.info(f"Intelligent build requested for: {requirement}")
+
+        # Use foundation builder with context about what was requested
+        # The foundation builder will intelligently ask questions based on the requirement
+        slack.post_message(
+            channel_id,
+            text=f"🏗️ Starting intelligent build process for: _{requirement}_\n\nI'll walk you through the setup with relevant questions..."
+        )
+
+        # TODO: Integrate with intelligent foundation builder that uses the requirement context
+        # For now, route to foundation builder
+        return handle_foundation_command(slack, channel_id, user_id, "start", trigger_id=trigger_id)
+
+    elif button_value.startswith("build:"):
+        # Legacy blueprint-based build
         blueprint_name = button_value.replace("build:", "")
-
-        logger.info(f"Architecture build button clicked: {blueprint_name}")
-
-        # Call the build command handler directly
+        logger.info(f"Blueprint build button clicked: {blueprint_name}")
         return handle_build_command(slack, channel_id, user_id, blueprint_name, trigger_id=trigger_id)
     else:
         slack.post_message(channel_id, text="❌ Invalid build action")
