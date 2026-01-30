@@ -4227,23 +4227,20 @@ READY: <explain what you'll build with specific details>
             if question_match:
                 question_text = question_match.group(1).strip()
 
-            # Strategy 2: Look for "Options:" followed by numbered or comma-separated list
-            options_match = re.search(r'Options:\s*(.+?)(?:\n\n|\n(?:Question|READY|$))', questions_response, re.DOTALL | re.IGNORECASE)
+            # Strategy 2: Look for "Options:" line - capture until newline
+            options_match = re.search(r'Options:\s*(.+?)(?:\n|$)', questions_response, re.IGNORECASE)
             if options_match:
                 options_text = options_match.group(1).strip()
 
-                # Try parsing as numbered list (1. option, 2. option, etc.)
-                numbered_options = re.findall(r'\d+\.\s*\*\*(.+?)\*\*', options_text)
-                if numbered_options:
-                    options = numbered_options
+                # Try parsing as numbered list first (1. option, 2. option, etc.)
+                numbered_options = re.findall(r'\d+\.\s*(.+?)(?:,|\n|$)', options_text)
+                if numbered_options and len(numbered_options) >= 2:
+                    options = [opt.strip() for opt in numbered_options]
                 else:
-                    # Try parsing as simple numbered list
-                    numbered_options = re.findall(r'\d+\.\s*(.+?)(?:\n|$)', options_text)
-                    if numbered_options:
-                        options = [opt.strip() for opt in numbered_options]
-                    else:
-                        # Try parsing as comma-separated
-                        options = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+                    # Try parsing as comma-separated (most common format)
+                    comma_separated = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+                    if comma_separated and len(comma_separated) >= 2:
+                        options = comma_separated
 
             logger.info(f"Parsed question: {question_text}")
             logger.info(f"Parsed options: {options}")
@@ -4512,21 +4509,19 @@ Generate complete Terraform code including:
             if question_match:
                 question_text = question_match.group(1).strip()
 
-            options_match = re.search(r'Options:\s*(.+?)(?:\n\n|\n(?:Question|READY|$))', next_response, re.DOTALL | re.IGNORECASE)
+            options_match = re.search(r'Options:\s*(.+?)(?:\n|$)', next_response, re.IGNORECASE)
             if options_match:
                 options_text = options_match.group(1).strip()
 
-                # Try parsing as numbered list
-                numbered_options = re.findall(r'\d+\.\s*\*\*(.+?)\*\*', options_text)
-                if numbered_options:
-                    options = numbered_options
+                # Try parsing as numbered list first (1. option, 2. option, etc.)
+                numbered_options = re.findall(r'\d+\.\s*(.+?)(?:,|\n|$)', options_text)
+                if numbered_options and len(numbered_options) >= 2:
+                    options = [opt.strip() for opt in numbered_options]
                 else:
-                    numbered_options = re.findall(r'\d+\.\s*(.+?)(?:\n|$)', options_text)
-                    if numbered_options:
-                        options = [opt.strip() for opt in numbered_options]
-                    else:
-                        # Try comma-separated
-                        options = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+                    # Try parsing as comma-separated (most common format)
+                    comma_separated = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+                    if comma_separated and len(comma_separated) >= 2:
+                        options = comma_separated
 
             logger.info(f"Parsed next question: {question_text}")
             logger.info(f"Parsed next options: {options}")
