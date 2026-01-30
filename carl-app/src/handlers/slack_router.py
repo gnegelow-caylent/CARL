@@ -248,21 +248,53 @@ def condense_response(verbose_response: str) -> str:
 
 Your job: Take verbose responses and make them concise while keeping all critical information.
 
+CRITICAL FORMATTING RULES (PRESERVE EXACTLY):
+- Options MUST start with: ***OPTION 1: Name*** RECOMMENDED (if applicable)
+- Options MUST be separated by: --- (on its own line)
+- Section headers use: **Header:**
+- NEVER use single asterisk * for anything except bullet lists
+- NEVER change the asterisk count in headers
+
 What to keep:
-- Option structure (Option 1, Option 2, etc.)
+- Exact option header format: ***OPTION 1: Name***
+- All --- dividers between options
 - Costs and pricing
 - Service names
-- Key tradeoffs
-- Final recommendation
+- Key tradeoffs (3-5 bullets per option)
+- Final recommendation (2-3 sentences)
 
 What to remove/reduce:
-- Reduce bullet points to 3-5 per option (cut redundant/obvious ones)
-- Remove separate "Network Requirements" or "SOC 2 Compliance" sections (fold critical points into option bullets)
+- Reduce bullet points to 3-5 per option (cut redundant ones)
+- Remove separate "Network Requirements" sections (fold into bullets)
+- Remove "SOC 2 Compliance Notes" sections (fold into bullets)
 - Remove "Questions to help refine?" sections
-- Remove "When to choose Option X" paragraphs after recommendation
-- Keep recommendation to 2-3 sentences maximum
+- Remove "When to choose Option X" paragraphs
 
-Output the condensed version with the same markdown structure (***OPTION***, ---, **bold**, etc.)""",
+Example format you MUST maintain:
+
+***OPTION 1: Service Name*** RECOMMENDED
+**Best for:** One sentence
+**Cost:** $X-Y/month
+**Key points:**
+- Bullet 1
+- Bullet 2
+- Bullet 3
+
+---
+
+***OPTION 2: Service Name***
+**Best for:** One sentence
+**Cost:** $X-Y/month
+**Key points:**
+- Bullet 1
+- Bullet 2
+
+---
+
+***My Recommendation:*** Brief reasoning (2-3 sentences).
+
+**Ready to build?** Click [Build This] below.
+""",
         model_id="us.anthropic.claude-haiku-3-5-20250110-v1:0"  # Fast and cheap
     )
 
@@ -277,17 +309,52 @@ Output the condensed version with the same markdown structure (***OPTION***, ---
 
 def normalize_formatting(response: str) -> str:
     """
-    Simple formatting cleanup - normalize asterisk patterns.
-
-    Instead of complex regex, just standardize to expected patterns.
+    Comprehensive formatting cleanup - fix common asterisk and structure issues.
     """
     import re
 
-    # Convert any 3+ asterisks to exactly 3
+    # Fix option headers that are malformed
+    # *OPTION 1: -> ***OPTION 1:***
+    response = re.sub(r'^\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
+    # **OPTION 1: -> ***OPTION 1:***
+    response = re.sub(r'^\*\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
+    # ****OPTION 1: -> ***OPTION 1:***
+    response = re.sub(r'^\*{4,}OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
+
+    # Fix RECOMMENDED formatting
+    # *** RECOMMENDED*** -> RECOMMENDED
+    response = re.sub(r'\*{2,}\s*RECOMMENDED\s*\*{2,}', 'RECOMMENDED', response)
+
+    # Fix "My Recommendation" header
+    # *My Recommendation:*** -> ***My Recommendation:***
+    response = re.sub(r'^\*+My Recommendation:\*+', r'***My Recommendation:***', response, flags=re.MULTILINE)
+
+    # Convert any 3+ consecutive asterisks to exactly 3
     response = re.sub(r'\*{3,}', '***', response)
 
-    # Convert any 2 asterisks surrounded by spaces to bold (clean up spacing)
-    response = re.sub(r'\s\*\*\s', ' **', response)
+    # Ensure dividers are present between options
+    # If we have multiple ***OPTION*** headers without --- separators, add them
+    lines = response.split('\n')
+    result_lines = []
+    last_was_option = False
+
+    for i, line in enumerate(lines):
+        # Check if this is an option header
+        if line.strip().startswith('***OPTION'):
+            # If last line was also an option (no divider), add one
+            if last_was_option and result_lines and result_lines[-1].strip() != '---':
+                result_lines.append('')
+                result_lines.append('---')
+                result_lines.append('')
+            last_was_option = True
+        elif line.strip() == '---':
+            last_was_option = False
+        elif line.strip() and not line.startswith(' ') and not line.startswith('-'):
+            last_was_option = False
+
+        result_lines.append(line)
+
+    response = '\n'.join(result_lines)
 
     return response
 
