@@ -260,7 +260,24 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
             code_block_lines.append(line)
             continue
 
-        # Handle headers
+        # Handle dividers (---)
+        if line.strip() == '---':
+            # Flush current section before divider
+            if current_section:
+                section_text = '\n'.join(current_section).strip()
+                if section_text:
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": section_text
+                        }
+                    })
+                current_section = []
+            blocks.append({"type": "divider"})
+            continue
+
+        # Handle headers (## heading)
         if line.startswith('## '):
             # Flush current section
             if current_section:
@@ -284,6 +301,25 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
                     "text": f"*{line[3:].strip()}*"
                 }
             })
+            continue
+
+        # Handle bold headers like ***OPTION 1:*** (flush before and start new section)
+        if line.strip().startswith('***') and '***' in line.strip()[3:]:
+            # Flush current section
+            if current_section:
+                section_text = '\n'.join(current_section).strip()
+                if section_text:
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": section_text
+                        }
+                    })
+                current_section = []
+
+            # Add the bold header to start new section
+            current_section.append(line)
             continue
 
         # Handle bold/emphasized lines (likely important callouts)
@@ -1583,7 +1619,7 @@ Examples:
                         "emoji": True
                     },
                     "value": f"build:{blueprint}",
-                    "action_id": "architecture_build_blueprint",
+                    "action_id": f"architecture_build_{blueprint.replace('/', '_').replace('-', '_')}",
                     "style": "primary"
                 })
 
@@ -2721,7 +2757,7 @@ Examples:
                         "emoji": True
                     },
                     "value": f"build:{blueprint}",
-                    "action_id": "architecture_build_blueprint",
+                    "action_id": f"architecture_build_{blueprint.replace('/', '_').replace('-', '_')}",
                     "style": "primary"
                 })
 
@@ -4134,7 +4170,7 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_build_blueprint_button(payload, action)
             elif action_id.startswith("estimate_option_"):
                 return handle_estimate_option_button(payload, action)
-            elif action_id == "architecture_build_blueprint":
+            elif action_id.startswith("architecture_build_"):
                 return handle_architecture_build_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
