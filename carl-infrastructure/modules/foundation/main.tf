@@ -83,7 +83,7 @@ resource "aws_kms_key" "carl" {
           "kms:GenerateDataKey*",
           "kms:CreateGrant",
           "kms:DescribeKey"
-        }
+        ]
         Resource = "*"
       }
     ]
