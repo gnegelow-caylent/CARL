@@ -248,16 +248,11 @@ def condense_response(verbose_response: str) -> str:
 
 Your job: Take verbose responses and make them concise while keeping all critical information.
 
-CRITICAL FORMATTING RULES (PRESERVE EXACTLY):
-- Options MUST start with: ***OPTION 1: Name*** RECOMMENDED (if applicable)
-- Options MUST be separated by: --- (on its own line)
-- Section headers use: **Header:**
-- NEVER use single asterisk * for anything except bullet lists
-- NEVER change the asterisk count in headers
+CRITICAL: Use plain text format, NO markdown asterisks. The system will format it for Slack.
 
 What to keep:
-- Exact option header format: ***OPTION 1: Name***
-- All --- dividers between options
+- Option headers: OPTION 1: Service Name
+- RECOMMENDED tag (on its own line after option header)
 - Costs and pricing
 - Service names
 - Key tradeoffs (3-5 bullets per option)
@@ -272,17 +267,16 @@ What to remove/reduce:
 
 Example format you MUST maintain:
 
-***OPTION 1: Service Name*** RECOMMENDED
-**Best for:** One sentence
-**Cost:** $X-Y/month
-**Key points:**
+OPTION 1: Service Name
+RECOMMENDED
+Best for: One sentence
+Cost: $X-Y/month
+Key points:
 - Bullet 1
 - Bullet 2
 - Bullet 3
 
----
-
-***OPTION 2: Service Name***
+OPTION 2: Service Name
 **Best for:** One sentence
 **Cost:** $X-Y/month
 **Key points:**
@@ -305,6 +299,87 @@ Example format you MUST maintain:
     logger.info(f"Condensed {len(verbose_response.split())} words → {len(condensed.split())} words")
 
     return condensed
+
+
+def format_recommendation_to_slack_blocks(response: str) -> list:
+    """
+    Parse plain text recommendation response and build native Slack blocks.
+    No markdown asterisks - uses Slack's mrkdwn format directly.
+    """
+    import re
+
+    blocks = []
+    lines = response.strip().split('\n')
+    current_section = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # OPTION header (e.g., "OPTION 1: EC2 Auto Scaling")
+        if re.match(r'^OPTION \d+:', stripped):
+            # Flush previous section
+            if current_section:
+                text = '\n'.join(current_section)
+                if text:
+                    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+                current_section = []
+
+            # Add divider before option (except first)
+            if blocks:
+                blocks.append({"type": "divider"})
+
+            # Extract option number and name
+            match = re.match(r'^OPTION (\d+): (.+)$', stripped)
+            if match:
+                option_num = match.group(1)
+                option_name = match.group(2)
+
+                # Add option header (bold)
+                current_section.append(f"*Option {option_num}: {option_name}*")
+
+        # RECOMMENDED tag
+        elif stripped == "RECOMMENDED":
+            current_section.append("✓ RECOMMENDED")
+
+        # Section headers (Best for, Cost, Key points)
+        elif re.match(r'^(Best for|Cost|Key points|Architecture|Details):', stripped):
+            # Make the header bold
+            match = re.match(r'^([^:]+):\s*(.*)$', stripped)
+            if match:
+                header = match.group(1)
+                content = match.group(2)
+                if content:
+                    current_section.append(f"*{header}:* {content}")
+                else:
+                    current_section.append(f"*{header}:*")
+
+        # My Recommendation section
+        elif stripped.startswith("My Recommendation:"):
+            # Flush previous section
+            if current_section:
+                text = '\n'.join(current_section)
+                if text:
+                    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+                current_section = []
+
+            # Add divider
+            blocks.append({"type": "divider"})
+
+            # Extract recommendation text
+            rec_text = stripped.replace("My Recommendation:", "").strip()
+            current_section.append(f"*My Recommendation:* {rec_text}")
+
+        # Bullet points or regular text
+        elif stripped:
+            current_section.append(stripped)
+
+    # Flush final section
+    if current_section:
+        text = '\n'.join(current_section)
+        if text:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+
+    return blocks
 
 
 def normalize_formatting(response: str) -> str:
@@ -2877,39 +2952,28 @@ Guidelines:
 5. Recommend best VALUE (not always cheapest - factor in operational overhead)
 6. Be thorough - include relevant details about architecture, networking, compliance
 
-Response Format:
+Response Format (use plain text, NO markdown asterisks):
 
-***OPTION 1: Service Name*** RECOMMENDED (if applicable)
-**Best for:** One sentence
-**Cost:** $X-Y/month
-**Architecture/Details:**
+OPTION 1: Service Name
+RECOMMENDED (if applicable)
+Best for: One sentence
+Cost: $X-Y/month
+Key points:
 - List key components and how they work
 - Include compliance considerations if relevant
 - Mention networking requirements if needed
 - Note key tradeoffs
 
----
-
-***OPTION 2: Service Name***
-**Best for:** One sentence
-**Cost:** $X-Y/month
-**Architecture/Details:**
+OPTION 2: Service Name
+Best for: One sentence
+Cost: $X-Y/month
+Key points:
 - List key components
 - Tradeoffs and considerations
 
----
+My Recommendation: State preferred option with reasoning.
 
-***My Recommendation:*** State preferred option with reasoning.
-
-**Ready to build?** Click [Build This] below for interactive setup.
-
-Formatting (simple rules):
-- Use ***OPTION 1:*** for option headers (3 asterisks)
-- Use --- to separate options
-- Use **text** for bold (2 asterisks)
-- Don't overthink formatting - system will clean it up
-
-Note: If response gets verbose, system will automatically condense it intelligently.
+IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will format it for Slack.
 """
 
         # Add learned context if available
@@ -2942,9 +3006,6 @@ Note: If response gets verbose, system will automatically condense it intelligen
         # Intelligently condense if response is too verbose
         if is_response_too_verbose(response):
             response = condense_response(response)
-
-        # Normalize formatting (simple cleanup)
-        response = normalize_formatting(response)
 
         # Extract tools used and components mentioned (for learning)
         if "ec2" in response.lower():
@@ -2982,9 +3043,23 @@ Note: If response gets verbose, system will automatically condense it intelligen
         except Exception as e:
             logger.warning(f"Failed to log recommend interaction: {e}")
 
-        # Format and post response
-        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
-        for block_group in formatted_blocks:
+        # Format and post response using native Slack blocks
+        # Add header
+        header_blocks = [{
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🏗️ Architecture Recommendation"
+            }
+        }]
+        slack.post_message(channel_id, blocks=header_blocks)
+
+        # Parse plain text and create native Slack blocks
+        content_blocks = format_recommendation_to_slack_blocks(response)
+
+        # Split into groups of 50 blocks (Slack limit)
+        for i in range(0, len(content_blocks), 50):
+            block_group = content_blocks[i:i+50]
             slack.post_message(channel_id, blocks=block_group)
 
         # Add a single generic "Build This" button
