@@ -313,6 +313,9 @@ def normalize_formatting(response: str) -> str:
     """
     import re
 
+    # Fix text stuck to OPTION headers (e.g., "Architecture Recommendation*OPTION 1:")
+    response = re.sub(r'([a-z])(\*+OPTION \d+:)', r'\1\n\n***OPTION \2', response, flags=re.IGNORECASE)
+
     # Fix option headers that are malformed
     # *OPTION 1: -> ***OPTION 1:***
     response = re.sub(r'^\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
@@ -320,6 +323,16 @@ def normalize_formatting(response: str) -> str:
     response = re.sub(r'^\*\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
     # ****OPTION 1: -> ***OPTION 1:***
     response = re.sub(r'^\*{4,}OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
+    # Mid-line OPTION with extra asterisks
+    response = re.sub(r'(\*{3,})OPTION (\d+):', r'***OPTION \2:***', response)
+
+    # Fix malformed section headers like "***Cost:**" or "Best for:**"
+    # Pattern: 3+ asterisks + text + colon + 2 asterisks → **text:**
+    response = re.sub(r'\*{3,}([A-Z][a-z\s]+):\*\*', r'**\1:**', response)
+    # Pattern: text + colon + 2 asterisks at end → **text:**
+    response = re.sub(r'([A-Z][a-z\s]+):\*\*([^\*])', r'**\1:** \2', response)
+    # Pattern: text stuck to asterisks like "Multi-AZ**Best"
+    response = re.sub(r'([a-z])\*\*([A-Z][a-z]+)', r'\1\n\n**\2', response)
 
     # Fix RECOMMENDED formatting
     # *** RECOMMENDED*** -> RECOMMENDED
@@ -327,30 +340,43 @@ def normalize_formatting(response: str) -> str:
 
     # Fix "My Recommendation" header
     # *My Recommendation:*** -> ***My Recommendation:***
-    response = re.sub(r'^\*+My Recommendation:\*+', r'***My Recommendation:***', response, flags=re.MULTILINE)
+    response = re.sub(r'^\*+My Recommendation:\*+', r'**My Recommendation:**', response, flags=re.MULTILINE)
+    response = re.sub(r'(\*+)(My Recommendation:)(\*+)', r'**\2**', response)
 
-    # Convert any 3+ consecutive asterisks to exactly 3
-    response = re.sub(r'\*{3,}', '***', response)
+    # Clean up excessive asterisks (but preserve *** for OPTION headers)
+    # This must come AFTER option header fixes
+    lines = response.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Skip OPTION headers
+        if 'OPTION' in line and '***' in line:
+            cleaned_lines.append(line)
+        else:
+            # Convert 3+ asterisks to 2 for regular text (except OPTION headers)
+            line = re.sub(r'\*{3,}', '**', line)
+            cleaned_lines.append(line)
+    response = '\n'.join(cleaned_lines)
 
     # Ensure dividers are present between options
     # If we have multiple ***OPTION*** headers without --- separators, add them
     lines = response.split('\n')
     result_lines = []
-    last_was_option = False
+    last_option_index = -10  # Track last option position
 
     for i, line in enumerate(lines):
         # Check if this is an option header
-        if line.strip().startswith('***OPTION'):
-            # If last line was also an option (no divider), add one
-            if last_was_option and result_lines and result_lines[-1].strip() != '---':
-                result_lines.append('')
-                result_lines.append('---')
-                result_lines.append('')
-            last_was_option = True
-        elif line.strip() == '---':
-            last_was_option = False
-        elif line.strip() and not line.startswith(' ') and not line.startswith('-'):
-            last_was_option = False
+        if '***OPTION' in line and ':' in line:
+            # If this is not the first option and there's no divider, add one
+            if last_option_index > 0 and i - last_option_index > 1:
+                # Check if there's already a divider in between
+                has_divider = any('---' in result_lines[j] for j in range(len(result_lines) - 5, len(result_lines)) if j >= 0)
+                if not has_divider:
+                    # Add spacing and divider before this option
+                    if result_lines and result_lines[-1].strip():
+                        result_lines.append('')
+                    result_lines.append('---')
+                    result_lines.append('')
+            last_option_index = len(result_lines)
 
         result_lines.append(line)
 
