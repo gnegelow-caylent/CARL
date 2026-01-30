@@ -860,19 +860,49 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         # Post initial message
         vpc_display = f"Create New ({terraform_config.get('vpc_cidr')})" if terraform_config.get('vpc_cidr') else f"Use Existing ({terraform_config.get('vpc_id')})"
-        slack.post_message(
+        initial_msg = slack.post_message(
             channel_id,
             text=f"✅ *Configuration Validated!*\n\n"
                  f"• VPC: {vpc_display}\n"
                  f"• Prefix: `{terraform_config.get('prefix')}`\n"
                  f"• Environment: {terraform_config.get('environment')}\n"
                  f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
-                 f"🏗️ Generating Terraform code..."
+                 f"🏗️ Generating Terraform code (this may take 20-30 seconds)..."
         )
+
+        # Update message with progress indicator every 5 seconds
+        import threading
+        import time
+        stop_progress = threading.Event()
+        progress_steps = ["⚙️  Analyzing requirements...", "📋 Generating variables.tf...", "🏗️  Creating main.tf resources...", "📤 Writing outputs.tf...", "📝 Generating documentation..."]
+        progress_idx = [0]
+
+        def update_progress():
+            while not stop_progress.is_set():
+                time.sleep(5)
+                if not stop_progress.is_set():
+                    progress_idx[0] = (progress_idx[0] + 1) % len(progress_steps)
+                    try:
+                        slack.update_message(
+                            channel_id,
+                            initial_msg.get('ts'),
+                            text=f"✅ *Configuration Validated!*\n\n"
+                                 f"• VPC: {vpc_display}\n"
+                                 f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                                 f"• Environment: {terraform_config.get('environment')}\n"
+                                 f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
+                                 f"{progress_steps[progress_idx[0]]}"
+                        )
+                    except:
+                        pass  # Ignore update errors
+
+        progress_thread = threading.Thread(target=update_progress, daemon=True)
+        progress_thread.start()
 
         # Generate Terraform using AI
         try:
             terraform_files = _generate_terraform_with_ai(terraform_config)
+            stop_progress.set()  # Stop progress updates
 
             # Create blueprint name from requirement
             requirement = terraform_config.get('requirement', 'infrastructure')
@@ -901,6 +931,21 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             github = get_github_service()
             uploader = CodeUploader(github, slack)
 
+            # Update message to show completion
+            try:
+                slack.update_message(
+                    channel_id,
+                    initial_msg.get('ts'),
+                    text=f"✅ *Configuration Validated!*\n\n"
+                         f"• VPC: {vpc_display}\n"
+                         f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                         f"• Environment: {terraform_config.get('environment')}\n"
+                         f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
+                         f"✅ Terraform code generated! Uploading to GitHub..."
+                )
+            except:
+                pass
+
             upload_result = uploader.upload_and_notify(
                 channel_id=channel_id,
                 user_id=user_id,
@@ -912,10 +957,27 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.info(f"Terraform uploaded to GitHub: {upload_result['pr_url']}")
 
         except Exception as e:
+            stop_progress.set()  # Stop progress updates on error
             logger.exception(f"Error generating or uploading Terraform: {e}")
+
+            # Update original message to show error
+            try:
+                slack.update_message(
+                    channel_id,
+                    initial_msg.get('ts'),
+                    text=f"✅ *Configuration Validated!*\n\n"
+                         f"• VPC: {vpc_display}\n"
+                         f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                         f"• Environment: {terraform_config.get('environment')}\n"
+                         f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
+                         f"❌ Failed to generate Terraform code"
+                )
+            except:
+                pass
+
             slack.post_message(
                 channel_id,
-                text=f"❌ Failed to generate Terraform code: {str(e)}\n\nPlease try again or contact support."
+                text=f"❌ Error: {str(e)}\n\nPlease try again or contact support."
             )
 
         return {"statusCode": 200, "body": ""}
