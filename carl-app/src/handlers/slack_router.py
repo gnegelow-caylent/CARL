@@ -4277,8 +4277,55 @@ READY: <detailed build plan with specific resources and configurations>
 
         # Parse AI response
         if "READY:" in next_response:
-            # AI is ready to build
+            # AI is ready to build - show modal for exact inputs
             ready_text = next_response.split('READY:')[1].strip()
+
+            session_service.update_session_status(session_id, user_id, "ready_to_build")
+
+            # Store the ready_text in session for later use
+            session.conversation_history.append({
+                "question": "BUILD_PLAN",
+                "answer": ready_text,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            session_service.table.put_item(Item=session.to_dynamodb_item())
+
+            slack.post_message(
+                channel_id,
+                text=f"✅ *I have everything I need to design your infrastructure!*\n\n{ready_text[:500]}..."
+            )
+
+            # Open modal for exact configuration values
+            # We need a trigger_id, so we'll respond with interactive message
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "📝 *Final Step: Configuration Details*\n\nI need a few exact values to generate your Terraform code."
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"open_config_modal_{session_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "⚙️ Enter Configuration"},
+                            "action_id": f"open_build_config_modal_{session_id}",
+                            "style": "primary"
+                        }
+                    ]
+                }
+            ]
+            slack.post_message(channel_id, blocks=blocks)
+
+            return {"statusCode": 200, "body": ""}
+
+        # Keep the old generate code path as fallback
+        if "READY_OLD:" in next_response:
+            # Legacy path - generate immediately without modal
+            ready_text = next_response.split('READY_OLD:')[1].strip()
 
             session_service.update_session_status(session_id, user_id, "ready_to_build")
 
@@ -4311,8 +4358,11 @@ Generate complete Terraform code including:
 """
 
                 # Generate code using AI
-                builder = InfrastructureBuilder()
-                terraform_code = builder.bedrock.generate_text(prompt)
+                bedrock = get_bedrock_service()
+                terraform_code = bedrock.invoke_model(
+                    prompt=prompt,
+                    max_tokens=4096
+                )
 
                 # Upload to GitHub and notify
                 from services.code_uploader import CodeUploader
