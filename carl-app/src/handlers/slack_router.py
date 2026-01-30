@@ -3974,7 +3974,7 @@ READY: <explain what you'll build with specific details>
         logger.info(f"Created build session {session.session_id}")
 
         # Get first question(s) from AI with progress indicator
-        slack.post_message(channel_id, text="🤔 Analyzing your requirements and environment to determine what questions I need to ask...")
+        slack.post_message(channel_id, text="🤔 Analyzing requirements...")
 
         questions_response = build_planner.execute("Analyze the environment and user request. What information do you need to build this?")
 
