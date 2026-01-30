@@ -4663,21 +4663,130 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
         else:
             requirement = f"{rec_session.requirement} - Option {option_number}"
 
-        slack.post_message(channel_id, text=f"✅ Building *Option {option_number}*\n\nAnalyzing AWS environment and determining configuration questions...")
+        slack.post_message(channel_id, text=f"✅ Building *Option {option_number}*\n\n🔍 Scanning your AWS environment to find existing resources...")
 
-        # Start intelligent build for this specific option
-        lambda_client = boto3.client('lambda')
-        lambda_client.invoke(
-            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
-            InvocationType='Event',
-            Payload=json_module.dumps({
-                'action': 'process_intelligent_build',
-                'channel_id': channel_id,
-                'user_id': user_id,
-                'requirement': requirement,
-                'trigger_id': trigger_id
+        # Scan AWS environment to populate modal with existing resources
+        from services.aws_environment_scanner import AWSEnvironmentScanner
+
+        try:
+            scanner = AWSEnvironmentScanner(region="us-east-1")
+            scan_result = scanner.scan()
+
+            # Build modal with existing resources as options
+            modal_blocks = []
+
+            # VPC Selection
+            vpc_options = []
+            for vpc in scan_result.networking.vpcs:
+                vpc_name = vpc.name or vpc.vpc_id
+                vpc_options.append({
+                    "text": {"type": "plain_text", "text": f"{vpc_name} ({vpc.cidr})"},
+                    "value": vpc.vpc_id
+                })
+
+            # Add "create new" option
+            vpc_options.append({
+                "text": {"type": "plain_text", "text": "➕ Create New VPC"},
+                "value": "create_new"
             })
-        )
+
+            modal_blocks.append({
+                "type": "input",
+                "block_id": "vpc_selection",
+                "label": {"type": "plain_text", "text": "VPC"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "vpc_select",
+                    "placeholder": {"type": "plain_text", "text": "Choose VPC..."},
+                    "options": vpc_options[:99]  # Slack limit
+                }
+            })
+
+            # New VPC CIDR (shown if create new selected)
+            modal_blocks.append({
+                "type": "input",
+                "block_id": "vpc_cidr",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "New VPC CIDR (if creating new)"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_cidr_input",
+                    "placeholder": {"type": "plain_text", "text": "10.0.0.0/16"}
+                },
+                "hint": {"type": "plain_text", "text": "Only needed if creating new VPC. E.g., 10.0.0.0/16 = 65,536 IPs"}
+            })
+
+            # Resource name prefix
+            modal_blocks.append({
+                "type": "input",
+                "block_id": "resource_prefix",
+                "label": {"type": "plain_text", "text": "Resource Name Prefix"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "prefix_input",
+                    "initial_value": "carl",
+                    "placeholder": {"type": "plain_text", "text": "my-app"}
+                },
+                "hint": {"type": "plain_text", "text": "Used in all resource names (lowercase, hyphens only)"}
+            })
+
+            # Environment
+            modal_blocks.append({
+                "type": "input",
+                "block_id": "environment",
+                "label": {"type": "plain_text", "text": "Environment"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "env_select",
+                    "initial_option": {"text": {"type": "plain_text", "text": "Production"}, "value": "prod"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Development"}, "value": "dev"},
+                        {"text": {"type": "plain_text", "text": "Staging"}, "value": "staging"},
+                        {"text": {"type": "plain_text", "text": "Production"}, "value": "prod"}
+                    ]
+                }
+            })
+
+            # Option-specific fields based on what they chose
+            option_text = option_match.group(0).strip() if option_match else ""
+
+            # If this involves connectivity, add those fields
+            if any(kw in option_text.lower() for kw in ['connect', 'vpn', 'direct connect', 'transit']):
+                modal_blocks.append({
+                    "type": "input",
+                    "block_id": "use_transit_gateway",
+                    "label": {"type": "plain_text", "text": "Use Transit Gateway?"},
+                    "element": {
+                        "type": "static_select",
+                        "action_id": "tgw_select",
+                        "initial_option": {"text": {"type": "plain_text", "text": "No"}, "value": "no"},
+                        "options": [
+                            {"text": {"type": "plain_text", "text": "Yes (+$36/month)"}, "value": "yes"},
+                            {"text": {"type": "plain_text", "text": "No"}, "value": "no"}
+                        ]
+                    },
+                    "hint": {"type": "plain_text", "text": "Only needed for connecting multiple VPCs or complex routing"}
+                })
+
+            # Create modal view
+            modal_view = {
+                "type": "modal",
+                "callback_id": f"build_config_submit:{session_id}:{option_number}",
+                "title": {"type": "plain_text", "text": "Configuration"},
+                "submit": {"type": "plain_text", "text": "Generate"},
+                "close": {"type": "plain_text", "text": "Cancel"},
+                "blocks": modal_blocks
+            }
+
+            # Open modal
+            slack.client.views_open(
+                trigger_id=trigger_id,
+                view=modal_view
+            )
+
+        except Exception as e:
+            logger.exception(f"Error scanning/opening modal: {e}")
+            slack.post_message(channel_id, text=f"❌ Failed to scan environment or open form: {str(e)}")
 
         return {"statusCode": 200, "body": ""}
 
@@ -4981,6 +5090,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_exception_request_modal_submission(payload)
         elif callback_id.startswith("accept_risk_modal_"):
             return handle_accept_risk_modal_submission(payload)
+        elif callback_id.startswith("build_config_submit:"):
+            return handle_build_config_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
