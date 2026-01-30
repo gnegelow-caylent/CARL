@@ -252,25 +252,13 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = ["*"]
   }
 
-  # KMS
+  # KMS - Creation operations with tag condition
   statement {
-    sid    = "KMSManagement"
+    sid    = "KMSCreation"
     effect = "Allow"
     actions = [
       "kms:CreateKey",
-      "kms:CreateAlias",
-      "kms:DeleteAlias",
-      "kms:DescribeKey",
-      "kms:GetKeyPolicy",
-      "kms:PutKeyPolicy",
-      "kms:ScheduleKeyDeletion",
-      "kms:CancelKeyDeletion",
-      "kms:EnableKeyRotation",
-      "kms:DisableKeyRotation",
-      "kms:ListAliases",
-      "kms:ListKeys",
-      "kms:TagResource",
-      "kms:UntagResource"
+      "kms:CreateAlias"
     ]
     resources = ["*"]
     condition {
@@ -280,15 +268,70 @@ data "aws_iam_policy_document" "carl_deployer" {
     }
   }
 
-  # EventBridge
+  # KMS - Management operations on CARL keys
   statement {
-    sid    = "EventBridgeManagement"
+    sid    = "KMSManagement"
+    effect = "Allow"
+    actions = [
+      "kms:DeleteAlias",
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:PutKeyPolicy",
+      "kms:ScheduleKeyDeletion",
+      "kms:CancelKeyDeletion",
+      "kms:EnableKeyRotation",
+      "kms:DisableKeyRotation",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:GetKeyRotationStatus"
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringLike"
+      variable = "aws:ResourceTag/Project"
+      values   = ["CARL"]
+    }
+  }
+
+  # KMS - List operations
+  statement {
+    sid    = "KMSList"
+    effect = "Allow"
+    actions = [
+      "kms:ListAliases",
+      "kms:ListKeys"
+    ]
+    resources = ["*"]
+  }
+
+  # EventBridge - Rules
+  statement {
+    sid    = "EventBridgeRules"
     effect = "Allow"
     actions = [
       "events:*"
     ]
     resources = [
       "arn:aws:events:${var.region}:${data.aws_caller_identity.current.account_id}:rule/carl-*"
+    ]
+  }
+
+  # EventBridge - Event Buses
+  statement {
+    sid    = "EventBridgeBuses"
+    effect = "Allow"
+    actions = [
+      "events:CreateEventBus",
+      "events:DeleteEventBus",
+      "events:DescribeEventBus",
+      "events:PutPermission",
+      "events:RemovePermission",
+      "events:TagResource",
+      "events:UntagResource",
+      "events:ListTagsForResource"
+    ]
+    resources = [
+      "arn:aws:events:${var.region}:${data.aws_caller_identity.current.account_id}:event-bus/carl-*"
     ]
   }
 
