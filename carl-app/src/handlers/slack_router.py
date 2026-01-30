@@ -371,6 +371,12 @@ def format_recommendation_to_slack_blocks(response: str) -> list:
 
         # Bullet points or regular text
         elif stripped:
+            # Bold important considerations/warnings/limitations
+            important_keywords = ['Important:', 'Warning:', 'Note:', 'Caution:', 'Critical:', 'Limitation:', 'Consideration:', 'Pro:', 'Con:']
+            for keyword in important_keywords:
+                if keyword in stripped:
+                    stripped = stripped.replace(keyword, f"*{keyword}*", 1)
+                    break
             current_section.append(stripped)
 
     # Flush final section
