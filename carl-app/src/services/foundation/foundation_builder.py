@@ -277,7 +277,7 @@ class FoundationBuilder:
         return '''# Distributed NAT Gateway Configuration
 # Each VPC has its own NAT Gateway(s) for outbound traffic
 #
-# Cost estimate: ~$32.40/mo per NAT Gateway + $0.045/GB processed
+# Cost estimate: approx. $32.40/mo per NAT Gateway + $0.045/GB processed
 # For HA: Deploy one NAT Gateway per AZ (typically 2-3x cost)
 
 variable "vpc_id" {
@@ -799,7 +799,7 @@ output "inspection_vpc_id" {
 # Each VPC has its own ALB for inbound traffic
 #
 # Cost estimate:
-# - ALB: $16.20/mo base + ~$10-50/mo LCU charges
+# - ALB: $16.20/mo base + approx. $10-50/mo LCU charges
 # - WAF: $5/mo + $1/rule + $0.60/million requests
 
 variable "vpc_id" {
@@ -1686,7 +1686,7 @@ output "tunnel2_address" {
         return '''# Accelerated Site-to-Site VPN Configuration
 # VPN with Global Accelerator for improved performance
 #
-# Cost: $36/mo VPN + ~$36/mo accelerator charges
+# Cost: $36/mo VPN + approx. $36/mo accelerator charges
 
 # Similar to standard VPN but with enable_acceleration = true
 # and accelerator endpoint outputs
@@ -1987,7 +1987,7 @@ output "client_vpn_dns_name" {
         return '''# Self-Managed VPN Configuration
 # OpenVPN or WireGuard on EC2
 #
-# Cost: EC2 instance cost only (~$30-100/mo)
+# Cost: EC2 instance cost only (approx. $30-100/mo)
 # Scales better for large user counts
 
 variable "vpc_id" {
@@ -2031,7 +2031,7 @@ output "vpn_public_ip" {
         return '''# Security Services Stack
 # Core security services for SOC 2 compliance
 #
-# Cost: ~$50/mo for baseline, scales with resource count
+# Cost: approx. $50/mo for baseline, scales with resource count
 
 variable "enable_guardduty" {
   type    = bool

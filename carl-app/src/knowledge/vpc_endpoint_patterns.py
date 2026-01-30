@@ -81,7 +81,7 @@ VPC_ENDPOINT_STRATEGY_PATTERNS = ArchitectureDecision(
                 "Interface endpoint: $0.01/hr = $7.20/mo",
                 "Data processing: $0.01/GB",
                 "Multiply by number of AZs (typically 2-3)",
-                "3 endpoints × 2 AZs = ~$43/mo base",
+                "3 endpoints × 2 AZs = approx. $43/mo base",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
             implementation_complexity="medium",

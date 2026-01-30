@@ -59,7 +59,7 @@ NETWORKING_PRICING = {
         "hourly_per_attachment": 0.05,  # Per VPC/VPN attachment hour
         "data_processing_per_gb": 0.02,  # Per GB processed
         "monthly_per_attachment": 36.00,  # 720 hours * $0.05
-        "notes": "Each VPC attachment costs ~$36/mo. Data processing is $0.02/GB.",
+        "notes": "Each VPC attachment costs approx. $36/mo. Data processing is $0.02/GB.",
     },
 
     # Transit Gateway Connect (SD-WAN)
@@ -156,7 +156,7 @@ VPN_PRICING = {
         "monthly_per_connection": 36.00,
         "monthly_accelerator": 18.00,  # Per direction
         "data_transfer_premium_per_gb": 0.015,  # Additional to standard
-        "notes": "Uses Global Accelerator for better performance. Adds ~$36/mo per connection.",
+        "notes": "Uses Global Accelerator for better performance. Adds approx. $36/mo per connection.",
     },
 
     # AWS Client VPN
@@ -547,7 +547,7 @@ LANDING_ZONE_PRICING = {
         "guardduty": 20.00,
         "estimated_total": 50.00,
 
-        "notes": "Baseline security services cost ~$50/account/month. Varies by activity.",
+        "notes": "Baseline security services cost approx. $50/account/month. Varies by activity.",
     },
 }
 
@@ -613,9 +613,9 @@ LOGGING_PRICING = {
     },
 
     "opensearch": {
-        "t3_small_hourly": 0.036,  # ~$26/mo
-        "m5_large_hourly": 0.142,  # ~$102/mo
-        "r5_large_hourly": 0.167,  # ~$120/mo
+        "t3_small_hourly": 0.036,  # approx. $26/mo
+        "m5_large_hourly": 0.142,  # approx. $102/mo
+        "r5_large_hourly": 0.167,  # approx. $120/mo
         "storage_per_gb": 0.10,  # GP2
         "notes": "Cluster costs add up. Minimum 2 nodes recommended.",
     },
@@ -655,7 +655,7 @@ SYSTEMS_MANAGER_PRICING = {
 
     "state_manager": {
         "per_association": 0.0033,  # Per hour
-        "notes": "~$2.40/mo per association.",
+        "notes": "approx. $2.40/mo per association.",
     },
 
     "opsitems": {
@@ -675,14 +675,14 @@ IDENTITY_PRICING = {
     },
 
     "managed_ad": {
-        "standard_hourly": 0.11,  # ~$80/mo
-        "enterprise_hourly": 0.42,  # ~$302/mo
+        "standard_hourly": 0.11,  # approx. $80/mo
+        "enterprise_hourly": 0.42,  # approx. $302/mo
         "notes": "Two domain controllers minimum.",
     },
 
     "ad_connector": {
-        "small_hourly": 0.05,  # ~$36/mo
-        "large_hourly": 0.13,  # ~$94/mo
+        "small_hourly": 0.05,  # approx. $36/mo
+        "large_hourly": 0.13,  # approx. $94/mo
         "notes": "Connects to existing AD.",
     },
 

@@ -1084,7 +1084,7 @@ def get_loadbalancer_security_pattern() -> DecisionPattern:
                         "Complex troubleshooting with multiple security layers"
                     ]
                 ),
-                estimated_cost="LB + WAF (~$200/month) + Shield Advanced ($3,000/month) + monitoring/automation (~$200/month); typical: $3,500-5,000+/month",
+                estimated_cost="LB + WAF (approx. $200/month) + Shield Advanced ($3,000/month) + monitoring/automation (approx. $200/month); typical: $3,500-5,000+/month",
                 implementation_complexity="Very High",
                 soc2_controls=[
                     SOC2Control(

@@ -586,7 +586,7 @@ def get_elasticache_security_pattern() -> DecisionPattern:
                         "Still uses single password (not user-based authentication)"
                     ]
                 ),
-                estimated_cost="Base cost + KMS (~$1/key/month + $0.03/10k requests); typical: base + $10-50/month",
+                estimated_cost="Base cost + KMS (approx. $1/key/month + $0.03/10k requests); typical: base + $10-50/month",
                 implementation_complexity="Medium-High",
                 soc2_controls=[
                     SOC2Control(
@@ -641,7 +641,7 @@ def get_elasticache_security_pattern() -> DecisionPattern:
                         "Steeper learning curve for ACL management"
                     ]
                 ),
-                estimated_cost="Base cost + KMS + CloudWatch Logs (~$50-100/month) + enhanced monitoring; typical: base + $100-200/month",
+                estimated_cost="Base cost + KMS + CloudWatch Logs (approx. $50-100/month) + enhanced monitoring; typical: base + $100-200/month",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(

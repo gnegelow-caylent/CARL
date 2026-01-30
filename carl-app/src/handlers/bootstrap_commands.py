@@ -211,7 +211,7 @@ class BootstrapCommandHandler:
                         "text": "⚠️ *Important:*\n"
                         "• This will create Organizations (if not exists)\n"
                         "• This will enable IAM Identity Center\n"
-                        "• Security services cost ~$40-190/account/month\n"
+                        "• Security services cost approx. $40-190/account/month\n"
                         "• Estimated time: 10-15 minutes",
                     },
                 },

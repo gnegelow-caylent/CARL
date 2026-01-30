@@ -377,7 +377,7 @@ CONFIG_PATTERNS = ArchitectureDecision(
                 "Config items recorded: $0.003 each",
                 "Rule evaluations: $0.001 each",
                 "Conformance packs: $0.001/evaluation",
-                "50 rules × 100 resources = ~$50/mo",
+                "50 rules × 100 resources = approx. $50/mo",
             ],
             soc2_controls=["CC7.1", "CC7.2"],
             implementation_complexity="low",

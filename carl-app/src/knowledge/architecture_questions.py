@@ -269,7 +269,7 @@ ARCHITECTURE_QUESTIONS: Dict[str, Any] = {
                     "Shared services model"
                 ],
                 "cons": [
-                    "Transit Gateway costs (~$50/month base + data transfer)",
+                    "Transit Gateway costs (approx. $50/month base + data transfer)",
                     "Complex to set up initially",
                     "Requires dedicated networking team"
                 ]

@@ -223,7 +223,7 @@ def get_dynamodb_capacity_pattern() -> DecisionPattern:
                         "May require periodic adjustment of reserved capacity"
                     ]
                 ),
-                estimated_cost="Reserved: ~$0.0004/WCU-hour (50% savings) + on-demand for spikes; typical: $200-1,200/month",
+                estimated_cost="Reserved: approx. $0.0004/WCU-hour (50% savings) + on-demand for spikes; typical: $200-1,200/month",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -485,7 +485,7 @@ def get_dynamodb_availability_pattern() -> DecisionPattern:
                         "Application changes needed to point to new region"
                     ]
                 ),
-                estimated_cost="Base table cost + PITR (~$0.20/GB-month) + S3 backup storage (~$0.023/GB-month)",
+                estimated_cost="Base table cost + PITR (approx. $0.20/GB-month) + S3 backup storage (approx. $0.023/GB-month)",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -528,7 +528,7 @@ def get_dynamodb_availability_pattern() -> DecisionPattern:
                         "Cannot guarantee strong consistency across regions"
                     ]
                 ),
-                estimated_cost="Base cost × number of regions + replication data transfer (~$0.02/GB); typical: 2-3x single region cost",
+                estimated_cost="Base cost × number of regions + replication data transfer (approx. $0.02/GB); typical: 2-3x single region cost",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -576,7 +576,7 @@ def get_dynamodb_availability_pattern() -> DecisionPattern:
                         "Higher testing and validation requirements"
                     ]
                 ),
-                estimated_cost="Global Tables cost + Route 53 health checks (~$0.50/endpoint) + Lambda automation (~$50-200/month) + enhanced monitoring",
+                estimated_cost="Global Tables cost + Route 53 health checks (approx. $0.50/endpoint) + Lambda automation (approx. $50-200/month) + enhanced monitoring",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -857,7 +857,7 @@ def get_dynamodb_security_pattern() -> DecisionPattern:
                         "Key rotation requires planning and testing"
                     ]
                 ),
-                estimated_cost="Base cost + KMS (~$1/key/month + $0.03/10k requests) + VPC endpoint (~$7/month) + CloudWatch Logs (~$50-200/month)",
+                estimated_cost="Base cost + KMS (approx. $1/key/month + $0.03/10k requests) + VPC endpoint (approx. $7/month) + CloudWatch Logs (approx. $50-200/month)",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -910,7 +910,7 @@ def get_dynamodb_security_pattern() -> DecisionPattern:
                         "More complex troubleshooting with multiple layers"
                     ]
                 ),
-                estimated_cost="Base + KMS + VPC endpoint + CloudWatch Logs + Streams (~$0.02/100k changes) + Config (~$2/rule/region) + GuardDuty (~$50+/month); typical: $300-800/month additional",
+                estimated_cost="Base + KMS + VPC endpoint + CloudWatch Logs + Streams (approx. $0.02/100k changes) + Config (approx. $2/rule/region) + GuardDuty (approx. $50+/month); typical: $300-800/month additional",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(

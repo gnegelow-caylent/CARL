@@ -199,7 +199,7 @@ BACKUP_DR_PATTERNS = ArchitectureDecision(
             ],
             monthly_cost_range=(20.00, 500.00),
             cost_drivers=[
-                "Backup storage: ~$0.05/GB warm, $0.01/GB cold",
+                "Backup storage: approx. $0.05/GB warm, $0.01/GB cold",
                 "Cross-region copy: Data transfer + storage",
                 "Restore: Data retrieval costs",
             ],

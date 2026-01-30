@@ -149,7 +149,7 @@ EGRESS_PATTERNS = ArchitectureDecision(
                 "Full traffic visibility",
             ],
             cons=[
-                "Significant cost (~$285/mo per endpoint)",
+                "Significant cost (approx. $285/mo per endpoint)",
                 "Added latency (minimal but present)",
                 "Complexity in rule management",
                 "Need 1 endpoint per AZ",
@@ -160,7 +160,7 @@ EGRESS_PATTERNS = ArchitectureDecision(
                 "Data processing: $0.065/GB",
                 "Plus Transit Gateway costs",
                 "Plus NAT Gateway costs",
-                "500GB/mo processed = ~$32.50 data processing",
+                "500GB/mo processed = approx. $32.50 data processing",
             ],
             soc2_controls=["CC6.6", "CC6.7", "CC6.8", "CC7.1", "CC7.2"],
             implementation_complexity="high",
@@ -184,8 +184,8 @@ EGRESS_PATTERNS = ArchitectureDecision(
        NO → Either pattern works
 
     Cost break-even analysis:
-    - Distributed: ~$100/mo per VPC (assuming 2 AZs)
-    - Centralized: ~$150/mo base + $36/mo per VPC
+    - Distributed: approx. $100/mo per VPC (assuming 2 AZs)
+    - Centralized: approx. $150/mo base + $36/mo per VPC
     - Break-even point: ~4 VPCs
     """,
     soc2_relevance="""
@@ -242,7 +242,7 @@ INGRESS_PATTERNS = ArchitectureDecision(
             monthly_cost_range=(25.00, 100.00),  # Per ALB
             cost_drivers=[
                 "ALB base: $16.20/mo",
-                "LCU charges: ~$10-50/mo depending on traffic",
+                "LCU charges: approx. $10-50/mo depending on traffic",
                 "WAF: $5/mo + $1/rule + $0.60/million requests",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
@@ -470,7 +470,7 @@ TRANSIT_PATTERNS = ArchitectureDecision(
                 "Attachment: $36/mo per VPC",
                 "Data processing: $0.02/GB",
                 "Cross-region peering: Additional $0.02/GB",
-                "5 VPCs + 500GB/mo = ~$190/mo",
+                "5 VPCs + 500GB/mo = approx. $190/mo",
             ],
             soc2_controls=["CC6.6", "CC6.7", "CC7.2"],
             implementation_complexity="medium",
@@ -535,9 +535,9 @@ TRANSIT_PATTERNS = ArchitectureDecision(
        NO → Either pattern works
 
     Cost comparison for 5 VPCs, 500GB/mo traffic:
-    - VPC Peering (full mesh): ~$50/mo (just data)
-    - Transit Gateway: ~$190/mo
-    - Cloud WAN: ~$200/mo
+    - VPC Peering (full mesh): approx. $50/mo (just data)
+    - Transit Gateway: approx. $190/mo
+    - Cloud WAN: approx. $200/mo
 
     At 10 VPCs, peering management becomes painful.
     """,
@@ -597,7 +597,7 @@ SITE_TO_SITE_VPN_PATTERNS = ArchitectureDecision(
                 "VPN connection: $36/mo per connection",
                 "Data transfer out: $0.09/GB",
                 "Redundancy = 2 connections = $72/mo",
-                "1TB/mo data = ~$90 transfer",
+                "1TB/mo data = approx. $90 transfer",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
             implementation_complexity="low",
@@ -624,14 +624,14 @@ SITE_TO_SITE_VPN_PATTERNS = ArchitectureDecision(
                 "Still quick to deploy",
             ],
             cons=[
-                "Additional cost (~$36/mo per direction)",
+                "Additional cost (approx. $36/mo per direction)",
                 "Still internet-dependent initially",
                 "Not as good as Direct Connect",
             ],
             monthly_cost_range=(72.00, 250.00),
             cost_drivers=[
                 "VPN connection: $36/mo",
-                "Accelerator fee: ~$36/mo additional",
+                "Accelerator fee: approx. $36/mo additional",
                 "Data transfer premium: $0.015/GB additional",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
@@ -755,7 +755,7 @@ CLIENT_VPN_PATTERNS = ArchitectureDecision(
                 "Endpoint association: $72/mo per subnet",
                 "Active connections: $0.05/hr",
                 "10 users × 8hr/day × 22 days = $88/mo",
-                "2 subnets + 10 users = ~$232/mo",
+                "2 subnets + 10 users = approx. $232/mo",
             ],
             soc2_controls=["CC6.1", "CC6.6", "CC6.7"],
             implementation_complexity="medium",
@@ -790,7 +790,7 @@ CLIENT_VPN_PATTERNS = ArchitectureDecision(
             cost_drivers=[
                 "EC2 instance: $30-100/mo",
                 "Need HA = 2 instances",
-                "EBS storage: ~$5/mo",
+                "EBS storage: approx. $5/mo",
                 "No per-user fees",
             ],
             soc2_controls=["CC6.1", "CC6.6", "CC6.7"],
@@ -850,8 +850,8 @@ CLIENT_VPN_PATTERNS = ArchitectureDecision(
        NO → AWS Client VPN (managed)
 
     Cost comparison for 50 users, 8hr/day:
-    - AWS Client VPN: ~$500-600/mo
-    - Self-managed (2x m5.large): ~$150/mo
+    - AWS Client VPN: approx. $500-600/mo
+    - Self-managed (2x m5.large): approx. $150/mo
 
     But self-managed has operational overhead.
     """,
@@ -1041,7 +1041,7 @@ CLOUDFRONT_PATTERNS = ArchitectureDecision(
        NO → Shield Standard (free, automatic)
 
     Cost-benefit analysis:
-    - WAF at edge: ~$10-50/mo, blocks attacks before origin
+    - WAF at edge: approx. $10-50/mo, blocks attacks before origin
     - Shield Standard: Free, sufficient for 99% of cases
     - Shield Advanced: Only if you need SLA/DRT access
     """,
@@ -1136,9 +1136,9 @@ LANDING_ZONE_PATTERNS = ArchitectureDecision(
             monthly_cost_range=(50.00, 200.00),
             cost_drivers=[
                 "Organizations: Free",
-                "CloudTrail org trail: ~$5/account",
-                "Config: ~$15/account",
-                "Security services: ~$30/account",
+                "CloudTrail org trail: approx. $5/account",
+                "Config: approx. $15/account",
+                "Security services: approx. $30/account",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.6"],
             implementation_complexity="medium",
@@ -1174,7 +1174,7 @@ LANDING_ZONE_PATTERNS = ArchitectureDecision(
             cost_drivers=[
                 "Control Tower: Free (underlying services charged)",
                 "Mandatory: CloudTrail, Config per account",
-                "Typical: ~$50/account baseline",
+                "Typical: approx. $50/account baseline",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.6", "CC7.1", "CC7.2"],
             implementation_complexity="medium",
@@ -1212,7 +1212,7 @@ LANDING_ZONE_PATTERNS = ArchitectureDecision(
             cost_drivers=[
                 "All Control Tower costs",
                 "AFT pipeline: CodePipeline, CodeBuild, Lambda",
-                "AFT itself: ~$50-100/mo",
+                "AFT itself: approx. $50-100/mo",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.6", "CC7.1", "CC7.2", "CC8.1"],
             implementation_complexity="high",
@@ -1366,7 +1366,7 @@ DNS_PATTERNS = ArchitectureDecision(
                 "Inbound endpoints: $0.125/hr per ENI",
                 "Outbound endpoints: $0.125/hr per ENI",
                 "Need 2 ENIs minimum per endpoint for HA",
-                "2 endpoints × 2 ENIs = ~$180/mo",
+                "2 endpoints × 2 ENIs = approx. $180/mo",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
             implementation_complexity="medium",
@@ -1540,7 +1540,7 @@ INSPECTION_PATTERNS = ArchitectureDecision(
             cost_drivers=[
                 "Network Firewall: $568.80/mo (2 endpoints)",
                 "NAT Gateways: $64.80/mo (2 gateways)",
-                "Per VPC: ~$650/mo",
+                "Per VPC: approx. $650/mo",
                 "10 VPCs = $6500/mo vs $1500/mo centralized",
             ],
             soc2_controls=["CC6.6", "CC6.7", "CC6.8"],
@@ -1569,9 +1569,9 @@ INSPECTION_PATTERNS = ArchitectureDecision(
        NO → AWS Network Firewall (simpler, AWS-native)
 
     Cost comparison (10 VPCs):
-    - Distributed NFW: ~$6500/mo
-    - Central AWS NFW: ~$1500/mo
-    - Central 3rd-party: ~$3000/mo
+    - Distributed NFW: approx. $6500/mo
+    - Central AWS NFW: approx. $1500/mo
+    - Central 3rd-party: approx. $3000/mo
     """,
     soc2_relevance="""
     SOC 2 controls for centralized inspection:

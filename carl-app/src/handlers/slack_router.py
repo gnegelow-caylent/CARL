@@ -4607,10 +4607,12 @@ Options:
 Example of CORRECT format:
 Question: What type of connectivity do you need to your on-premises environment?
 Options:
-1. AWS Direct Connect - Dedicated fiber connection from your datacenter to AWS. Provides consistent low latency and high bandwidth (1-100 Gbps). Best for mission-critical workloads requiring reliable performance. Cost: ~$500-2000/month.
-2. Site-to-Site VPN - Encrypted tunnel over the public internet. Quick to set up, lower cost. Best for smaller workloads or testing. Bandwidth up to 1.25 Gbps. Cost: ~$36/month.
+1. AWS Direct Connect - Dedicated fiber connection from your datacenter to AWS. Provides consistent low latency and high bandwidth (1-100 Gbps). Best for mission-critical workloads requiring reliable performance. Cost: approx. $500-2000/month.
+2. Site-to-Site VPN - Encrypted tunnel over the public internet. Quick to set up, lower cost. Best for smaller workloads or testing. Bandwidth up to 1.25 Gbps. Cost: approx. $36/month.
 3. Both (hybrid redundancy) - Direct Connect as primary with VPN as backup. Best for critical workloads needing guaranteed uptime. Cost: combines both options.
-4. Transit Gateway - Central hub connecting multiple VPNs or Direct Connect links. Best for complex multi-site networks with many connections. Cost: ~$36/month + data processing fees.
+4. Transit Gateway - Central hub connecting multiple VPNs or Direct Connect links. Best for complex multi-site networks with many connections. Cost: approx. $36/month + data processing fees.
+
+IMPORTANT: NEVER use tilde (~) for "approximately" as it creates strikethrough in Slack. Always spell out "approx." or "approximately".
 
 Example of WRONG format (DO NOT DO THIS):
 Question: What type of connectivity...

@@ -336,8 +336,8 @@ NOTIFICATION_STRATEGY_PATTERNS = ArchitectureDecision(
             ],
             monthly_cost_range=(20.00, 100.00),
             cost_drivers=[
-                "PagerDuty: ~$20-40/user/mo",
-                "Opsgenie: ~$9-29/user/mo",
+                "PagerDuty: approx. $20-40/user/mo",
+                "Opsgenie: approx. $9-29/user/mo",
                 "SNS: Minimal",
             ],
             soc2_controls=["CC7.3", "CC4.1"],

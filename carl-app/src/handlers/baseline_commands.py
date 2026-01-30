@@ -197,10 +197,10 @@ class BaselineCommandHandler:
                         "type": "mrkdwn",
                         "text": "⚠️ *Important:*\\n"
                         "• Requires `OrganizationAccountAccessRole` in target account\\n"
-                        "• GuardDuty: ~$4-10/account/month\\n"
-                        "• Security Hub: ~$1.20/account/month\\n"
-                        "• Inspector: ~$0.10-1/account/month\\n"
-                        "• Config: ~$2-10/account/month\\n"
+                        "• GuardDuty: approx. $4-10/account/month\\n"
+                        "• Security Hub: approx. $1.20/account/month\\n"
+                        "• Inspector: approx. $0.10-1/account/month\\n"
+                        "• Config: approx. $2-10/account/month\\n"
                         "• Estimated time: 5-10 minutes",
                     },
                 },
@@ -265,7 +265,7 @@ class BaselineCommandHandler:
                     "text": {
                         "type": "mrkdwn",
                         "text": "⚠️ *This will deploy baseline to ALL accounts in the OU.*\\n\\n"
-                        "Estimated cost: ~$7-21 per account per month\\n"
+                        "Estimated cost: approx. $7-21 per account per month\\n"
                         "Estimated time: 5-10 minutes per account",
                     },
                 },
@@ -317,7 +317,7 @@ class BaselineCommandHandler:
                         "type": "mrkdwn",
                         "text": "⚠️ *WARNING: This will deploy baseline to ALL accounts in your organization.*\\n\\n"
                         "This is typically run once during initial setup.\\n\\n"
-                        "Estimated cost: ~$7-21 per account per month\\n"
+                        "Estimated cost: approx. $7-21 per account per month\\n"
                         "Estimated time: 5-10 minutes per account",
                     },
                 },

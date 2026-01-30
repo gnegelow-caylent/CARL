@@ -6,10 +6,10 @@ Runs monthly (1st of month at 3am UTC) with parallel processing.
 
 Coverage: 100+ AWS services across all categories
 Runtime: ~10-15 minutes (parallel processing)
-Cost: ~$0.05/month (Lambda) + ~$0.01/month (DynamoDB storage)
+Cost: approx. $0.05/month (Lambda) + approx. $0.01/month (DynamoDB storage)
 
 Why comprehensive?
-- DynamoDB storage is dirt cheap (~$0.01/month for 10,000 items)
+- DynamoDB storage is dirt cheap (approx. $0.01/month for 10,000 items)
 - Eliminates all slow API fallbacks
 - Architecture agent can recommend ANY service with accurate pricing
 """

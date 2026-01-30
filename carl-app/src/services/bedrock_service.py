@@ -127,8 +127,9 @@ CRITICAL FORMATTING RULES (Slack markdown):
 - Use *text* for bold (single asterisk), NOT **text**
 - NO markdown headers (#, ##) - use *Section Name* on its own line instead
 - NO horizontal rules (---) - use blank lines to separate sections
-- NO tildes (~) except before numbers for "approximately" (~$220/month is OK, ~Service Name~ creates strikethrough)
-- Use "approximately" or "approx." in text instead of ~ to avoid strikethrough
+- NEVER use tildes (~) - they create strikethrough in Slack
+- Always spell out "approximately" or "approx." instead of using ~
+- For costs, write "$220/month" or "approx. $220/month" - NEVER "~$220/month"
 - Each bullet must start on a new line with proper spacing
 - Keep explanations to ONE sentence per bullet
 

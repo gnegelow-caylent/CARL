@@ -79,7 +79,7 @@ IDENTITY_CENTER_PATTERNS = ArchitectureDecision(
             monthly_cost_range=(0, 50.00),
             cost_drivers=[
                 "Identity Center: Free",
-                "IdP costs vary (Okta ~$2-6/user/mo)",
+                "IdP costs vary (Okta approx. $2-6/user/mo)",
                 "Azure AD included with M365",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.3"],
@@ -114,8 +114,8 @@ IDENTITY_CENTER_PATTERNS = ArchitectureDecision(
             ],
             monthly_cost_range=(50.00, 300.00),
             cost_drivers=[
-                "AD Connector: ~$30/mo (small)",
-                "AWS Managed AD: ~$150-500/mo",
+                "AD Connector: approx. $30/mo (small)",
+                "AWS Managed AD: approx. $150-500/mo",
                 "Plus EC2 for on-prem AD connectivity",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.3"],
@@ -554,7 +554,7 @@ BREAK_GLASS_PATTERNS = ArchitectureDecision(
             ],
             monthly_cost_range=(0, 50.00),
             cost_drivers=[
-                "Hardware MFA devices: ~$20-50 each",
+                "Hardware MFA devices: approx. $20-50 each",
                 "Secure storage (safe): One-time cost",
             ],
             soc2_controls=["CC6.1", "CC6.2"],
@@ -620,7 +620,7 @@ BREAK_GLASS_PATTERNS = ArchitectureDecision(
             monthly_cost_range=(0, 10.00),
             cost_drivers=[
                 "IAM is free",
-                "CloudWatch alerts: ~$0.10/alert",
+                "CloudWatch alerts: approx. $0.10/alert",
                 "SNS notifications: Minimal",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC7.2"],

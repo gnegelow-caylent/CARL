@@ -175,7 +175,7 @@ def get_aurora_deployment_pattern() -> DecisionPattern:
                         "Cross-region data transfer charges apply"
                     ]
                 ),
-                estimated_cost="$1,500-4,000/month (primary + cross-region replicas + data transfer ~$500/TB)",
+                estimated_cost="$1,500-4,000/month (primary + cross-region replicas + data transfer approx. $500/TB)",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -472,7 +472,7 @@ def get_aurora_performance_pattern() -> DecisionPattern:
                         "Requires careful min/max ACU configuration to control costs"
                     ]
                 ),
-                estimated_cost="$300-3,000/month (0.5-16 ACU range, varies by actual usage; ~$0.12/ACU-hour)",
+                estimated_cost="$300-3,000/month (0.5-16 ACU range, varies by actual usage; approx. $0.12/ACU-hour)",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -690,7 +690,7 @@ def get_aurora_security_pattern() -> DecisionPattern:
                         "No advanced threat protection or monitoring"
                     ]
                 ),
-                estimated_cost="Included in Aurora base cost (~$600/month for db.r6g.large multi-AZ)",
+                estimated_cost="Included in Aurora base cost (approx. $600/month for db.r6g.large multi-AZ)",
                 implementation_complexity="Low",
                 soc2_controls=[
                     SOC2Control(
@@ -731,7 +731,7 @@ def get_aurora_security_pattern() -> DecisionPattern:
                         "Key rotation requires careful planning"
                     ]
                 ),
-                estimated_cost="$800-1,200/month (Aurora + KMS ~$1/key/month + Enhanced Monitoring ~$3/instance + logs ~$50-100/month)",
+                estimated_cost="$800-1,200/month (Aurora + KMS approx. $1/key/month + Enhanced Monitoring approx. $3/instance + logs approx. $50-100/month)",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -779,7 +779,7 @@ def get_aurora_security_pattern() -> DecisionPattern:
                         "Extensive documentation required for compliance audits"
                     ]
                 ),
-                estimated_cost="$1,500-2,500/month (Aurora + KMS + Backup ~$200 + Activity Streams ~$150 + Secrets Manager ~$10 + enhanced logs ~$200)",
+                estimated_cost="$1,500-2,500/month (Aurora + KMS + Backup approx. $200 + Activity Streams approx. $150 + Secrets Manager approx. $10 + enhanced logs approx. $200)",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -839,7 +839,7 @@ def get_aurora_security_pattern() -> DecisionPattern:
                         "May be over-engineered for some use cases"
                     ]
                 ),
-                estimated_cost="$2,500-4,000/month (Aurora + RDS Proxy ~$60/proxy + all Compliance features + Security Hub ~$50 + automation infrastructure ~$100)",
+                estimated_cost="$2,500-4,000/month (Aurora + RDS Proxy approx. $60/proxy + all Compliance features + Security Hub approx. $50 + automation infrastructure approx. $100)",
                 implementation_complexity="Very High",
                 soc2_controls=[
                     SOC2Control(

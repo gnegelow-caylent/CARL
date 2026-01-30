@@ -716,7 +716,7 @@ VPC_ENDPOINT_PATTERNS = ArchitectureDecision(
 
     Cost comparison (2 AZs, 10 endpoints):
     - Per-VPC: $144/mo per VPC
-    - Centralized (5 VPCs): $144/mo + TGW costs (~$180/mo)
+    - Centralized (5 VPCs): $144/mo + TGW costs (approx. $180/mo)
     - Break-even: When per-VPC costs exceed shared + TGW
     """,
     soc2_relevance="""
@@ -774,8 +774,8 @@ VPC_FLOW_LOG_PATTERNS = ArchitectureDecision(
             cost_drivers=[
                 "Ingestion: $0.50/GB",
                 "Storage: $0.03/GB/month",
-                "10GB/day = ~$150/mo ingestion + $9/mo storage",
-                "100GB/day = ~$1500/mo (use S3 instead)",
+                "10GB/day = approx. $150/mo ingestion + $9/mo storage",
+                "100GB/day = approx. $1500/mo (use S3 instead)",
             ],
             soc2_controls=["CC6.6", "CC7.2"],
             implementation_complexity="low",
@@ -811,7 +811,7 @@ VPC_FLOW_LOG_PATTERNS = ArchitectureDecision(
                 "Delivery: $0.25/GB (half of CloudWatch)",
                 "S3 storage: $0.023/GB/month (Standard)",
                 "Athena queries: $5/TB scanned",
-                "10GB/day = ~$75/mo delivery + $7/mo storage",
+                "10GB/day = approx. $75/mo delivery + $7/mo storage",
             ],
             soc2_controls=["CC6.6", "CC7.2"],
             implementation_complexity="medium",

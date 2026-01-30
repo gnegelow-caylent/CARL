@@ -5,7 +5,7 @@ This Lambda function runs periodically (daily) to analyze scan history patterns
 and generate learned insights for continuous learning.
 
 Invoked by: EventBridge rule (cron: daily at 2am UTC)
-Cost: ~$0/month (within Lambda free tier, 30 invocations/month × 30 seconds)
+Cost: approx. $0/month (within Lambda free tier, 30 invocations/month × 30 seconds)
 """
 
 import json

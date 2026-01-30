@@ -70,7 +70,7 @@ class OnboardingHandler:
                         "• Scanning lambdas\n"
                         "• Evidence storage (S3 + DynamoDB)\n"
                         "• Compliance reports\n\n"
-                        "*Cost:* ~$30-50/month additional\n"
+                        "*Cost:* approx. $30-50/month additional\n"
                         "*Good for:* Existing AWS infrastructure"
                     }
                 },
@@ -85,7 +85,7 @@ class OnboardingHandler:
                         "• Identity Center setup\n"
                         "• Security baseline deployment\n"
                         "• Terraform code generation\n\n"
-                        "*Cost:* ~$20-30/month additional\n"
+                        "*Cost:* approx. $20-30/month additional\n"
                         "*Good for:* New AWS accounts, greenfield projects"
                     }
                 },
@@ -112,7 +112,7 @@ class OnboardingHandler:
                         "• Advanced reporting\n"
                         "• Drift detection\n"
                         "• Auto-remediation\n\n"
-                        "*Cost:* ~$75-150/month total\n"
+                        "*Cost:* approx. $75-150/month total\n"
                         "*Good for:* Enterprise teams, compliance-heavy industries"
                     }
                 },

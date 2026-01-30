@@ -341,7 +341,7 @@ WAF_RULE_STRATEGY_PATTERNS = ArchitectureDecision(
     **Core Rule Set (Must have):**
     - AWS Managed Rules Core Rule Set (CRS)
     - Protects against OWASP Top 10
-    - Cost: ~$10/mo
+    - Cost: approx. $10/mo
     - Coverage: SQLi, XSS, LFI, RFI, RCE
 
     **Additional managed rules:**

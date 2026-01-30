@@ -428,8 +428,8 @@ ACCOUNT_BASELINE_PATTERNS = ArchitectureDecision(
             ],
             monthly_cost_range=(10.00, 30.00),
             cost_drivers=[
-                "CloudTrail (org trail shared): ~$5/mo",
-                "Config (basic rules): ~$10-20/mo",
+                "CloudTrail (org trail shared): approx. $5/mo",
+                "Config (basic rules): approx. $10-20/mo",
             ],
             soc2_controls=["CC7.2"],
             implementation_complexity="low",

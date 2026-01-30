@@ -636,7 +636,7 @@ def get_messaging_reliability_pattern() -> DecisionPattern:
                         "Performance impact of idempotency lookups"
                     ]
                 ),
-                estimated_cost="Base + DynamoDB/ElastiCache for tracking (~$20-100/month); typical: $50-300/month",
+                estimated_cost="Base + DynamoDB/ElastiCache for tracking (approx. $20-100/month); typical: $50-300/month",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -686,7 +686,7 @@ def get_messaging_reliability_pattern() -> DecisionPattern:
                         "Requires ongoing tuning and optimization"
                     ]
                 ),
-                estimated_cost="Base + idempotency store + monitoring + automation (~$100-500/month); typical: $200-1,000/month",
+                estimated_cost="Base + idempotency store + monitoring + automation (approx. $100-500/month); typical: $200-1,000/month",
                 implementation_complexity="Very High",
                 soc2_controls=[
                     SOC2Control(
@@ -1045,7 +1045,7 @@ def get_messaging_security_pattern() -> DecisionPattern:
                         "Requires key access for all message operations"
                     ]
                 ),
-                estimated_cost="Base + KMS (~$1-10/month) + VPC endpoints (~$7/AZ/month); typical: $30-150/month additional",
+                estimated_cost="Base + KMS (approx. $1-10/month) + VPC endpoints (approx. $7/AZ/month); typical: $30-150/month additional",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
@@ -1100,7 +1100,7 @@ def get_messaging_security_pattern() -> DecisionPattern:
                         "May be over-engineered for some use cases"
                     ]
                 ),
-                estimated_cost="Base + KMS + VPC endpoints + enhanced logging (~$50-300/month); typical: $100-500/month additional",
+                estimated_cost="Base + KMS + VPC endpoints + enhanced logging (approx. $50-300/month); typical: $100-500/month additional",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(

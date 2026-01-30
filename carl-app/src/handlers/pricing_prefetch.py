@@ -9,7 +9,7 @@ This Lambda:
 3. Publishes CloudWatch metrics
 4. Takes 5-10 minutes to run
 
-Cost: ~$0.05/month (12 invocations/year × 10 min execution)
+Cost: approx. $0.05/month (12 invocations/year × 10 min execution)
 ROI: Eliminates 5-15 second delays on every architecture question
 """
 

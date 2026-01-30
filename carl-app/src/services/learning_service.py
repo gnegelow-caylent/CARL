@@ -10,7 +10,7 @@ Key Functions:
 4. Build resource knowledge graph from scan results
 5. Generate learned context for agent instructions
 
-Cost: ~$0.67/month (primarily DynamoDB storage and pattern analysis)
+Cost: approx. $0.67/month (primarily DynamoDB storage and pattern analysis)
 """
 
 import json

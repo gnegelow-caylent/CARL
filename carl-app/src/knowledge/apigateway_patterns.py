@@ -248,7 +248,7 @@ def get_apigateway_type_pattern() -> DecisionPattern:
                         "Additional latency vs public endpoints"
                     ]
                 ),
-                estimated_cost="$3.50 per million requests + VPC endpoint (~$7/month per AZ) + caching; typical: $250-2,500/month",
+                estimated_cost="$3.50 per million requests + VPC endpoint (approx. $7/month per AZ) + caching; typical: $250-2,500/month",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(
@@ -963,7 +963,7 @@ def get_apigateway_optimization_pattern() -> DecisionPattern:
                         "Basic protection only"
                     ]
                 ),
-                estimated_cost="Base API Gateway cost + CloudWatch Logs (~$0.50/GB ingested); typical: $50-500/month",
+                estimated_cost="Base API Gateway cost + CloudWatch Logs (approx. $0.50/GB ingested); typical: $50-500/month",
                 implementation_complexity="Low",
                 soc2_controls=[
                     SOC2Control(
@@ -1105,7 +1105,7 @@ def get_apigateway_optimization_pattern() -> DecisionPattern:
                         "May be over-engineered for simple APIs"
                     ]
                 ),
-                estimated_cost="Base + caching (~$15/GB) + X-Ray (~$5/million traces) + WAF (~$5/month + $1/million requests) + logs; typical: $500-5,000/month",
+                estimated_cost="Base + caching (approx. $15/GB) + X-Ray (approx. $5/million traces) + WAF (approx. $5/month + $1/million requests) + logs; typical: $500-5,000/month",
                 implementation_complexity="High",
                 soc2_controls=[
                     SOC2Control(

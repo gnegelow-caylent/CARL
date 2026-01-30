@@ -712,8 +712,8 @@ def get_s3_replication_pattern() -> DecisionPattern:
         6. Use Batch Replication for backfill (cheaper than live replication)
 
         Example Cost Calculation (10TB):
-        - CRR to 1 region: 10TB × $0.02 = $200 + storage (~$230 Standard)
-        - SRR: 10TB × $0.005 = $50 + storage (~$230 Standard)
+        - CRR to 1 region: 10TB × $0.02 = $200 + storage (approx. $230 Standard)
+        - SRR: 10TB × $0.005 = $50 + storage (approx. $230 Standard)
         - Multi-region (3 destinations): $200 × 3 = $600 + storage × 3
 
         REPLICATION MONITORING:
@@ -939,7 +939,7 @@ def get_s3_compliance_pattern() -> DecisionPattern:
                         "More complex than basic versioning"
                     ]
                 ),
-                estimated_cost="Storage for versions + Object Lock (no additional charge) + CloudTrail (~$2/100k events); typical: $100-1,000/month",
+                estimated_cost="Storage for versions + Object Lock (no additional charge) + CloudTrail (approx. $2/100k events); typical: $100-1,000/month",
                 implementation_complexity="Medium",
                 soc2_controls=[
                     SOC2Control(
