@@ -252,13 +252,12 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = ["*"]
   }
 
-  # KMS - Creation operations with tag condition
+  # KMS - Key creation with tag condition
   statement {
-    sid    = "KMSCreation"
+    sid    = "KMSKeyCreation"
     effect = "Allow"
     actions = [
-      "kms:CreateKey",
-      "kms:CreateAlias"
+      "kms:CreateKey"
     ]
     resources = ["*"]
     condition {
@@ -266,6 +265,19 @@ data "aws_iam_policy_document" "carl_deployer" {
       variable = "aws:RequestTag/Project"
       values   = ["CARL"]
     }
+  }
+
+  # KMS - Alias creation (requires permission on alias resource)
+  statement {
+    sid    = "KMSAliasCreation"
+    effect = "Allow"
+    actions = [
+      "kms:CreateAlias"
+    ]
+    resources = [
+      "arn:aws:kms:${var.region}:${data.aws_caller_identity.current.account_id}:alias/carl-*",
+      "arn:aws:kms:${var.region}:${data.aws_caller_identity.current.account_id}:key/*"
+    ]
   }
 
   # KMS - Management operations on CARL keys
