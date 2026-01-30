@@ -33,18 +33,29 @@ This document provides a clear view of what CARL can do today vs what's planned 
 
 ### 📐 Architecture Patterns Library
 
-**Total Patterns:** 43+ production-ready patterns
+**Total Patterns:** 130+ production-ready patterns across 35 files
 
 | Category | Count | Status | Details |
 |----------|-------|--------|---------|
-| **VPC & Networking** | 8 patterns | ✅ Live | Egress, ingress, transit, VPN, endpoints, peering |
-| **VPC Endpoints & PrivateLink** | 3 patterns | ✅ Live | Interface, Gateway, PrivateLink service patterns |
-| **Identity & Access** | 6 patterns | ✅ Live | IAM roles, Identity Center, SAML, cross-account access |
-| **Security Tooling** | 7 patterns | ✅ Live | GuardDuty, Security Hub, Inspector, Config, WAF |
-| **Logging & Monitoring** | 5 patterns | ✅ Live | CloudTrail, CloudWatch, centralized logging |
-| **KMS & Encryption** | 4 patterns | ✅ Live | Key management, rotation, cross-account, envelope encryption |
-| **Operational Patterns** | 5 patterns | ✅ Live | Tagging, backup, cost management, automation |
-| **Multi-Account** | 5 patterns | ✅ Live | Organizations, Control Tower, landing zones |
+| **Network & Connectivity** | 20+ patterns | ✅ Live | VPC design (8), VPC endpoints (3), Load balancers, API Gateway, WAF, ACM |
+| **Security & Identity** | 23+ patterns | ✅ Live | IAM/Identity Center (6), KMS encryption (4), Security Hub/GuardDuty (7), Secrets Manager, EC2/Lambda security |
+| **Data & Storage** | 30+ patterns | ✅ Live | S3 advanced (8), File storage (3), RDS/Aurora, DynamoDB, ElastiCache, Redshift, DocumentDB |
+| **Compute & Containers** | 16+ patterns | ✅ Live | **NEW:** Serverless APIs (4), Container apps (4), ECS/EKS security |
+| **Data Processing & Analytics** | 11+ patterns | ✅ Live | **NEW:** ETL/Glue (4), Streaming/Kinesis (3), Messaging (SQS/SNS/EventBridge) |
+| **Web & Applications** | 4 patterns | ✅ Live | Static websites with CloudFront + WAF + CI/CD |
+| **Operations & Lifecycle** | 16+ patterns | ✅ Live | **NEW:** CI/CD (5), Backup & DR (3), Logging (5), CloudWatch, Tagging |
+| **Organization & Accounts** | 5 patterns | ✅ Live | Multi-account, Organizations, Control Tower, landing zones |
+| **Additional AWS Services** | 5+ patterns | ✅ Live | **NEW:** Cognito authentication, Network Firewall |
+
+**NEW Pattern Categories Added (January 30, 2026):**
+- **ETL & Data Processing** (4 patterns): AWS Glue ETL, Step Functions orchestration, Glue Data Quality, complete production pipelines
+- **Serverless APIs** (4 patterns): API Gateway+Lambda, complete production API with auth/monitoring, AppSync GraphQL, AWS Amplify full-stack
+- **Container Applications** (4 patterns): ALB+ECS, ECS Fargate production apps, complete ECS with CI/CD, EKS vs ECS decision patterns
+- **Backup & Disaster Recovery** (3 patterns): AWS Backup centralized management, DR strategies (Pilot Light/Warm Standby/Hot Standby), complete backup+DR solution
+- **CI/CD Pipelines** (5 patterns): GitHub Actions+OIDC, AWS CodePipeline, ECS Fargate deployment, Lambda deployment with canary, complete production CI/CD
+- **File Storage** (3 patterns): EFS shared storage, FSx for Windows File Server, FSx for Lustre (HPC workloads)
+- **Streaming & Real-Time** (3 patterns): Kinesis Data Streams vs Firehose, real-time stream processing with Lambda/Analytics, complete production streaming pipeline
+- **Additional Services** (4 patterns): Redshift data warehouse (Serverless vs Provisioned), DocumentDB (MongoDB-compatible), AWS Network Firewall for compliance, Cognito user authentication
 
 ### 🔧 Infrastructure Code Generation
 
@@ -245,13 +256,13 @@ Want a new feature? Here's how:
 ## 📊 Stats
 
 - **Total Slack Commands:** 30+
-- **Architecture Patterns:** 43+ (growing)
+- **Architecture Patterns:** **130+** across **35 pattern files** (43 → 130+ added January 30, 2026)
 - **Infrastructure Blueprints:** 6 production-ready
-- **Lines of Code:** 15,000+
-- **Supported AWS Services:** 25+
+- **Lines of Code:** 18,000+
+- **Supported AWS Services:** 50+ (EC2, ECS, EKS, Lambda, RDS, Aurora, DynamoDB, S3, EFS, FSx, Glue, Kinesis, Redshift, DocumentDB, API Gateway, CloudFront, and more)
 - **SOC 2 Controls Covered:** 45+
 - **Average Response Time:** <2 seconds (with keep-warm)
-- **Current Cost:** $1-2/month operational (mostly free tier)
+- **Current Cost:** $2-3/month operational (mostly free tier)
 
 ---
 
