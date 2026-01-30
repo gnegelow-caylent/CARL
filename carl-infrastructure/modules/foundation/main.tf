@@ -484,9 +484,9 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
           aws_dynamodb_table.conversations.arn,
           aws_dynamodb_table.evidence.arn,
           aws_dynamodb_table.exceptions.arn,
-          aws_dynamodb_table.drift.arn,
           aws_dynamodb_table.ai_feedback.arn,
           aws_dynamodb_table.foundation.arn
+          # drift table removed (created by drift module)
         ]
       },
       {

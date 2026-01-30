@@ -54,7 +54,7 @@ resource "aws_dynamodb_table" "scan_history" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = {
@@ -116,7 +116,7 @@ resource "aws_dynamodb_table" "resource_graph" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = {

@@ -1,14 +1,14 @@
 # CARL Foundation Module - Outputs
 
-# KMS
+# KMS (using existing key)
 output "kms_key_arn" {
   description = "ARN of the CARL KMS key"
-  value       = aws_kms_key.carl.arn
+  value       = data.aws_kms_alias.carl.target_key_arn
 }
 
 output "kms_key_id" {
   description = "ID of the CARL KMS key"
-  value       = aws_kms_key.carl.key_id
+  value       = data.aws_kms_alias.carl.target_key_id
 }
 
 # S3
@@ -151,16 +151,7 @@ output "exceptions_table_arn" {
   value       = aws_dynamodb_table.exceptions.arn
 }
 
-# Drift Table
-output "drift_table_name" {
-  description = "Name of the drift detection DynamoDB table"
-  value       = aws_dynamodb_table.drift.name
-}
-
-output "drift_table_arn" {
-  description = "ARN of the drift detection DynamoDB table"
-  value       = aws_dynamodb_table.drift.arn
-}
+# Drift Table - Removed (created by drift module)
 
 # AI Feedback Table
 output "ai_feedback_table_name" {
