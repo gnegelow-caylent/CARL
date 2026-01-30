@@ -2933,6 +2933,13 @@ def handle_recommend_command_sync(
     components_mentioned = []
 
     try:
+        # Scan AWS environment for context-aware recommendations
+        from services.aws_environment_scanner import AWSEnvironmentScanner
+
+        scanner = AWSEnvironmentScanner()
+        scan_result = scanner.scan()
+        environment_summary = scan_result.to_context_summary()
+
         # Initialize learning service
         scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
         resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
@@ -2944,6 +2951,12 @@ def handle_recommend_command_sync(
 
         # Get learned context for architecture recommendations
         learned_context = learning_service.get_learned_context(requirement, interaction_type="architecture")
+
+        # Combine AWS scan with learned context
+        if learned_context:
+            learned_context = f"\n\nCURRENT AWS ENVIRONMENT:\n{environment_summary}\n\n{learned_context}"
+        else:
+            learned_context = f"\n\nCURRENT AWS ENVIRONMENT:\n{environment_summary}"
 
         # Create architecture tools
         architecture_tools = create_architecture_tools()
@@ -4464,8 +4477,68 @@ READY: <detailed build plan>
                 text=f"✅ *I have everything needed!*\n\n{ready_text}\n\n🏗️ Generating Terraform code..."
             )
 
-            # TODO: Call infrastructure generation
-            slack.post_message(channel_id, text="🚧 _Code generation coming soon!_")
+            # Generate and push infrastructure code
+            try:
+                # Use AI to generate custom Terraform based on conversation
+                prompt = f"""Generate production-ready Terraform code for this requirement:
+
+USER'S REQUEST: {session.requirement}
+
+BUILD PLAN:
+{ready_text}
+
+CONVERSATION ANSWERS:
+{conversation_summary}
+
+{environment_summary}
+
+Generate complete Terraform code including:
+- main.tf with all resources
+- variables.tf for configurability
+- outputs.tf for important values
+- Proper resource dependencies
+- Best practices (tags, encryption, Multi-AZ where needed)
+"""
+
+                # Generate code using AI
+                builder = InfrastructureBuilder()
+                terraform_code = builder.bedrock.generate_text(prompt)
+
+                # Upload to GitHub and notify
+                from services.code_uploader import CodeUploader
+                from services.github_service import GitHubService
+
+                github = GitHubService()
+                uploader = CodeUploader(github, slack)
+
+                blueprint_name = f"intelligent-build/{session.requirement[:30].replace(' ', '-')}"
+
+                result = uploader.upload_and_notify(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    blueprint_name=blueprint_name,
+                    terraform_code=terraform_code,
+                    metadata={
+                        "requirement": session.requirement,
+                        "conversation": session.conversation_history,
+                        "generated_at": datetime.utcnow().isoformat(),
+                        "session_id": session_id
+                    }
+                )
+
+                session_service.update_session_status(session_id, user_id, "completed")
+
+                slack.post_message(
+                    channel_id,
+                    text=f"🎉 *Infrastructure code generated!*\n\nPull Request: {result.get('pr_url', 'N/A')}\n\nReview the code and merge when ready."
+                )
+
+            except Exception as e:
+                logger.exception(f"Error generating/uploading infrastructure: {e}")
+                slack.post_message(
+                    channel_id,
+                    text=f"❌ Error generating code: {str(e)}\n\nI can provide the build plan for manual implementation."
+                )
 
         elif "Question:" in next_response:
             # AI has another question
