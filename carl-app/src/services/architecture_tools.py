@@ -204,7 +204,7 @@ def create_architecture_tools() -> list[Tool]:
 
             # Last resort: API call (slow, should rarely happen)
             logger.warning(f"No cached or static pricing, calling API (slow): {service_name}")
-            result = get_aws_pricing(service_name=service_name, **kwargs)
+            result = get_aws_pricing(service_code=service_name, **kwargs)
             return {
                 "success": True,
                 "service": service_name,
@@ -251,7 +251,7 @@ def create_architecture_tools() -> list[Tool]:
                     elif service == "rds":
                         pricing_kwargs["instance_class"] = config
 
-                pricing = get_aws_pricing(service_name=service, **pricing_kwargs)
+                pricing = get_aws_pricing(service_code=service, **pricing_kwargs)
 
                 # Estimate monthly cost (simple heuristic)
                 if isinstance(pricing, dict) and "price" in pricing:
