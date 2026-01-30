@@ -211,6 +211,12 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
     """
     import re
 
+    # Preprocess: Clean up excessive asterisks (****text**** -> ***text***)
+    # This handles cases where AI uses 4+ asterisks
+    markdown_text = re.sub(r'\*{4,}([^*]+)\*{4,}', r'***\1***', markdown_text)
+    # Also clean up patterns like **text:** **more** that have excessive bold
+    # But keep double asterisks for normal bold (**text**)
+
     blocks = []
 
     # Add header if provided
@@ -303,8 +309,10 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
             })
             continue
 
-        # Handle bold headers like ***OPTION 1:*** (convert to *OPTION 1:* for Slack)
-        if line.strip().startswith('***') and line.strip().endswith('***'):
+        # Handle bold headers with multiple asterisks (***text*** or ****text****)
+        # Convert to single asterisk for Slack bold
+        stripped = line.strip()
+        if (stripped.startswith('***') or stripped.startswith('****')) and len(stripped) > 6:
             # Flush current section
             if current_section:
                 section_text = '\n'.join(current_section).strip()
@@ -318,9 +326,13 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
                     })
                 current_section = []
 
-            # Convert ***text*** to *text* for Slack bold formatting
-            cleaned_line = line.strip()[3:-3]  # Remove *** from both ends
-            current_section.append(f"*{cleaned_line}*")
+            # Remove all leading and trailing asterisks, then add single asterisk
+            import re
+            cleaned_line = re.sub(r'^\*+', '', stripped)  # Remove leading asterisks
+            cleaned_line = re.sub(r'\*+$', '', cleaned_line)  # Remove trailing asterisks
+            cleaned_line = cleaned_line.strip()
+            if cleaned_line:
+                current_section.append(f"*{cleaned_line}*")
             continue
 
         # Handle bold/emphasized lines (likely important callouts)
@@ -2666,10 +2678,13 @@ Guidelines:
 6. Be specific - mention actual AWS services and configurations
 7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
 
-Formatting requirements:
-- Use ***OPTION 1:*** for option headers
-- Use --- to separate options
-- Use ** for bold emphasis
+Formatting requirements (CRITICAL - follow exactly):
+- Use ***OPTION 1:*** for option headers (exactly 3 asterisks, not 4+)
+- Use --- on its own line to separate options
+- Use **text** for bold emphasis (exactly 2 asterisks)
+- For sub-headers like "Best for:" use **Best for:** (2 asterisks)
+- For emphasis like RECOMMENDED use ***RECOMMENDED*** (3 asterisks)
+- NEVER use 4+ asterisks (****text**** is wrong)
 - Keep sections concise and scannable
 
 After recommendations:
