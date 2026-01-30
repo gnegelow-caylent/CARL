@@ -1,6 +1,6 @@
 # CARL Features - Status Overview
 
-**Last Updated:** January 28, 2026
+**Last Updated:** January 30, 2026
 
 This document provides a clear view of what CARL can do today vs what's planned for the future.
 
@@ -101,6 +101,44 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | Quickstart Configuration | ✅ Live | AWS-recommended setup out of the box |
 | Custom Configuration | ✅ Live | Customize OUs, permission sets, account assignments |
 
+### 🏛️ Foundation Module (NEW)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Comprehensive DynamoDB Tables** | ✅ Live | 9 tables for findings, evidence, preferences, approvals, remediations, conversations, exceptions, AI feedback, foundation |
+| **Scan History & Resource Graph** | ✅ Live | Tables for continuous learning and AWS resource relationship tracking |
+| **KMS Encryption Key** | ✅ Live | Customer-managed key with comprehensive policy for DynamoDB, Secrets Manager, CloudWatch Logs, S3 |
+| **Secrets Manager Integration** | ✅ Live | Encrypted Slack credentials with 7-day recovery window |
+| **Pricing Prefetch Lambda** | ✅ Live | Pre-caches AWS pricing for 100+ services (366 items across 3 regions) |
+| **Pattern Analyzer Lambda** | ✅ Live | Daily analysis of user interactions to learn patterns |
+| **EventBridge Schedules** | ✅ Live | Monthly pricing refresh, daily pattern analysis (2am UTC) |
+| **SNS Notifications** | ✅ Live | Alert topics for system notifications |
+| **CloudWatch Logs** | ✅ Live | KMS-encrypted logs with 7-day retention |
+
+### 💰 Real-Time AWS Pricing (NEW)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Comprehensive Service Coverage** | ✅ Live | 100+ AWS services across 12 categories |
+| **Multi-Region Pricing** | ✅ Live | Accurate pricing for us-east-1, us-west-2, eu-west-1 |
+| **Fast Architecture Recommendations** | ✅ Live | <3 seconds (vs 10+ seconds without cache) |
+| **Monthly Auto-Refresh** | ✅ Live | EventBridge triggers pricing update first day of month |
+| **366 Pricing Items Cached** | ✅ Live | Compute (93), Database (75), Storage (45), Networking (21), Media (21), Analytics (24), Security (15), Integration (15), ML/AI (21), Containers (12), IoT (12), Other (12) |
+| **DynamoDB Pay-Per-Request** | ✅ Live | Only pay for actual pricing lookups (~$0.51/month) |
+| **Real AWS Price List API** | ✅ Live | No estimates - actual AWS pricing data |
+
+### 🎓 Continuous Learning System (NEW)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Interaction Logging** | ✅ Live | Every `/carl ask` question logged with scans performed and resources found |
+| **User Feedback Buttons** | ✅ Live | 👍 👎 on every answer to teach CARL what works |
+| **Pattern Analysis** | ✅ Live | Daily analysis (2am UTC) identifies useful scan patterns |
+| **Learned Context** | ✅ Live | Agent instructions include learned patterns from your environment |
+| **Resource Knowledge Graph** | ✅ Live | Tracks AWS resources and relationships |
+| **CloudWatch Metrics** | ✅ Live | Monitor learning progress (patterns learned, confidence scores) |
+| **Environment Adaptation** | ✅ Live | CARL learns your specific AWS setup and team's usage patterns |
+
 ### 💬 Slack Integration
 
 | Feature | Status | Description |
@@ -120,7 +158,7 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | Accurate AWS Pricing | ✅ Live | Real pricing data (not estimates) for all patterns |
 | Cost Ranges | ✅ Live | Shows min-max monthly costs for each option |
 | Cost Comparison | ✅ Live | Compare costs across architecture options |
-| CARL Operational Cost | ✅ Live | ~$1-2/month actual cost (mostly free tier) |
+| CARL Operational Cost | ✅ Live | ~$2.61/month actual cost (DynamoDB $0.51, Lambda $0.15, Secrets $0.80, CloudWatch $0.10, KMS $1.00, S3 $0.05) |
 
 ---
 

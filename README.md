@@ -17,39 +17,44 @@ CARL is an intelligent compliance platform that helps organizations achieve and 
 | **Drift Detection** | Detect configuration drift and security misconfigurations |
 | **Terraform Generation** | Generate compliant infrastructure code on demand |
 
-## Current Status: Fully Built + Bootstrap Automation
+## Current Status: Fully Built + Deployed to AWS
 
-All core capabilities have been implemented, including **NEW: Complete AWS Environment Bootstrap Automation**:
+All core capabilities have been implemented and deployed, including **NEW: Foundation Module with Real-Time Pricing**:
 
 | Feature | Status | Service |
 |---------|--------|---------|
-| AI-driven architecture recommendations | ✅ Complete | `ai_architect.py` |
-| 43+ architecture patterns with pros/cons | ✅ Complete | `knowledge/*.py` |
-| **VPC Endpoints & PrivateLink patterns** | ✅ **NEW** | `vpc_endpoint_patterns.py` |
-| **KMS key management patterns** | ✅ **NEW** | `kms_patterns.py` |
-| Accurate AWS pricing (not estimated) | ✅ Complete | `aws_pricing.py` |
-| Foundation builder wizard | ✅ Complete | `foundation/` |
-| **Organizations bootstrap automation** | ✅ **NEW** | `bootstrap/organizations_bootstrap.py` |
-| **IAM Identity Center automation** | ✅ **NEW** | `bootstrap/identity_center_bootstrap.py` |
-| **Security services delegated admin** | ✅ **NEW** | `bootstrap/security_services_bootstrap.py` |
-| **Complete environment orchestration** | ✅ **NEW** | `bootstrap/bootstrap_orchestrator.py` |
-| Terraform code generation | ✅ Complete | `foundation_builder.py` |
-| Security Hub integration | ✅ Complete | `findings_service.py` |
-| Audit evidence collection | ✅ Complete | `evidence_collector.py` |
-| Compliance report generation | ✅ Complete | `report_generator.py` |
-| Risk exception management | ✅ Complete | `exception_manager.py` |
-| Infrastructure drift detection | ✅ Complete | `drift_detector.py` |
-| Continuous AI learning | ✅ Complete | `knowledge_retrieval.py` |
+| AI-driven architecture recommendations | ✅ Deployed | `ai_architect.py` |
+| 43+ architecture patterns with pros/cons | ✅ Deployed | `knowledge/*.py` |
+| **VPC Endpoints & PrivateLink patterns** | ✅ Deployed | `vpc_endpoint_patterns.py` |
+| **KMS key management patterns** | ✅ Deployed | `kms_patterns.py` |
+| **Real-time AWS pricing (100+ services)** | ✅ **NEW** | `pricing_prefetch_service.py` |
+| **Foundation module (10 DynamoDB tables)** | ✅ **NEW** | `modules/foundation/` |
+| **KMS encryption key** | ✅ **NEW** | Core infrastructure |
+| **Continuous learning system** | ✅ **NEW** | `learning_service.py` |
+| Foundation builder wizard | ✅ Deployed | `foundation/` |
+| **Organizations bootstrap automation** | ✅ Deployed | `bootstrap/organizations_bootstrap.py` |
+| **IAM Identity Center automation** | ✅ Deployed | `bootstrap/identity_center_bootstrap.py` |
+| **Security services delegated admin** | ✅ Deployed | `bootstrap/security_services_bootstrap.py` |
+| **Complete environment orchestration** | ✅ Deployed | `bootstrap/bootstrap_orchestrator.py` |
+| Terraform code generation | ✅ Deployed | `foundation_builder.py` |
+| Security Hub integration | ✅ Deployed | `findings_service.py` |
+| Audit evidence collection | ✅ Deployed | `evidence_collector.py` |
+| Compliance report generation | ✅ Deployed | `report_generator.py` |
+| Risk exception management | ✅ Deployed | `exception_manager.py` |
+| Infrastructure drift detection | ✅ Deployed | `drift_detector.py` |
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Full technical architecture, component diagrams, data models |
-| [BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md) | **NEW:** Complete AWS environment bootstrap automation guide |
-| [SLACK_COMMANDS.md](./SLACK_COMMANDS.md) | **NEW:** Comprehensive Slack commands user guide with examples |
-| [SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md) | **NEW:** Technical implementation guide for Slack integration improvements |
-| [ROADMAP.md](./ROADMAP.md) | **NEW:** Priority roadmap and next steps |
+| [DEPLOYMENT_NOTES.md](./DEPLOYMENT_NOTES.md) | **NEW:** Complete deployment guide with foundation module details (500+ lines) |
+| [FEATURES.md](./FEATURES.md) | **UPDATED:** Complete feature status - what's live vs planned |
+| [BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md) | Complete AWS environment bootstrap automation guide |
+| [CONTINUOUS_LEARNING.md](./CONTINUOUS_LEARNING.md) | Continuous learning system - pattern analysis and adaptation |
+| [SLACK_COMMANDS.md](./SLACK_COMMANDS.md) | Comprehensive Slack commands user guide with examples |
+| [SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md) | Technical implementation guide for Slack integration improvements |
+| [ROADMAP.md](./ROADMAP.md) | Priority roadmap and next steps |
 | [IMPLEMENTATION_PHASES.md](./IMPLEMENTATION_PHASES.md) | Phased implementation plan with completed status |
 | [COST_ESTIMATES.md](./COST_ESTIMATES.md) | Detailed cost breakdown |
 | [CLAUDE.md](./CLAUDE.md) | Context file for Claude Code sessions |
@@ -62,7 +67,9 @@ All core capabilities have been implemented, including **NEW: Complete AWS Envir
 | **Deployment Model** | Centralized management account |
 | **User Interface** | Slack |
 | **AI Backend** | Amazon Bedrock (Claude Haiku for simple queries, Sonnet for architecture) |
-| **Monthly Cost** | $75-200 (single account) |
+| **Foundation Cost** | **$2.61/month** (DynamoDB, Lambda, KMS, Secrets, S3, CloudWatch) |
+| **With Security Scanning** | $22-50/month per account (adds Security Hub + Bedrock API usage) |
+| **AWS Services Covered** | 100+ services with real-time pricing (366 items across 3 regions) |
 
 ## Slack Commands
 

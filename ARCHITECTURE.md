@@ -73,17 +73,36 @@ CARL is an AI-powered AWS compliance platform that helps organizations achieve a
 │                       │        ▼                                              │  │
 │                       │  ┌─────────────────────────────────────────────────┐  │  │
 │                       │  │                DATA LAYER                       │  │  │
-│                       │  │  DynamoDB Tables:                               │  │  │
+│                       │  │  ┌────────────────────────────────────────────┐ │  │  │
+│                       │  │  │  KMS Customer-Managed Key (NEW)            │ │  │  │
+│                       │  │  │  - Encrypts DynamoDB, Secrets, S3, Logs    │ │  │  │
+│                       │  │  │  - Auto-rotation enabled                   │ │  │  │
+│                       │  │  └────────────────────────────────────────────┘ │  │  │
+│                       │  │                                                 │  │  │
+│                       │  │  DynamoDB Tables (10):                          │  │  │
 │                       │  │  - findings, evidence, exceptions, drift        │  │  │
 │                       │  │  - preferences, approvals, conversations        │  │  │
-│                       │  │  - remediations, ai_feedback                    │  │  │
+│                       │  │  - remediations, ai_feedback, foundation        │  │  │
+│                       │  │  - scan_history, resource_graph (NEW)           │  │  │
+│                       │  │  - pricing_cache (366 items, 3 regions) (NEW)   │  │  │
 │                       │  │                                                 │  │  │
-│                       │  │  S3 Buckets:                                    │  │  │
+│                       │  │  S3 Buckets (KMS encrypted):                    │  │  │
 │                       │  │  - Evidence (audit artifacts)                   │  │  │
 │                       │  │  - Reports (compliance reports)                 │  │  │
+│                       │  │  - Terraform State (versioned)                  │  │  │
 │                       │  │                                                 │  │  │
-│                       │  │  Secrets Manager:                               │  │  │
-│                       │  │  - Slack tokens, API keys                       │  │  │
+│                       │  │  Secrets Manager (KMS encrypted):               │  │  │
+│                       │  │  - Slack bot token, signing secret              │  │  │
+│                       │  │  - 7-day recovery window                        │  │  │
+│                       │  │                                                 │  │  │
+│                       │  │  Lambda Functions (3):                          │  │  │
+│                       │  │  - pricing-prefetch (monthly refresh) (NEW)     │  │  │
+│                       │  │  - pattern-analyzer (daily 2am UTC) (NEW)       │  │  │
+│                       │  │  - api (main CARL interface)                    │  │  │
+│                       │  │                                                 │  │  │
+│                       │  │  EventBridge Schedules:                         │  │  │
+│                       │  │  - Pricing refresh (1st of month) (NEW)         │  │  │
+│                       │  │  - Pattern analysis (daily 2am) (NEW)           │  │  │
 │                       │  └─────────────────────────────────────────────────┘  │  │
 │                       │        │                                              │  │
 │                       │        ▼                                              │  │
@@ -1447,19 +1466,36 @@ Attributes:
 
 ## Cost Summary
 
+### CARL Foundation Module (Core Infrastructure)
+
+**Actual Measured Cost: $2.61/month**
+
+| Component | Monthly Cost | Notes |
+|-----------|--------------|-------|
+| **DynamoDB Tables** (10 tables) | $0.51 | Pay-per-request, low usage |
+| **Lambda Executions** (3 functions) | $0.15 | Pricing prefetch monthly, pattern analyzer daily, API as needed |
+| **Secrets Manager** (2 secrets) | $0.80 | $0.40 per secret (Slack bot token, signing secret) |
+| **CloudWatch Logs** | $0.10 | 7-day retention, KMS encrypted |
+| **KMS Customer-Managed Key** | $1.00 | Single key for all encryption |
+| **S3 Storage** (3 buckets) | $0.05 | Evidence, reports, Terraform state (minimal usage) |
+| **SNS Topics** | $0.00 | Free tier |
+| **EventBridge Schedules** | $0.00 | Free tier (2 schedules) |
+| **Total Foundation** | **$2.61** | Core CARL infrastructure |
+
+### Additional Costs with Security Scanning
+
 | Deployment | Monthly Cost |
 |------------|--------------|
-| Single Account | $75-200 |
-| 5 Accounts | $250-550 |
-| 20 Accounts | $900-2,100 |
+| Single Account (with Security Hub) | $22-50 |
+| 5 Accounts (with Security Hub) | $102-250 |
+| 20 Accounts (with Security Hub) | $402-1,000 |
 
-**Cost breakdown:**
-- Bedrock API (Claude Haiku + Sonnet): $30-100/mo
-- Lambda: $5-15/mo
-- DynamoDB (pay-per-request): $10-30/mo
-- S3: $5-15/mo
-- Security Hub: $20-50/mo per account
-- Other services: $5-10/mo
+**Additional cost breakdown when enabling full compliance scanning:**
+- Bedrock API (Claude Haiku + Sonnet): $15-30/mo (varies by usage)
+- Security Hub: $20-50/mo per account (depends on findings volume)
+- Additional S3/DynamoDB: $5-15/mo (scales with findings and evidence)
+
+**Note:** The foundation module ($2.61/mo) is always required. Security Hub and compliance scanning are optional and can be enabled per account as needed.
 
 ---
 
