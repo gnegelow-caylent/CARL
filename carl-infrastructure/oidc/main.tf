@@ -284,7 +284,10 @@ data "aws_iam_policy_document" "carl_deployer" {
       "kms:TagResource",
       "kms:UntagResource",
       "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags"
+      "kms:ListResourceTags",
+      "kms:CreateGrant",
+      "kms:RetireGrant",
+      "kms:RevokeGrant"
     ]
     resources = ["*"]
     condition {
@@ -303,6 +306,46 @@ data "aws_iam_policy_document" "carl_deployer" {
       "kms:ListKeys"
     ]
     resources = ["*"]
+  }
+
+  # Secrets Manager
+  statement {
+    sid    = "SecretsManagerManagement"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:DeleteSecret",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:UpdateSecret",
+      "secretsmanager:TagResource",
+      "secretsmanager:UntagResource",
+      "secretsmanager:ListSecrets"
+    ]
+    resources = [
+      "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:carl/*"
+    ]
+  }
+
+  # SNS
+  statement {
+    sid    = "SNSManagement"
+    effect = "Allow"
+    actions = [
+      "sns:CreateTopic",
+      "sns:DeleteTopic",
+      "sns:GetTopicAttributes",
+      "sns:SetTopicAttributes",
+      "sns:Subscribe",
+      "sns:Unsubscribe",
+      "sns:TagResource",
+      "sns:UntagResource",
+      "sns:ListTagsForResource"
+    ]
+    resources = [
+      "arn:aws:sns:${var.region}:${data.aws_caller_identity.current.account_id}:carl-*"
+    ]
   }
 
   # EventBridge - Rules
