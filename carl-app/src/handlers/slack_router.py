@@ -4039,7 +4039,16 @@ def _generate_terraform_with_ai(config: dict) -> dict:
 - SOC 2: CC6.1 (access controls), CC6.8 (threat protection), CC7.1 (detection)
 - Best Practices: VPC endpoints for S3 logs, CloudWatch dashboard
 
-**S3 Data Storage:**
+**Static Website:**
+- Core: S3 bucket (PRIVATE, not public), CloudFront distribution, ACM certificate
+- Security: WAF attached to CloudFront (rate limiting, geo blocking, common attack protection), HTTPS only, OAI/OAC for S3 access
+- Logging: CloudFront access logs to S3, S3 server access logging
+- Monitoring: CloudFront metrics, 4xx/5xx error alarms, WAF blocked requests alarm
+- SOC 2: CC6.8 (WAF protection), CC6.1 (access controls), CC7.1 (threat detection), C1.1 (encryption in transit)
+- Best Practices: S3 versioning for rollback, CloudFront invalidation, Route53 for custom domain (optional)
+- TODO: Domain name, SSL certificate ARN, WAF rules customization
+
+**S3 Data Storage (non-web):**
 - Core: S3 bucket with versioning
 - Security: Encryption at rest (KMS or SSE-S3), bucket policies (least privilege), block public access, SSL enforcement
 - Logging: Server access logging, CloudTrail data events
@@ -4047,7 +4056,21 @@ def _generate_terraform_with_ai(config: dict) -> dict:
 - SOC 2: C1.1 (confidentiality), C1.2 (destruction), CC6.7 (data classification)
 - Best Practices: VPC endpoint for private access, MFA delete
 
+**CRITICAL FOR STATIC WEBSITES:**
+- NEVER make S3 bucket public - always use CloudFront with OAI/OAC
+- ALWAYS include CloudFront CDN for performance and HTTPS
+- ALWAYS include WAF for security (rate limiting, common attack protection)
+- S3 should be origin only, CloudFront is the public endpoint
+
 **IMPORTANT:** Always include monitoring, logging, encryption, and backup practices - don't wait for user to ask!
+
+**VALIDATION CHECKLIST (verify before generating):**
+- [ ] Static website → Has CloudFront + WAF + ACM certificate?
+- [ ] Database → Has KMS encryption + backups + Multi-AZ + monitoring?
+- [ ] VPN/connectivity → Has CloudWatch alarms + logging?
+- [ ] Web application → Has WAF + HTTPS + access logging?
+- [ ] Any S3 → Has encryption + versioning + access logging?
+- [ ] All resources → Have proper tags and CloudWatch monitoring?
 
 **OUTPUT FORMAT:**
 Return ONLY the five files separated by markers, no extra text:
