@@ -4143,6 +4143,7 @@ YOUR AWS ARCHITECTURE KNOWLEDGE:
 - Web apps typically need: VPC, subnets (public + private), load balancer, compute (EC2/ECS/Lambda), database
 - SQL Server on AWS options: RDS SQL Server (managed), SQL Server on EC2 (self-managed)
 - Redundancy requires: Multi-AZ, multiple subnets, load balancer, Auto Scaling
+- Direct Connect/VPN redundancy: Use Transit Gateway with multiple connections or VPN as backup to Direct Connect
 - If existing VPC has proper subnets (public + private across AZs), can reuse
 - If no VPC or inadequate subnets, need to create new infrastructure
 
@@ -4153,10 +4154,21 @@ INTELLIGENT DECISION MAKING:
 - Be specific and context-aware - reference actual resources from the scan
 - Stop asking when you have everything needed
 
-OUTPUT FORMAT:
-If you need information, ask questions (as many as needed):
-Question: <specific question>
-Options: <2-4 specific options>
+CRITICAL OUTPUT FORMAT RULES:
+You MUST ask ONE question at a time. Do NOT list multiple questions.
+
+If you need information, output EXACTLY this format:
+Question: <your single specific question here>
+Options: <option 1>, <option 2>, <option 3>, <option 4>
+
+Example of CORRECT format:
+Question: What type of connectivity do you need to your on-premises environment?
+Options: AWS Direct Connect (dedicated private connection), Site-to-Site VPN (encrypted over internet), Both Direct Connect + VPN for redundancy, Transit Gateway with multiple connections
+
+Example of WRONG format (DO NOT DO THIS):
+Question 1: What type of connectivity...
+Question 2: What is the bandwidth...
+(DO NOT number questions or list multiple questions)
 
 If you have everything needed:
 READY: <explain what you'll build with specific details>
@@ -4181,7 +4193,9 @@ READY: <explain what you'll build with specific details>
 
         logger.info(f"Created build session {session.session_id}")
 
-        # Get first question(s) from AI
+        # Get first question(s) from AI with progress indicator
+        slack.post_message(channel_id, text="🤔 Analyzing your requirements and environment to determine what questions I need to ask...")
+
         questions_response = build_planner.execute("Analyze the environment and user request. What information do you need to build this?")
 
         logger.info(f"Build planner response: {questions_response}")
@@ -4198,21 +4212,43 @@ READY: <explain what you'll build with specific details>
             # TODO: Call infrastructure generation
             slack.post_message(channel_id, text="🚧 Infrastructure generation coming soon!")
 
-        elif "Question:" in questions_response:
+        elif "Question:" in questions_response or "Question 1:" in questions_response:
             # AI needs information - parse and show question
-            # Extract question and options
-            lines = questions_response.strip().split('\n')
+            # Extract question and options with robust parsing
+            import re
+
             question_text = None
             options = []
 
-            for line in lines:
-                if line.startswith("Question:"):
-                    question_text = line.replace("Question:", "").strip()
-                elif line.startswith("Options:"):
-                    options_str = line.replace("Options:", "").strip()
-                    options = [opt.strip() for opt in options_str.split(',')]
+            # Try multiple parsing strategies
 
-            if question_text and options:
+            # Strategy 1: Look for "Question:" or "Question 1:" etc.
+            question_match = re.search(r'(?:Question\s*\d*\s*:)\s*(.+?)(?:\n|$)', questions_response, re.IGNORECASE)
+            if question_match:
+                question_text = question_match.group(1).strip()
+
+            # Strategy 2: Look for "Options:" followed by numbered or comma-separated list
+            options_match = re.search(r'Options:\s*(.+?)(?:\n\n|\n(?:Question|READY|$))', questions_response, re.DOTALL | re.IGNORECASE)
+            if options_match:
+                options_text = options_match.group(1).strip()
+
+                # Try parsing as numbered list (1. option, 2. option, etc.)
+                numbered_options = re.findall(r'\d+\.\s*\*\*(.+?)\*\*', options_text)
+                if numbered_options:
+                    options = numbered_options
+                else:
+                    # Try parsing as simple numbered list
+                    numbered_options = re.findall(r'\d+\.\s*(.+?)(?:\n|$)', options_text)
+                    if numbered_options:
+                        options = [opt.strip() for opt in numbered_options]
+                    else:
+                        # Try parsing as comma-separated
+                        options = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+
+            logger.info(f"Parsed question: {question_text}")
+            logger.info(f"Parsed options: {options}")
+
+            if question_text and options and len(options) >= 2:
                 # Store the current question in session for reference
                 session.conversation_history.append({
                     "question": question_text,
@@ -4227,7 +4263,7 @@ READY: <explain what you'll build with specific details>
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{question_text}*"
+                            "text": f"*Question:*\n{question_text}"
                         }
                     },
                     {
@@ -4248,16 +4284,17 @@ READY: <explain what you'll build with specific details>
                 slack.post_message(channel_id, blocks=blocks)
                 logger.info(f"Asked question in build session {session.session_id}")
             else:
-                # Couldn't parse question format
+                # Couldn't parse question format properly
+                logger.warning(f"Failed to parse AI response. Question: {question_text}, Options: {options}")
                 slack.post_message(
                     channel_id,
-                    text=f"📋 Based on your environment:\n\n{questions_response}\n\n_I'm still learning to format questions properly. Manual build coming soon!_"
+                    text=f"⚠️ I'm having trouble formatting my questions properly. Let me try rephrasing...\n\nRaw response:\n```{questions_response[:500]}```\n\nPlease describe your requirements in more detail and I'll help build your infrastructure."
                 )
         else:
-            # Unexpected format
+            # Unexpected format - no question found
             slack.post_message(
                 channel_id,
-                text=f"🤔 I analyzed your environment:\n\n{questions_response}\n\n_Building question flow..._"
+                text=f"🤔 I analyzed your environment but couldn't determine what questions to ask.\n\nCould you provide more details about your requirements?\n\nWhat I found:\n```{questions_response[:500]}```"
             )
 
         return {"statusCode": 200, "body": ""}
@@ -4318,10 +4355,15 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
         if session.conversation_history and session.conversation_history[-1].get("answer") is None:
             session.conversation_history[-1]["answer"] = answer_option
 
-        # Acknowledge answer
+        # Acknowledge answer with progress indicator
         slack.post_message(
             channel_id,
-            text=f"✓ Recorded: *{answer_option}*\n\n_Analyzing your answer..._"
+            text=f"✓ Recorded: *{answer_option}*"
+        )
+
+        slack.post_message(
+            channel_id,
+            text="🤔 Analyzing your answer and determining next steps..."
         )
 
         # Build context for AI with conversation history
@@ -4353,14 +4395,24 @@ AWS ARCHITECTURE KNOWLEDGE:
 - Web apps need: VPC, subnets (public + private), load balancer, compute, database
 - SQL Server options: RDS SQL Server (managed), SQL Server on EC2
 - Redundancy: Multi-AZ, multiple subnets, load balancer, Auto Scaling
+- Direct Connect/VPN redundancy: Use Transit Gateway with multiple connections or VPN as backup
 
-OUTPUT FORMAT:
-If more info needed:
-Question: <specific question>
-Options: <2-4 specific options>
+CRITICAL OUTPUT FORMAT RULES:
+You MUST ask ONE question at a time. Do NOT list multiple questions.
+
+If more info needed, output EXACTLY this format:
+Question: <your single specific question here>
+Options: <option 1>, <option 2>, <option 3>, <option 4>
+
+Example CORRECT format:
+Question: What bandwidth do you need for the connection?
+Options: Low (<100 Mbps), Medium (100 Mbps - 1 Gbps), High (>1 Gbps), Variable/burst traffic
+
+DO NOT number questions (no "Question 1:", "Question 2:", etc.)
+DO NOT list multiple questions at once
 
 If ready to build:
-READY: <detailed build plan>
+READY: <detailed build plan with specific resources and configurations>
 """
 
         # Ask AI what's next
@@ -4448,20 +4500,38 @@ Generate complete Terraform code including:
                     text=f"❌ Error generating code: {str(e)}\n\nI can provide the build plan for manual implementation."
                 )
 
-        elif "Question:" in next_response:
-            # AI has another question
-            lines = next_response.strip().split('\n')
+        elif "Question:" in next_response or "Question 1:" in next_response:
+            # AI has another question - use robust parsing
+            import re
+
             question_text = None
             options = []
 
-            for line in lines:
-                if line.startswith("Question:"):
-                    question_text = line.replace("Question:", "").strip()
-                elif line.startswith("Options:"):
-                    options_str = line.replace("Options:", "").strip()
-                    options = [opt.strip() for opt in options_str.split(',')]
+            # Try multiple parsing strategies
+            question_match = re.search(r'(?:Question\s*\d*\s*:)\s*(.+?)(?:\n|$)', next_response, re.IGNORECASE)
+            if question_match:
+                question_text = question_match.group(1).strip()
 
-            if question_text and options:
+            options_match = re.search(r'Options:\s*(.+?)(?:\n\n|\n(?:Question|READY|$))', next_response, re.DOTALL | re.IGNORECASE)
+            if options_match:
+                options_text = options_match.group(1).strip()
+
+                # Try parsing as numbered list
+                numbered_options = re.findall(r'\d+\.\s*\*\*(.+?)\*\*', options_text)
+                if numbered_options:
+                    options = numbered_options
+                else:
+                    numbered_options = re.findall(r'\d+\.\s*(.+?)(?:\n|$)', options_text)
+                    if numbered_options:
+                        options = [opt.strip() for opt in numbered_options]
+                    else:
+                        # Try comma-separated
+                        options = [opt.strip() for opt in options_text.split(',') if opt.strip()]
+
+            logger.info(f"Parsed next question: {question_text}")
+            logger.info(f"Parsed next options: {options}")
+
+            if question_text and options and len(options) >= 2:
                 # Add new question to conversation history
                 session.conversation_history.append({
                     "question": question_text,
@@ -4476,7 +4546,7 @@ Generate complete Terraform code including:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{question_text}*"
+                            "text": f"*Question:*\n{question_text}"
                         }
                     },
                     {
@@ -4496,15 +4566,17 @@ Generate complete Terraform code including:
 
                 slack.post_message(channel_id, blocks=blocks)
             else:
+                # Couldn't parse next question
+                logger.warning(f"Failed to parse AI next question. Question: {question_text}, Options: {options}")
                 slack.post_message(
                     channel_id,
-                    text=f"🤔 Next step:\n\n{next_response}"
+                    text=f"⚠️ I'm having trouble formatting my next question. Let me provide the information I need:\n\n```{next_response[:500]}```\n\nPlease provide additional details and I'll continue building your infrastructure."
                 )
         else:
-            # Unexpected response
+            # Unexpected response - no question or READY found
             slack.post_message(
                 channel_id,
-                text=f"🤔 Analyzing:\n\n{next_response}"
+                text=f"🤔 I'm analyzing your requirements but need clarification.\n\nWhat I found:\n```{next_response[:500]}```\n\nPlease provide more details about your requirements."
             )
 
         return {"statusCode": 200, "body": ""}
