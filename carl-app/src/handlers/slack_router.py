@@ -4064,9 +4064,58 @@ def _generate_terraform_with_ai(config: dict) -> dict:
 
 **IMPORTANT:** Always include monitoring, logging, encryption, and backup practices - don't wait for user to ask!
 
+**Serverless API:**
+- Core: API Gateway HTTP/REST API, Lambda functions, DynamoDB/Aurora Serverless
+- Security: Cognito auth or Lambda authorizer, WAF, KMS encryption, HTTPS only, Secrets Manager for credentials
+- Monitoring: X-Ray tracing, CloudWatch alarms (5xx errors, p99 latency, throttles)
+- SOC 2: CC6.1 (auth), CC6.4 (access restrictions), CC7.1 (monitoring), CC7.2 (logs)
+- Best Practices: VPC for database access, Lambda layers for shared code, API Gateway stages (dev/prod)
+
+**Container Application (ECS Fargate):**
+- Core: ECS cluster, Fargate tasks, ALB, ECR registry, RDS/Aurora
+- Security: WAF on ALB, KMS encryption, Secrets Manager, security groups, VPC private subnets, VPC endpoints
+- Monitoring: CloudWatch Container Insights, X-Ray, alarms (CPU, memory, 5xx errors)
+- CI/CD: Blue/green deployment via ECS deployment controller
+- SOC 2: CC6.1, CC6.7, CC7.1, CC7.2, CC8.1, A1.2
+- Best Practices: ECR image scanning, service auto-scaling, CloudWatch dashboards
+
+**ETL Pipeline:**
+- Core: Glue crawlers + ETL jobs, Step Functions orchestration, S3 (landing/processed/archive zones)
+- Security: KMS encryption, VPC endpoints for Glue, IAM roles (least privilege), Secrets Manager for DB creds
+- Monitoring: CloudWatch alarms (job failures, data quality), Glue Data Quality checks, SNS notifications
+- SOC 2: PI1.1 (accuracy), PI1.2 (completeness), PI1.4 (authorization), CC6.7, CC7.2
+- Best Practices: Data quality validation, job bookmarks, lifecycle policies, EventBridge scheduling
+
+**Backup & DR:**
+- Core: AWS Backup plans (daily/weekly/monthly), backup vaults, cross-region copy
+- DR: RDS read replica (cross-region), S3 replication, DynamoDB global tables (optional), Terraform ready for compute
+- Monitoring: CloudWatch alarms (backup failures, replication lag), AWS Backup compliance reports
+- SOC 2: A1.3 (recovery), CC9.2 (business continuity), CC6.7 (encryption)
+- Best Practices: Tag-based backup policies, vault lock, monthly DR drills
+
+**CI/CD Pipeline:**
+- Core: GitHub Actions with OIDC to AWS (or CodePipeline), automated testing, security scanning
+- Deployment: Blue/green (ECS) or canary (Lambda with SAM), automatic rollback on alarms
+- Security: Signed commits, branch protection, SAST/dependency scanning, IAM roles per environment
+- Monitoring: Build success/failure metrics, deployment tracking, SNS to Slack
+- SOC 2: CC8.1 (change management), CC5.3 (procedures), PI1.4 (authorization), CC6.8 (security scanning)
+
+**Streaming Pipeline:**
+- Core: Kinesis Data Stream (on-demand), Lambda (processing), Kinesis Firehose → S3 (data lake)
+- Security: KMS encryption, IAM roles, VPC endpoints (if VPC processing), DLQ for errors
+- Monitoring: CloudWatch alarms (iterator age, throttling, Lambda errors), SNS notifications
+- SOC 2: PI1.3 (timeliness), CC6.7, CC7.2, PI1.1, PI1.5
+- Best Practices: Error handling with DLQ, Parquet format, S3 lifecycle to Glacier, enrichment from DynamoDB
+
 **VALIDATION CHECKLIST (verify before generating):**
 - [ ] Static website → Has CloudFront + WAF + ACM certificate?
+- [ ] Serverless API → Has API Gateway + Lambda + Cognito + WAF + DynamoDB?
+- [ ] Container app → Has ECS + ALB + WAF + ECR + monitoring?
+- [ ] ETL pipeline → Has Glue + Step Functions + data quality + monitoring?
 - [ ] Database → Has KMS encryption + backups + Multi-AZ + monitoring?
+- [ ] Backup & DR → Has AWS Backup + cross-region replication?
+- [ ] CI/CD → Has automated testing + security scanning + deployment strategy?
+- [ ] Streaming → Has Kinesis + Lambda + error handling + data lake?
 - [ ] VPN/connectivity → Has CloudWatch alarms + logging?
 - [ ] Web application → Has WAF + HTTPS + access logging?
 - [ ] Any S3 → Has encryption + versioning + access logging?
