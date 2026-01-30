@@ -16,6 +16,105 @@ An AI-powered AWS compliance bot that:
 - Manages risk exceptions
 - Detects infrastructure drift
 
+## Safety Guardrails 🚨
+
+**CRITICAL: These rules MUST be followed at all times to prevent accidental AWS modifications or data loss.**
+
+### ❌ NEVER Allowed (Requires Explicit User Consent)
+
+1. **Direct AWS Modifications**
+   - ❌ `terraform apply` - NEVER run without explicit user approval
+   - ❌ `terraform destroy` - NEVER run without explicit user approval
+   - ❌ `aws` CLI commands that modify resources (create, delete, update, put, etc.)
+   - ❌ Running Python scripts that use boto3 to modify AWS resources
+   - ❌ Executing Lambda functions that modify AWS state
+   - ❌ Modifying DynamoDB tables, S3 buckets, or other AWS data stores
+
+2. **Writing to External Systems**
+   - ❌ Writing to DynamoDB tables (production data)
+   - ❌ Writing to S3 buckets (evidence, reports)
+   - ❌ Creating Jira tickets
+   - ❌ Posting to Slack channels
+   - ❌ Modifying Secrets Manager secrets
+   - ❌ Any operation that persists data outside the local filesystem
+
+3. **Destructive Operations**
+   - ❌ Deleting AWS resources
+   - ❌ Revoking IAM permissions
+   - ❌ Disabling security services (GuardDuty, Security Hub, etc.)
+   - ❌ Modifying security group rules
+   - ❌ Changing KMS key policies
+
+**Exception:** If the user explicitly says "deploy", "apply", "create the ticket", or similar action-oriented commands, you may proceed with those specific operations after confirming the scope.
+
+### ✅ Always Allowed (No Consent Required)
+
+1. **Reading/Querying**
+   - ✅ Reading local files
+   - ✅ `aws` CLI read-only commands (describe, list, get)
+   - ✅ `terraform plan` (shows what would change)
+   - ✅ `terraform validate` (validates configuration)
+   - ✅ Querying DynamoDB tables (read-only)
+   - ✅ Reading from S3 buckets
+   - ✅ Viewing CloudWatch logs
+   - ✅ GitHub API read operations
+
+2. **Local Development**
+   - ✅ Creating/editing local files
+   - ✅ Git operations (add, commit, push to GitHub)
+   - ✅ Running tests
+   - ✅ Linting and validation
+   - ✅ Installing dependencies locally
+
+3. **GitHub Operations**
+   - ✅ Git commits (add, commit)
+   - ✅ Git push (to GitHub repository)
+   - ✅ Creating branches
+   - ✅ Reading repository contents
+   - Note: GitHub Actions workflows may deploy to AWS, but that's user-controlled
+
+### 🟡 Ask First (Requires Confirmation)
+
+1. **Potentially Destructive Operations**
+   - 🟡 `git push --force` (can overwrite history)
+   - 🟡 Running integration tests that create temporary AWS resources
+   - 🟡 Deleting local files outside the project directory
+   - 🟡 Modifying GitHub workflows (can affect deployments)
+
+2. **Significant Changes**
+   - 🟡 Adding new AWS services to Terraform (cost implications)
+   - 🟡 Changing IAM policies
+   - 🟡 Modifying Lambda function code that's already deployed
+
+### How to Request AWS Operations
+
+If you need me to perform an AWS operation:
+
+**Bad:**
+```
+Assistant: Let me deploy this to AWS...
+[Runs terraform apply without asking]
+```
+
+**Good:**
+```
+Assistant: I've prepared the Terraform changes. The plan shows:
+- 3 resources to add
+- 1 resource to change
+- 0 resources to destroy
+
+Would you like me to run `terraform apply` to deploy these changes?
+```
+
+### Verification Checklist
+
+Before executing any command, check:
+- [ ] Is this a write operation to AWS? → Ask user first
+- [ ] Is this modifying external systems? → Ask user first
+- [ ] Is this a destructive operation? → Ask user first
+- [ ] Is this a local read or git commit? → Proceed
+- [ ] Is this `terraform plan` or validation? → Proceed
+
 ## Latest Updates (Current Session)
 
 ### Phase 2 Deployment & Bug Fixes 🐛 (January 29, 2026 - Evening)
