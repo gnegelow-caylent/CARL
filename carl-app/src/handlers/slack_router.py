@@ -867,7 +867,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                  f"• Prefix: `{terraform_config.get('prefix')}`\n"
                  f"• Environment: {terraform_config.get('environment')}\n"
                  f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
-                 f"🏗️ Generating Terraform code with AI (this takes 20-30 seconds)..."
+                 f"⏳ Generating Terraform code with AI..."
         )
 
         # Generate Terraform using AI
@@ -3962,10 +3962,14 @@ def handle_build_config_submission(payload: dict) -> dict:
 def _generate_terraform_with_ai(config: dict) -> dict:
     """Use AI to generate appropriate Terraform based on user's requirement.
 
-    Returns dict with keys: 'variables', 'main', 'outputs' for separate files.
+    Splits generation into multiple Bedrock calls to avoid timeouts on complex infrastructure.
+
+    Returns dict with keys: 'variables', 'main', 'outputs', 'tfvars_example', 'readme' for separate files.
     """
     from services.bedrock_service import BedrockService
+    import logging
 
+    logger = logging.getLogger(__name__)
     bedrock = BedrockService()
 
     # Build context for AI
@@ -3973,8 +3977,8 @@ def _generate_terraform_with_ai(config: dict) -> dict:
     option_text = config.get("option_text", "")
     vpc_info = f"VPC ID: {config['vpc_id']}" if config.get('vpc_id') else f"VPC CIDR: {config['vpc_cidr']}"
 
-    prompt = f"""Generate complete, production-ready, SOC 2 compliant Terraform code following ALL best practices for the following AWS infrastructure requirement.
-
+    # Common context for all prompts
+    common_context = f"""
 **USER'S REQUIREMENT:**
 {requirement}
 
@@ -3986,202 +3990,139 @@ def _generate_terraform_with_ai(config: dict) -> dict:
 - Resource Prefix: {config['prefix']}
 - Environment: {config['environment']}
 - Transit Gateway: {'Yes' if config.get('use_transit_gateway') else 'No'}
+"""
 
-**TERRAFORM BEST PRACTICES (MUST FOLLOW ALL):**
+    # Step 1: Generate variables.tf
+    logger.info("Step 1/5: Generating variables.tf")
+    variables_prompt = f"""Generate ONLY the variables.tf file for the following AWS infrastructure requirement.
+{common_context}
 
-1. **File Structure:**
-   - **variables.tf**: All input variables with descriptions, types, defaults, and validation rules
-   - **main.tf**: Terraform block, provider config, locals, data sources, and resources
-   - **outputs.tf**: All outputs with descriptions for created resources
-   - **terraform.tfvars.example**: Example values for all variables
-   - **README.md**: Documentation with usage, SOC 2 controls, and security best practices
+**REQUIREMENTS:**
+- All input variables with descriptions, types, defaults, and validation rules
+- Use snake_case naming
+- Group related variables with comments
+- Include variables for: resource prefix, environment, VPC info, and any infrastructure-specific configs
 
-2. **Variable Standards:**
-   - Every variable must have: description, type, and default (or validation)
-   - Use validation blocks for variables with constraints (CIDR, instance types, etc.)
-   - Group related variables with comments
-   - Use snake_case naming
+Return ONLY the Terraform variables.tf file content, no markers or extra text."""
 
-3. **Resource Standards:**
-   - Consistent naming: use locals for name prefixes
-   - All resources must have tags: Name, Environment, ManagedBy, Project
-   - Use data sources for existing resources (VPC ID provided)
-   - Add lifecycle blocks where appropriate (prevent_destroy, ignore_changes)
-   - Include descriptive comments above complex resources
-
-4. **Output Standards:**
-   - Every major resource should have outputs (IDs, ARNs, DNS names)
-   - Include descriptions for all outputs
-   - Export sensitive data as sensitive = true
-
-5. **Code Quality:**
-   - Terraform 1.5+ compatible syntax
-   - Provider version constraints (~> 5.0 for AWS)
-   - Use terraform formatting conventions
-   - Add TODO comments only where user input is REQUIRED
-   - Group related resources with comment headers
-
-6. **SOC 2 Compliance & Security Best Practices:**
-   - Analyze which SOC 2 controls apply to this infrastructure
-   - Include ALL security best practices in code (encryption, logging, monitoring, private connectivity)
-   - Implement what can be automated:
-     * Encryption at rest (KMS keys)
-     * Encryption in transit (TLS/SSL)
-     * Logging (CloudWatch, VPC Flow Logs, CloudTrail)
-     * Monitoring (CloudWatch alarms, SNS notifications)
-     * Private connectivity (VPC endpoints for AWS services)
-     * Network security (security groups with least privilege)
-     * Backup and recovery (backup plans, snapshots)
-   - Add TODO comments for practices requiring external input:
-     * "TODO: Configure customer gateway IP address"
-     * "TODO: Set up SNS email subscriptions for alarms"
-     * "TODO: Review and adjust alarm thresholds"
-   - Do NOT skip best practices - include them all with sensible defaults
-
-7. **Documentation (README.md):**
-   - Brief description of what this deploys
-   - **SOC 2 Controls Addressed**: List relevant controls (CC6.1, CC6.7, CC7.1, etc.)
-   - **Security Best Practices Implemented**: What's included (encryption, logging, etc.)
-   - **Additional Recommendations**: What should be added (WAF, GuardDuty, etc.)
-   - Prerequisites (existing VPC, permissions, etc.)
-   - Usage instructions with terraform init/plan/apply
-   - List of resources created
-   - Inputs table and Outputs table
-   - Post-deployment steps (configure alarms, review logs, etc.)
-
-**CRITICAL:** Generate the COMPLETE infrastructure needed for the requirement with ALL security best practices.
-
-**Examples by Infrastructure Type:**
-
-**VPN Connection:**
-- Core: VPN Gateway, Customer Gateway, VPN Connection, route propagation
-- Security: CloudWatch alarms for tunnel status, VPC Flow Logs, transit encryption
-- SOC 2: CC6.1 (secure connectivity), CC7.1 (monitoring), CC7.2 (logging)
-- TODO: Customer gateway IP, BGP ASN, pre-shared keys
-
-**Database (RDS):**
-- Core: RDS instance, DB subnet group, parameter group
-- Security: Encryption at rest (KMS), encryption in transit (SSL), security groups (least privilege), automated backups, Multi-AZ
-- Monitoring: CloudWatch alarms (CPU, connections, storage), Enhanced Monitoring
-- SOC 2: CC6.7 (encryption), A1.3 (backup), CC7.2 (monitoring)
-- Best Practices: Private subnets, VPC endpoint for RDS API, secrets in Secrets Manager
-
-**Web Application:**
-- Core: ALB, target groups, security groups, auto-scaling
-- Security: HTTPS listeners (ACM certificate), WAF (if sensitive), access logs to S3
-- Monitoring: ALB metrics, target health alarms, 5xx error alarms
-- SOC 2: CC6.1 (access controls), CC6.8 (threat protection), CC7.1 (detection)
-- Best Practices: VPC endpoints for S3 logs, CloudWatch dashboard
-
-**Static Website:**
-- Core: S3 bucket (PRIVATE, not public), CloudFront distribution, ACM certificate
-- Security: WAF attached to CloudFront (rate limiting, geo blocking, common attack protection), HTTPS only, OAI/OAC for S3 access
-- Logging: CloudFront access logs to S3, S3 server access logging
-- Monitoring: CloudFront metrics, 4xx/5xx error alarms, WAF blocked requests alarm
-- SOC 2: CC6.8 (WAF protection), CC6.1 (access controls), CC7.1 (threat detection), C1.1 (encryption in transit)
-- Best Practices: S3 versioning for rollback, CloudFront invalidation, Route53 for custom domain (optional)
-- TODO: Domain name, SSL certificate ARN, WAF rules customization
-
-**S3 Data Storage (non-web):**
-- Core: S3 bucket with versioning
-- Security: Encryption at rest (KMS or SSE-S3), bucket policies (least privilege), block public access, SSL enforcement
-- Logging: Server access logging, CloudTrail data events
-- Backup: Cross-region replication, lifecycle policies
-- SOC 2: C1.1 (confidentiality), C1.2 (destruction), CC6.7 (data classification)
-- Best Practices: VPC endpoint for private access, MFA delete
-
-**CRITICAL FOR STATIC WEBSITES:**
-- NEVER make S3 bucket public - always use CloudFront with OAI/OAC
-- ALWAYS include CloudFront CDN for performance and HTTPS
-- ALWAYS include WAF for security (rate limiting, common attack protection)
-- S3 should be origin only, CloudFront is the public endpoint
-
-**IMPORTANT:** Always include monitoring, logging, encryption, and backup practices - don't wait for user to ask!
-
-**Serverless API:**
-- Core: API Gateway HTTP/REST API, Lambda functions, DynamoDB/Aurora Serverless
-- Security: Cognito auth or Lambda authorizer, WAF, KMS encryption, HTTPS only, Secrets Manager for credentials
-- Monitoring: X-Ray tracing, CloudWatch alarms (5xx errors, p99 latency, throttles)
-- SOC 2: CC6.1 (auth), CC6.4 (access restrictions), CC7.1 (monitoring), CC7.2 (logs)
-- Best Practices: VPC for database access, Lambda layers for shared code, API Gateway stages (dev/prod)
-
-**Container Application (ECS Fargate):**
-- Core: ECS cluster, Fargate tasks, ALB, ECR registry, RDS/Aurora
-- Security: WAF on ALB, KMS encryption, Secrets Manager, security groups, VPC private subnets, VPC endpoints
-- Monitoring: CloudWatch Container Insights, X-Ray, alarms (CPU, memory, 5xx errors)
-- CI/CD: Blue/green deployment via ECS deployment controller
-- SOC 2: CC6.1, CC6.7, CC7.1, CC7.2, CC8.1, A1.2
-- Best Practices: ECR image scanning, service auto-scaling, CloudWatch dashboards
-
-**ETL Pipeline:**
-- Core: Glue crawlers + ETL jobs, Step Functions orchestration, S3 (landing/processed/archive zones)
-- Security: KMS encryption, VPC endpoints for Glue, IAM roles (least privilege), Secrets Manager for DB creds
-- Monitoring: CloudWatch alarms (job failures, data quality), Glue Data Quality checks, SNS notifications
-- SOC 2: PI1.1 (accuracy), PI1.2 (completeness), PI1.4 (authorization), CC6.7, CC7.2
-- Best Practices: Data quality validation, job bookmarks, lifecycle policies, EventBridge scheduling
-
-**Backup & DR:**
-- Core: AWS Backup plans (daily/weekly/monthly), backup vaults, cross-region copy
-- DR: RDS read replica (cross-region), S3 replication, DynamoDB global tables (optional), Terraform ready for compute
-- Monitoring: CloudWatch alarms (backup failures, replication lag), AWS Backup compliance reports
-- SOC 2: A1.3 (recovery), CC9.2 (business continuity), CC6.7 (encryption)
-- Best Practices: Tag-based backup policies, vault lock, monthly DR drills
-
-**CI/CD Pipeline:**
-- Core: GitHub Actions with OIDC to AWS (or CodePipeline), automated testing, security scanning
-- Deployment: Blue/green (ECS) or canary (Lambda with SAM), automatic rollback on alarms
-- Security: Signed commits, branch protection, SAST/dependency scanning, IAM roles per environment
-- Monitoring: Build success/failure metrics, deployment tracking, SNS to Slack
-- SOC 2: CC8.1 (change management), CC5.3 (procedures), PI1.4 (authorization), CC6.8 (security scanning)
-
-**Streaming Pipeline:**
-- Core: Kinesis Data Stream (on-demand), Lambda (processing), Kinesis Firehose → S3 (data lake)
-- Security: KMS encryption, IAM roles, VPC endpoints (if VPC processing), DLQ for errors
-- Monitoring: CloudWatch alarms (iterator age, throttling, Lambda errors), SNS notifications
-- SOC 2: PI1.3 (timeliness), CC6.7, CC7.2, PI1.1, PI1.5
-- Best Practices: Error handling with DLQ, Parquet format, S3 lifecycle to Glacier, enrichment from DynamoDB
-
-**VALIDATION CHECKLIST (verify before generating):**
-- [ ] Static website → Has CloudFront + WAF + ACM certificate?
-- [ ] Serverless API → Has API Gateway + Lambda + Cognito + WAF + DynamoDB?
-- [ ] Container app → Has ECS + ALB + WAF + ECR + monitoring?
-- [ ] ETL pipeline → Has Glue + Step Functions + data quality + monitoring?
-- [ ] Database → Has KMS encryption + backups + Multi-AZ + monitoring?
-- [ ] Backup & DR → Has AWS Backup + cross-region replication?
-- [ ] CI/CD → Has automated testing + security scanning + deployment strategy?
-- [ ] Streaming → Has Kinesis + Lambda + error handling + data lake?
-- [ ] VPN/connectivity → Has CloudWatch alarms + logging?
-- [ ] Web application → Has WAF + HTTPS + access logging?
-- [ ] Any S3 → Has encryption + versioning + access logging?
-- [ ] All resources → Have proper tags and CloudWatch monitoring?
-
-**OUTPUT FORMAT:**
-Return ONLY the five files separated by markers, no extra text:
-
-### variables.tf ###
-<variables.tf content>
-
-### main.tf ###
-<main.tf content>
-
-### outputs.tf ###
-<outputs.tf content>
-
-### terraform.tfvars.example ###
-<terraform.tfvars.example content>
-
-### README.md ###
-<README.md content>"""
-
-    response = bedrock.invoke_model(
-        prompt=prompt,
-        max_tokens=16000  # Increased for complex infrastructure (static websites, APIs, etc.)
+    variables_content = bedrock.invoke_model(
+        prompt=variables_prompt,
+        max_tokens=3000
     )
 
-    # Parse response into separate files
-    files = _parse_terraform_files(response)
+    # Step 2: Generate main.tf (the big one - resources)
+    logger.info("Step 2/5: Generating main.tf with resources")
+    main_prompt = f"""Generate ONLY the main.tf file for the following AWS infrastructure requirement.
+{common_context}
 
-    return files
+**INCLUDE IN main.tf:**
+- Terraform block with required_version >= 1.5
+- Provider configuration (AWS ~> 5.0)
+- Locals for name prefixes and common tags
+- Data sources for existing resources (VPC if ID provided)
+- ALL infrastructure resources needed for the requirement
+- ALL security best practices implemented:
+  * Encryption at rest (KMS keys where applicable)
+  * Encryption in transit (TLS/SSL)
+  * Logging (CloudWatch Logs, VPC Flow Logs, access logs)
+  * Monitoring (CloudWatch alarms for critical metrics)
+  * WAF (for web-facing infrastructure like CloudFront, ALBs, API Gateway)
+  * Private connectivity (VPC endpoints for AWS services where applicable)
+  * Backup and recovery (backup plans, automated snapshots)
+  * Least privilege security groups
+
+**RESOURCE STANDARDS:**
+- Consistent naming using locals (e.g., local.name_prefix)
+- All resources tagged: Name, Environment, ManagedBy, Project
+- Add lifecycle blocks where appropriate (prevent_destroy for stateful resources)
+- Include comments above complex resources
+
+**CRITICAL FOR SPECIFIC TYPES:**
+- **Static Websites**: S3 (private) + CloudFront + WAF + ACM certificate
+- **APIs**: API Gateway + Lambda + Cognito/authorizer + WAF + CloudWatch
+- **Databases**: KMS encryption + automated backups + Multi-AZ + monitoring
+- **Container Apps**: ECS + ALB + WAF + ECR + monitoring
+
+Return ONLY the main.tf file content, no markers or extra text."""
+
+    main_content = bedrock.invoke_model(
+        prompt=main_prompt,
+        max_tokens=8000  # Biggest file, needs most tokens
+    )
+
+    # Step 3: Generate outputs.tf
+    logger.info("Step 3/5: Generating outputs.tf")
+    outputs_prompt = f"""Generate ONLY the outputs.tf file for the infrastructure described below.
+{common_context}
+
+Based on the resources that would be created, generate outputs for:
+- Resource IDs (VPC, subnets, security groups, etc.)
+- ARNs (KMS keys, S3 buckets, Lambda functions, etc.)
+- DNS names (ALB, CloudFront, RDS endpoints, etc.)
+- URLs (API Gateway endpoints, website URLs, etc.)
+
+**OUTPUT STANDARDS:**
+- Every major resource should have outputs
+- Include descriptions for all outputs
+- Mark sensitive data as sensitive = true (credentials, private keys, etc.)
+
+Return ONLY the outputs.tf file content, no markers or extra text."""
+
+    outputs_content = bedrock.invoke_model(
+        prompt=outputs_prompt,
+        max_tokens=2000
+    )
+
+    # Step 4: Generate terraform.tfvars.example
+    logger.info("Step 4/5: Generating terraform.tfvars.example")
+    tfvars_prompt = f"""Generate ONLY the terraform.tfvars.example file showing example values for all variables.
+{common_context}
+
+Include example values for all variables that would be defined in variables.tf.
+Add comments explaining what each value controls.
+
+Return ONLY the terraform.tfvars.example file content, no markers or extra text."""
+
+    tfvars_content = bedrock.invoke_model(
+        prompt=tfvars_prompt,
+        max_tokens=1500
+    )
+
+    # Step 5: Generate README.md
+    logger.info("Step 5/5: Generating README.md")
+    readme_prompt = f"""Generate ONLY the README.md documentation file for this infrastructure.
+{common_context}
+
+**INCLUDE IN README:**
+1. Brief description of what this deploys
+2. **SOC 2 Controls Addressed**: List relevant controls (CC6.1, CC6.7, CC7.1, CC7.2, A1.3, PI1.1, etc.)
+3. **Security Best Practices Implemented**: What's included (encryption, logging, monitoring, WAF, etc.)
+4. **Additional Recommendations**: What could be added (GuardDuty, Inspector, etc.)
+5. Prerequisites (existing VPC, AWS permissions, Terraform version, etc.)
+6. Usage instructions (terraform init/plan/apply commands)
+7. List of resources created
+8. Inputs table (variable names, types, descriptions)
+9. Outputs table (output names, descriptions)
+10. Post-deployment steps (configure alarms, review logs, test connectivity, etc.)
+
+Return ONLY the README.md file content, no markers or extra text."""
+
+    readme_content = bedrock.invoke_model(
+        prompt=readme_prompt,
+        max_tokens=3000
+    )
+
+    logger.info("Terraform generation complete (5/5 steps done)")
+
+    # Return all files
+    return {
+        'variables': variables_content.strip(),
+        'main': main_content.strip(),
+        'outputs': outputs_content.strip(),
+        'tfvars_example': tfvars_content.strip(),
+        'readme': readme_content.strip()
+    }
+
 
 
 def _extract_soc2_controls(readme: str) -> list:
