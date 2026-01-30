@@ -159,8 +159,11 @@ jobs:
         if: ${{ steps.env.outputs.environment == 'dev' }}
         continue-on-error: true
         run: |
-          cd carl-infrastructure/core
-          API_ENDPOINT=$(terraform output -raw api_endpoint)
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
+
+          # Get API endpoint from AWS (not Terraform state)
+          API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='carl-$ENVIRONMENT-api'].ApiId" --output text)
+          API_ENDPOINT=$(aws apigatewayv2 get-api --api-id "$API_ID" --query "ApiEndpoint" --output text)
 
           # Send test payload to Slack endpoint
           curl -X POST "$API_ENDPOINT/slack" \
