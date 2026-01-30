@@ -728,9 +728,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
 
     if event.get("action") == "process_architect_async":
-        logger.info("Processing async architect command")
+        logger.info("Processing async architect command (redirected to recommend)")
         slack = get_slack_service()
-        return handle_architect_command_sync(
+        return handle_recommend_command_sync(
             slack,
             event.get("channel_id"),
             event.get("user_id"),
@@ -1772,241 +1772,20 @@ def handle_architecture_question(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Handle architecture/design questions with the Architecture Agent + learning.
+    Handle architecture/design questions - REDIRECTS to recommend handler.
 
-    This agent provides:
-    - Architecture patterns and recommendations
-    - Real-time AWS pricing
-    - Cost estimates
-    - Compliance requirements
-    - Learned context from past architecture decisions
+    Consolidated to avoid code duplication. All architecture questions
+    now use the same handler as /carl recommend.
     """
-    import time
-    from services.agent_core import Agent
-    from services.architecture_tools import create_architecture_tools
-    from services.learning_service import LearningService
-    # Note: format_markdown_to_blocks is defined in this same file, no import needed
-
-    logger.info(f"Architecture question from user {user_id}: {question[:100]}...")
-
-    # Track timing
-    start_time = time.time()
-    tools_used = []
-    components_mentioned = []
-
-    try:
-        # Initialize learning service
-        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
-        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
-
-        learning_service = LearningService(
-            scan_history_table=scan_history_table,
-            resource_graph_table=resource_graph_table
-        )
-
-        # Get learned context for architecture recommendations
-        learned_context = learning_service.get_learned_context(question, interaction_type="architecture")
-
-        # Create architecture tools
-        architecture_tools = create_architecture_tools()
-
-        # Build agent instructions
-        base_instructions = """You are CARL's architecture advisor.
-
-Your job: Provide AWS architecture recommendations that are secure, cost-effective, and compliant.
-
-Available tools:
-- get_architecture_patterns: Get proven architecture patterns by category
-- get_aws_pricing: Get real-time AWS pricing (ALWAYS use this for accurate costs)
-- estimate_architecture_cost: Estimate total monthly cost for a solution
-- get_compliance_requirements: Get SOC 2 compliance requirements for patterns
-- compare_architecture_options: Compare two options across criteria
-
-Guidelines:
-1. ALWAYS show 2-3 OPTIONS with tradeoffs - let user choose
-2. ALWAYS include cost information - use get_aws_pricing for accuracy
-3. Explain tradeoffs clearly (cost vs complexity, scalability vs simplicity)
-4. Consider SOC 2 compliance - security and audit requirements
-5. Recommend best VALUE (not always cheapest - factor in operational overhead)
-6. Be specific - mention actual AWS services and configurations
-7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
-
-After recommendations:
-- Mention: "To generate Terraform code for any of these options, use `/carl build <blueprint>`"
-- Available blueprints: networking/standard-vpc, security/basic-stack, security/soc2-stack
-
-Examples:
-- "What IoT services should I use?" → Show 3 options (IoT Core, Greengrass, SiteWise) with costs and pros/cons
-- "Design a data pipeline" → Compare Glue vs EMR vs EC2, show monthly costs, recommend based on requirements
-- "How much would a web app cost?" → Provide 3 architectures (serverless, containers, VMs) with cost breakdowns
-"""
-
-        # Add learned context if available
-        if learned_context:
-            base_instructions += learned_context
-
-        # Create architecture agent
-        architecture_agent = Agent(
-            tools=architecture_tools,
-            instructions=base_instructions
-        )
-
-        # Execute agent
-        logger.info("🏗️ Architecture agent analyzing question")
-        response = architecture_agent.execute(
-            f"Provide architecture recommendation for: {question}"
-        )
-
-        logger.info(f"Architecture agent response: {response[:500]}...")
-
-        # Extract tools used and components mentioned (for learning)
-        # This is a simple heuristic - in production you'd track tool calls directly
-        if "ec2" in response.lower():
-            components_mentioned.append("ec2")
-        if "rds" in response.lower():
-            components_mentioned.append("rds")
-        if "lambda" in response.lower():
-            components_mentioned.append("lambda")
-        if "s3" in response.lower():
-            components_mentioned.append("s3")
-        if "dynamodb" in response.lower():
-            components_mentioned.append("dynamodb")
-
-        # Simple tool tracking - would be better to track actual tool invocations
-        tools_used = ["architecture_agent"]  # Placeholder
-
-        # Calculate duration
-        duration_ms = int((time.time() - start_time) * 1000)
-
-        # Log interaction for learning
-        interaction_id = None
-        try:
-            interaction_id = learning_service.log_interaction(
-                user_id=user_id,
-                question=question,
-                scans_performed=tools_used,
-                resources_found=components_mentioned,
-                scan_duration_ms=duration_ms,
-                interaction_type="architecture",
-                metadata={"channel_id": channel_id}
-            )
-
-            logger.info(f"Logged architecture interaction {interaction_id}")
-        except Exception as e:
-            logger.warning(f"Failed to log architecture interaction: {e}")
-
-        # Format and post response
-        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
-        for block_group in formatted_blocks:
-            slack.post_message(channel_id, blocks=block_group)
-
-        # Parse response for blueprint recommendations and add action buttons
-        build_buttons = []
-
-        # Simple heuristic: look for blueprint mentions in response
-        blueprint_mappings = {
-            "standard vpc": "networking/standard-vpc",
-            "basic security": "security/basic-stack",
-            "soc2": "security/soc2-stack",
-            "soc 2": "security/soc2-stack",
-        }
-
-        response_lower = response.lower()
-        for keyword, blueprint in blueprint_mappings.items():
-            if keyword in response_lower:
-                # Create a build button for this blueprint
-                build_buttons.append({
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f"🏗️ Build: {blueprint.split('/')[-1].replace('-', ' ').title()}",
-                        "emoji": True
-                    },
-                    "value": f"build:{blueprint}",
-                    "action_id": f"architecture_build_{blueprint.replace('/', '_').replace('-', '_')}",
-                    "style": "primary"
-                })
-
-        # If we found blueprints, add build action buttons
-        if build_buttons and len(build_buttons) <= 3:  # Max 3 buttons for clean UI
-            action_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Ready to build? Select an option:_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"architecture_actions_{interaction_id}",
-                    "elements": build_buttons
-                }
-            ]
-            slack.post_message(channel_id, blocks=action_blocks)
-
-        # Add feedback buttons
-        if interaction_id:
-            feedback_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Was this recommendation helpful?_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"feedback_{interaction_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👍 Yes",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:helpful",
-                            "action_id": "feedback_positive"
-                        },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👎 No",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:not_helpful",
-                            "action_id": "feedback_negative"
-                        }
-                    ]
-                }
-            ]
-
-            slack.post_message(channel_id, blocks=feedback_blocks)
-
-    except Exception as e:
-        logger.error(f"Architecture agent failed: {e}", exc_info=True)
-        slack.post_message(
-            channel_id,
-            text=f"❌ Sorry, I encountered an error providing architecture recommendations: {str(e)}"
-        )
-
-    return {"statusCode": 200, "body": ""}
+    # Redirect to consolidated recommend handler
+    return handle_recommend_command_sync(slack, channel_id, user_id, question)
 
 
 def handle_ask_command_fallback(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Fallback ask command without Advisory Agent - Comprehensive AWS scanning.
-
-    Uses AWSEnvironmentScanner to perform deep AWS environment scan, providing
-    full context about VPCs, databases, compute, security services, etc.
-    AI uses this comprehensive data to answer questions intelligently.
-
-    Integrates with LearningService for continuous learning.
-    Routes architecture questions to architecture agent.
+    Fallback ask command - Comprehensive AWS scanning for compliance questions.
     """
     import os
     import json
@@ -5538,15 +5317,10 @@ def handle_architect_command(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Handle /carl architect command - AGENTIC architecture recommendations.
+    Handle /carl architect command - ALIAS for /carl recommend.
 
-    This uses Agent Core where Claude autonomously:
-    - Scans the actual AWS environment
-    - Queries real pricing data
-    - Retrieves architecture patterns
-    - Makes informed, data-driven recommendations
-
-    The agent decides its own workflow based on the question.
+    Consolidated to avoid redundancy. Both provide architecture recommendations
+    with the same agent, tools, and features.
     """
     if not question:
         slack.post_message(
@@ -5557,142 +5331,13 @@ def handle_architect_command(
                 "• `/carl architect Compare Transit Gateway vs VPC Peering for 10 VPCs`\n"
                 "• `/carl architect What's the best egress pattern for SOC 2 compliance?`\n"
                 "• `/carl architect Design a complete AWS foundation for my startup`\n\n"
-                "_Note: I'll autonomously scan your AWS account and query pricing to provide accurate recommendations._"
+                "_Note: `/carl architect` and `/carl recommend` are equivalent - use whichever you prefer!_"
             ),
         )
         return {"statusCode": 200, "body": ""}
 
-    # Post initial message via Slack API
-    slack.post_message(
-        channel_id,
-        text=f"🏗️ Analyzing: _{question}_\n\n_Starting agentic analysis (scanning environment, querying pricing, retrieving patterns)..._"
-    )
-
-    # Invoke async processing in background
-    try:
-        lambda_client = boto3.client('lambda')
-        lambda_client.invoke(
-            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
-            InvocationType='Event',  # Async invocation
-            Payload=json.dumps({
-                'action': 'process_architect_async',
-                'channel_id': channel_id,
-                'user_id': user_id,
-                'question': question
-            })
-        )
-    except Exception as e:
-        logger.error(f"Failed to invoke async processing: {e}")
-        # Fallback to synchronous if async fails
-        return handle_architect_command_sync(slack, channel_id, user_id, question)
-
-    # Return empty 200 OK immediately to Slack (prevents timeout)
-    return {"statusCode": 200, "body": ""}
-
-
-def handle_architect_command_sync(
-    slack: SlackService, channel_id: str, user_id: str, question: str
-) -> dict:
-    """
-    Synchronous version of architect command (for async processing or fallback).
-
-    This is where the actual agentic work happens:
-    - Agent autonomously decides which tools to call
-    - Scans AWS environment if needed
-    - Queries pricing if needed
-    - Retrieves patterns if needed
-    - Generates personalized recommendation
-    """
-    try:
-        from services.agentic_architect import get_agentic_architect
-
-        logger.info(f"Processing architect question: {question[:100]}")
-
-        # Post initial status message and get timestamp for updates
-        status_response = slack.post_message(
-            channel_id,
-            text=f"🏗️ **Analyzing:** _{question}_\n\n🔄 Initializing agent..."
-        )
-        status_ts = status_response.get("ts") if status_response else None
-
-        # Create progress callback to update Slack message
-        def update_progress(status: str):
-            """Update the status message in Slack."""
-            if status_ts:
-                try:
-                    slack.update_message(
-                        channel_id,
-                        status_ts,
-                        text=f"🏗️ **Analyzing:** _{question}_\n\n{status}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to update progress: {e}")
-
-        # Get the agentic architect (ONE agent with multiple tools)
-        architect = get_agentic_architect()
-
-        # Agent executes autonomously with progress updates
-        response = architect.answer_question(question, progress_callback=update_progress)
-
-        # Delete the status message (cleanup)
-        if status_ts:
-            try:
-                slack.delete_message(channel_id, status_ts)
-            except Exception as e:
-                logger.warning(f"Failed to delete status message: {e}")
-
-        # Format and post response with better structure
-        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
-        for block_group in formatted_blocks:
-            slack.post_message(channel_id, blocks=block_group)
-
-        # Add feedback buttons
-        blocks = [
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "_Was this recommendation helpful?_",
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👍 Helpful"},
-                        "style": "primary",
-                        "action_id": f"feedback_helpful_architect_{hash(question) % 10000}",
-                        "value": question[:100],
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👎 Not Helpful"},
-                        "action_id": f"feedback_not_helpful_architect_{hash(question) % 10000}",
-                        "value": question[:100],
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "💡 Suggest Improvement"},
-                        "action_id": f"feedback_improve_architect_{hash(question) % 10000}",
-                        "value": question[:100],
-                    },
-                ],
-            },
-        ]
-        slack.post_message(channel_id, blocks=blocks)
-
-        logger.info("Architect recommendation completed successfully")
-
-    except Exception as e:
-        logger.exception("Error in Agentic Architect")
-        slack.post_message(
-            channel_id,
-            text=f"❌ I encountered an error while analyzing your architecture question:\n\n```{str(e)}```\n\nPlease try again or rephrase your question.",
-        )
-
-    return {"statusCode": 200, "body": ""}
+    # Redirect to recommend handler - they're consolidated now
+    return handle_recommend_command_sync(slack, channel_id, user_id, question)
 
 
 def handle_foundation_explain(payload: dict, action: dict) -> dict:
