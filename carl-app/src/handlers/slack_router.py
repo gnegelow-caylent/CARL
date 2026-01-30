@@ -2574,83 +2574,221 @@ def handle_recommend_command(
 def handle_recommend_command_sync(
     slack: SlackService, channel_id: str, user_id: str, requirement: str
 ) -> dict:
-    """Synchronous version of recommend command (for async processing or fallback)."""
-    advisor = get_architecture_advisor()
-    recommendation = advisor.recommend(requirement)
+    """
+    Synchronous version of recommend command - uses NEW architecture agent.
 
-    # Build response blocks
-    blocks = [
-        {
-            "type": "header",
-            "text": {"type": "plain_text", "text": "Architecture Recommendations"},
-        },
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Requirement:* {requirement}"},
-        },
-        {"type": "divider"},
-    ]
+    This is essentially the same as handle_architecture_question but triggered by /carl recommend.
+    """
+    import time
+    from agent_core import Agent
+    from services.architecture_tools import create_architecture_tools
+    from services.learning_service import LearningService
+    from utils.formatting import format_markdown_to_blocks
 
-    for i, opt in enumerate(recommendation.options):
-        recommended_tag = " :star: *RECOMMENDED*" if opt.name == recommendation.recommended_option else ""
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*Option {i+1}: {opt.name}*{recommended_tag}\n"
-                    f"{opt.description}\n\n"
-                    f"*Cost:* ${opt.monthly_cost_estimate[0]:.0f} - ${opt.monthly_cost_estimate[1]:.0f}/month\n"
-                    f"*Compliance:* {opt.compliance_level.value.title()}\n"
-                    f"*SOC 2 Controls:* {', '.join(opt.soc2_controls_addressed[:5])}"
-                ),
-            },
-        })
+    logger.info(f"Processing /carl recommend: {requirement[:100]}...")
 
-        # Components as bullet points
-        components_text = "\n".join([f"• {c}" for c in opt.components[:6]])
-        if len(opt.components) > 6:
-            components_text += f"\n• _...and {len(opt.components) - 6} more_"
+    # Track timing
+    start_time = time.time()
+    tools_used = []
+    components_mentioned = []
 
-        blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"*Components:*\n{components_text}"}],
-        })
+    try:
+        # Initialize learning service
+        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
 
-        blocks.append({
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Generate Code"},
-                    "action_id": f"build_blueprint_{opt.terraform_blueprint}",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Detailed Estimate"},
-                    "action_id": f"estimate_option_{opt.name}",
-                },
-            ],
-        })
+        learning_service = LearningService(
+            scan_history_table=scan_history_table,
+            resource_graph_table=resource_graph_table
+        )
 
-        blocks.append({"type": "divider"})
+        # Get learned context for architecture recommendations
+        learned_context = learning_service.get_learned_context(requirement, interaction_type="architecture")
 
-    # Post options blocks
-    slack.post_message(channel_id, blocks=blocks)
+        # Create architecture tools
+        architecture_tools = create_architecture_tools()
 
-    # AI Analysis - use formatted blocks for better readability
-    ai_blocks = format_markdown_to_blocks(recommendation.ai_analysis, "🤖 AI Analysis")
-    for block_group in ai_blocks:
-        slack.post_message(channel_id, blocks=block_group)
+        # Build agent instructions
+        base_instructions = """You are CARL's architecture advisor.
 
-    # Considerations
-    considerations_text = "\n".join([f"• {c}" for c in recommendation.considerations[:4]])
-    slack.post_message(channel_id, blocks=[
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"*Cost Considerations:*\n{considerations_text}"}],
+Your job: Provide AWS architecture recommendations that are secure, cost-effective, and compliant.
+
+Available tools:
+- get_architecture_patterns: Get proven architecture patterns by category
+- get_aws_pricing: Get real-time AWS pricing (ALWAYS use this for accurate costs)
+- estimate_architecture_cost: Estimate total monthly cost for a solution
+- get_compliance_requirements: Get SOC 2 compliance requirements for patterns
+- compare_architecture_options: Compare two options across criteria
+
+Guidelines:
+1. ALWAYS show 2-3 OPTIONS with tradeoffs - let user choose
+2. ALWAYS include cost information - use get_aws_pricing for accuracy
+3. Explain tradeoffs clearly (cost vs complexity, scalability vs simplicity)
+4. Consider SOC 2 compliance - security and audit requirements
+5. Recommend best VALUE (not always cheapest - factor in operational overhead)
+6. Be specific - mention actual AWS services and configurations
+7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
+
+After recommendations:
+- Mention: "To generate Terraform code for any of these options, use the [Build This] button below"
+- Available blueprints: networking/standard-vpc, security/basic-stack, security/soc2-stack
+
+Examples:
+- "What IoT services should I use?" → Show 3 options (IoT Core, Greengrass, SiteWise) with costs and pros/cons
+- "Design a data pipeline" → Compare Glue vs EMR vs EC2, show monthly costs, recommend based on requirements
+- "How much would a web app cost?" → Provide 3 architectures (serverless, containers, VMs) with cost breakdowns
+"""
+
+        # Add learned context if available
+        if learned_context:
+            base_instructions += learned_context
+
+        # Create architecture agent
+        architecture_agent = Agent(
+            tools=architecture_tools,
+            instructions=base_instructions
+        )
+
+        # Execute agent
+        logger.info("🏗️ Architecture agent analyzing requirement")
+        response = architecture_agent.execute(
+            f"Provide architecture recommendation for: {requirement}"
+        )
+
+        logger.info(f"Architecture agent response: {response[:500]}...")
+
+        # Extract tools used and components mentioned (for learning)
+        if "ec2" in response.lower():
+            components_mentioned.append("ec2")
+        if "rds" in response.lower():
+            components_mentioned.append("rds")
+        if "lambda" in response.lower():
+            components_mentioned.append("lambda")
+        if "s3" in response.lower():
+            components_mentioned.append("s3")
+        if "dynamodb" in response.lower():
+            components_mentioned.append("dynamodb")
+        if "vpc" in response.lower():
+            components_mentioned.append("vpc")
+
+        tools_used = ["architecture_agent"]
+
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Log interaction for learning
+        interaction_id = None
+        try:
+            interaction_id = learning_service.log_interaction(
+                user_id=user_id,
+                question=f"/carl recommend: {requirement}",
+                scans_performed=tools_used,
+                resources_found=components_mentioned,
+                scan_duration_ms=duration_ms,
+                interaction_type="architecture",
+                metadata={"channel_id": channel_id, "command": "recommend"}
+            )
+
+            logger.info(f"Logged /carl recommend interaction {interaction_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log recommend interaction: {e}")
+
+        # Format and post response
+        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
+        for block_group in formatted_blocks:
+            slack.post_message(channel_id, blocks=block_group)
+
+        # Parse response for blueprint recommendations and add action buttons
+        build_buttons = []
+
+        # Simple heuristic: look for blueprint mentions in response
+        blueprint_mappings = {
+            "standard vpc": "networking/standard-vpc",
+            "basic security": "security/basic-stack",
+            "soc2": "security/soc2-stack",
+            "soc 2": "security/soc2-stack",
         }
-    ])
+
+        response_lower = response.lower()
+        for keyword, blueprint in blueprint_mappings.items():
+            if keyword in response_lower:
+                # Create a build button for this blueprint
+                build_buttons.append({
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"🏗️ Build: {blueprint.split('/')[-1].replace('-', ' ').title()}",
+                        "emoji": True
+                    },
+                    "value": f"build:{blueprint}",
+                    "action_id": "architecture_build_blueprint",
+                    "style": "primary"
+                })
+
+        # If we found blueprints, add build action buttons
+        if build_buttons and len(build_buttons) <= 3:
+            action_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Ready to build? Select an option:_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"architecture_actions_{interaction_id}",
+                    "elements": build_buttons
+                }
+            ]
+            slack.post_message(channel_id, blocks=action_blocks)
+
+        # Add feedback buttons
+        if interaction_id:
+            feedback_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Was this recommendation helpful?_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"feedback_{interaction_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👍 Yes",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:helpful",
+                            "action_id": "feedback_positive"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👎 No",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:not_helpful",
+                            "action_id": "feedback_negative"
+                        }
+                    ]
+                }
+            ]
+
+            slack.post_message(channel_id, blocks=feedback_blocks)
+
+    except Exception as e:
+        logger.error(f"Architecture agent failed: {e}", exc_info=True)
+        slack.post_message(
+            channel_id,
+            text=f"❌ Sorry, I encountered an error providing architecture recommendations: {str(e)}"
+        )
 
     return {"statusCode": 200, "body": ""}
 
