@@ -4720,6 +4720,9 @@ Generate complete Terraform code including:
 
 def handle_architecture_build_button(payload: dict, action: dict) -> dict:
     """Handle 'Build This' button click from architecture recommendations."""
+    import re
+    from services.build_session_service import BuildSessionService
+
     slack = get_slack_service()
     channel_id = payload["channel"]["id"]
     user_id = payload["user"]["id"]
@@ -4730,8 +4733,6 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
 
     if button_value.startswith("rec_session:"):
         # New flow: Ask which option from recommendation to build
-        import re
-        from services.build_session_service import BuildSessionService
 
         session_id = button_value.replace("rec_session:", "")
         session_service = BuildSessionService()
