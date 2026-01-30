@@ -860,49 +860,21 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         # Post initial message
         vpc_display = f"Create New ({terraform_config.get('vpc_cidr')})" if terraform_config.get('vpc_cidr') else f"Use Existing ({terraform_config.get('vpc_id')})"
-        initial_msg = slack.post_message(
+        slack.post_message(
             channel_id,
             text=f"✅ *Configuration Validated!*\n\n"
                  f"• VPC: {vpc_display}\n"
                  f"• Prefix: `{terraform_config.get('prefix')}`\n"
                  f"• Environment: {terraform_config.get('environment')}\n"
                  f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
-                 f"🏗️ Generating Terraform code (this may take 20-30 seconds)..."
+                 f"🏗️ Generating Terraform code with AI (this takes 20-30 seconds)..."
         )
-
-        # Update message with progress indicator every 5 seconds
-        import threading
-        import time
-        stop_progress = threading.Event()
-        progress_steps = ["⚙️  Analyzing requirements...", "📋 Generating variables.tf...", "🏗️  Creating main.tf resources...", "📤 Writing outputs.tf...", "📝 Generating documentation..."]
-        progress_idx = [0]
-
-        def update_progress():
-            while not stop_progress.is_set():
-                time.sleep(5)
-                if not stop_progress.is_set():
-                    progress_idx[0] = (progress_idx[0] + 1) % len(progress_steps)
-                    try:
-                        slack.update_message(
-                            channel_id,
-                            initial_msg.get('ts'),
-                            text=f"✅ *Configuration Validated!*\n\n"
-                                 f"• VPC: {vpc_display}\n"
-                                 f"• Prefix: `{terraform_config.get('prefix')}`\n"
-                                 f"• Environment: {terraform_config.get('environment')}\n"
-                                 f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
-                                 f"{progress_steps[progress_idx[0]]}"
-                        )
-                    except:
-                        pass  # Ignore update errors
-
-        progress_thread = threading.Thread(target=update_progress, daemon=True)
-        progress_thread.start()
 
         # Generate Terraform using AI
         try:
+            logger.info("Starting Terraform generation")
             terraform_files = _generate_terraform_with_ai(terraform_config)
-            stop_progress.set()  # Stop progress updates
+            logger.info("Terraform generation complete")
 
             # Create blueprint name from requirement
             requirement = terraform_config.get('requirement', 'infrastructure')
