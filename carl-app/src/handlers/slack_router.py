@@ -1445,7 +1445,7 @@ def handle_architecture_question(
     from services.agent_core import Agent
     from services.architecture_tools import create_architecture_tools
     from services.learning_service import LearningService
-    from utils.formatting import format_markdown_to_blocks
+    # Note: format_markdown_to_blocks is defined in this same file, no import needed
 
     logger.info(f"Architecture question from user {user_id}: {question[:100]}...")
 
@@ -2583,7 +2583,7 @@ def handle_recommend_command_sync(
     from services.agent_core import Agent
     from services.architecture_tools import create_architecture_tools
     from services.learning_service import LearningService
-    from utils.formatting import format_markdown_to_blocks
+    # Note: format_markdown_to_blocks is defined in this same file, no import needed
 
     logger.info(f"Processing /carl recommend: {requirement[:100]}...")
 
