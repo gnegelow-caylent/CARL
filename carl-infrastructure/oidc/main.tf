@@ -283,7 +283,8 @@ data "aws_iam_policy_document" "carl_deployer" {
       "kms:DisableKeyRotation",
       "kms:TagResource",
       "kms:UntagResource",
-      "kms:GetKeyRotationStatus"
+      "kms:GetKeyRotationStatus",
+      "kms:ListResourceTags"
     ]
     resources = ["*"]
     condition {
