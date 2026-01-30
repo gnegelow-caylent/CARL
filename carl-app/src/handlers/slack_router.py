@@ -295,7 +295,7 @@ Example format you MUST maintain:
 
 **Ready to build?** Click [Build This] below.
 """,
-        model_id="anthropic.claude-3-5-haiku-20241022-v1:0"  # Fast and cheap Haiku 3.5
+        model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0"  # Use same model as main agent
     )
 
     condensed = condenser_agent.execute(
