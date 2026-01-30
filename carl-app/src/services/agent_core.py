@@ -16,12 +16,70 @@ This is NOT multiple agents being orchestrated - it's ONE agent making autonomou
 import json
 from typing import Any, Callable, Optional
 from dataclasses import dataclass
+from enum import Enum
+from decimal import Decimal
 
 import boto3
 
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def sanitize_for_bedrock(obj: Any) -> Any:
+    """
+    Sanitize Python objects to be JSON-serializable for Bedrock Converse API.
+
+    Converts:
+    - Enum → string value (e.g., CostTier.MINIMAL → "MINIMAL")
+    - tuple → list (e.g., (50, 200) → [50, 200])
+    - Decimal → int or float (e.g., Decimal('1777515653') → 1777515653)
+    - Recursively processes nested dicts and lists
+
+    Args:
+        obj: Python object that may contain non-serializable types
+
+    Returns:
+        JSON-serializable version of the object
+    """
+    # Handle None
+    if obj is None:
+        return None
+
+    # Handle Enum - convert to string value
+    if isinstance(obj, Enum):
+        return obj.value
+
+    # Handle tuple - convert to list
+    if isinstance(obj, tuple):
+        return [sanitize_for_bedrock(item) for item in obj]
+
+    # Handle Decimal - convert to int or float
+    if isinstance(obj, Decimal):
+        # If it's a whole number, return int; otherwise float
+        if obj % 1 == 0:
+            return int(obj)
+        else:
+            return float(obj)
+
+    # Handle dict - recursively sanitize values
+    if isinstance(obj, dict):
+        return {key: sanitize_for_bedrock(value) for key, value in obj.items()}
+
+    # Handle list - recursively sanitize items
+    if isinstance(obj, list):
+        return [sanitize_for_bedrock(item) for item in obj]
+
+    # Handle primitives (str, int, float, bool) - return as-is
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    # For any other type, try to convert to string as fallback
+    try:
+        return str(obj)
+    except Exception as e:
+        logger.warning(f"Could not sanitize object of type {type(obj)}: {e}")
+        return None
 
 
 @dataclass
@@ -177,9 +235,12 @@ class AgentCore:
                                 logger.info(f"  ✓ Tool {tool_name} completed")
                                 logger.debug(f"    Result: {str(result)[:200]}...")
 
+                                # Sanitize result to ensure it's JSON-serializable for Bedrock
+                                sanitized_result = sanitize_for_bedrock(result)
+
                                 tool_results.append({
                                     "toolUseId": tool_use_id,
-                                    "content": [{"json": {"result": result}}]
+                                    "content": [{"json": {"result": sanitized_result}}]
                                 })
                             except Exception as e:
                                 logger.error(f"  ✗ Tool {tool_name} failed: {e}")
