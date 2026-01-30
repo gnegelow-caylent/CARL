@@ -211,11 +211,18 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
     """
     import re
 
-    # Preprocess: Clean up excessive asterisks (****text**** -> ***text***)
-    # This handles cases where AI uses 4+ asterisks
+    # Preprocess: Aggressively clean up all asterisk formatting issues
+    # Fix ****text*** (4+ on one side, 3 on other) -> ***text***
+    markdown_text = re.sub(r'\*{4,}([^*]+)\*{3}', r'***\1***', markdown_text)
+    markdown_text = re.sub(r'\*{3}([^*]+)\*{4,}', r'***\1***', markdown_text)
+    # Fix ****text**** (4+ on both sides) -> ***text***
     markdown_text = re.sub(r'\*{4,}([^*]+)\*{4,}', r'***\1***', markdown_text)
-    # Also clean up patterns like **text:** **more** that have excessive bold
-    # But keep double asterisks for normal bold (**text**)
+    # Fix patterns like "*** — ***" (emphasis around em dash)
+    markdown_text = re.sub(r'\*{3}\s*—\s*\*{3}', ' — ', markdown_text)
+    # Fix list items starting with "* **" (e.g., "* **text***")
+    markdown_text = re.sub(r'^\* \*\*', '**', markdown_text, flags=re.MULTILINE)
+    # Clean up trailing excessive asterisks at end of lines
+    markdown_text = re.sub(r'\*{3,}$', '', markdown_text, flags=re.MULTILINE)
 
     blocks = []
 
@@ -2672,30 +2679,51 @@ Available tools:
 Guidelines:
 1. ALWAYS show 2-3 OPTIONS with tradeoffs - let user choose
 2. ALWAYS include cost information - use get_aws_pricing for accuracy
-3. Explain tradeoffs clearly (cost vs complexity, scalability vs simplicity)
-4. Consider SOC 2 compliance - security and audit requirements
+3. BE CONCISE - Each option should be 5-7 bullet points MAX
+4. NO separate sections for "Network Requirements" or "SOC 2 Compliance Notes" - fold those into option bullets
 5. Recommend best VALUE (not always cheapest - factor in operational overhead)
-6. Be specific - mention actual AWS services and configurations
-7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
+6. End with ONE simple sentence recommendation - don't repeat all details again
 
-Formatting requirements (CRITICAL - follow exactly):
-- Use ***OPTION 1:*** for option headers (exactly 3 asterisks, not 4+)
+Response Format (FOLLOW EXACTLY):
+
+***OPTION 1: Service Name*** RECOMMENDED (if applicable)
+**Best for:** One sentence maximum
+**Cost:** $X-Y/month
+**Key points:**
+- 3-5 concise bullets only (not 10+)
+- Include compliance note if relevant (one bullet)
+- Mention key tradeoff (one bullet)
+
+---
+
+***OPTION 2: Service Name***
+**Best for:** One sentence maximum
+**Cost:** $X-Y/month
+**Key points:**
+- 3-5 concise bullets only
+- Include compliance if relevant
+- Mention key tradeoff
+
+---
+
+***My Recommendation:*** One option name with 2-3 sentence reasoning maximum.
+
+**Ready to build?** Click [Build This] below for interactive setup.
+
+Formatting (CRITICAL - follow exactly):
+- Use ***OPTION 1:*** for headers (exactly 3 asterisks, NEVER 4+)
 - Use --- on its own line to separate options
-- Use **text** for bold emphasis (exactly 2 asterisks)
-- For sub-headers like "Best for:" use **Best for:** (2 asterisks)
-- For emphasis like RECOMMENDED use ***RECOMMENDED*** (3 asterisks)
-- NEVER use 4+ asterisks (****text**** is wrong)
-- Keep sections concise and scannable
-
-After recommendations:
-- Mention: "Ready to build? Click the [Build This] button below and I'll walk you through an interactive setup"
-- Explain: "I'll ask about your environment (CIDR ranges, regions, naming conventions, etc.) and generate production-ready Terraform code"
-- DO NOT list specific blueprint names - keep it generic about the build process
+- Use **text** for bold (exactly 2 asterisks)
+- NEVER use 4+ asterisks (****text**** is WRONG)
+- NEVER use * ** together (e.g., "* **text" is WRONG)
+- NO "Questions to help refine?" section at end
+- NO separate "Network Requirements" or "SOC 2 Compliance" sections
+- NO "When to choose Option X" paragraphs after recommendation
+- Keep it SHORT and SCANNABLE
 
 Examples:
-- "What IoT services should I use?" → Show 3 options (IoT Core, Greengrass, SiteWise) with costs and pros/cons
-- "Design a data pipeline" → Compare Glue vs EMR vs EC2, show monthly costs, recommend based on requirements
-- "How much would a web app cost?" → Provide 3 architectures (serverless, containers, VMs) with cost breakdowns
+- "IoT services?" → 3 options (IoT Core, Greengrass, SiteWise), costs, 3-5 bullets each, one brief recommendation
+- "Data pipeline?" → Glue vs EMR vs EC2, costs, concise bullets, one short recommendation
 """
 
         # Add learned context if available
