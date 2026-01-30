@@ -878,6 +878,10 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             requirement = terraform_config.get('requirement', 'infrastructure')
             blueprint_name = f"{requirement[:50].replace(' ', '-').lower()}/{terraform_config.get('prefix', 'infra')}"
 
+            # Extract SOC 2 controls and best practices from README
+            soc2_controls = _extract_soc2_controls(terraform_files.get('readme', ''))
+            security_practices = _extract_security_practices(terraform_files.get('readme', ''))
+
             # Prepare metadata
             metadata = {
                 "requirement": requirement,
@@ -888,7 +892,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "environment": terraform_config.get('environment'),
                 "use_transit_gateway": terraform_config.get('use_transit_gateway'),
                 "generated_at": datetime.now().isoformat(),
-                "generated_by": "CARL AI-driven infrastructure builder"
+                "generated_by": "CARL AI-driven infrastructure builder",
+                "soc2_controls": soc2_controls,
+                "security_practices": security_practices
             }
 
             # Upload to GitHub and notify
@@ -3933,7 +3939,7 @@ def _generate_terraform_with_ai(config: dict) -> dict:
     option_text = config.get("option_text", "")
     vpc_info = f"VPC ID: {config['vpc_id']}" if config.get('vpc_id') else f"VPC CIDR: {config['vpc_cidr']}"
 
-    prompt = f"""Generate complete, production-ready Terraform code following ALL best practices for the following AWS infrastructure requirement.
+    prompt = f"""Generate complete, production-ready, SOC 2 compliant Terraform code following ALL best practices for the following AWS infrastructure requirement.
 
 **USER'S REQUIREMENT:**
 {requirement}
@@ -3954,7 +3960,7 @@ def _generate_terraform_with_ai(config: dict) -> dict:
    - **main.tf**: Terraform block, provider config, locals, data sources, and resources
    - **outputs.tf**: All outputs with descriptions for created resources
    - **terraform.tfvars.example**: Example values for all variables
-   - **README.md**: Documentation with usage instructions and requirements
+   - **README.md**: Documentation with usage, SOC 2 controls, and security best practices
 
 2. **Variable Standards:**
    - Every variable must have: description, type, and default (or validation)
@@ -3981,19 +3987,67 @@ def _generate_terraform_with_ai(config: dict) -> dict:
    - Add TODO comments only where user input is REQUIRED
    - Group related resources with comment headers
 
-6. **Documentation (README.md):**
+6. **SOC 2 Compliance & Security Best Practices:**
+   - Analyze which SOC 2 controls apply to this infrastructure
+   - Include ALL security best practices in code (encryption, logging, monitoring, private connectivity)
+   - Implement what can be automated:
+     * Encryption at rest (KMS keys)
+     * Encryption in transit (TLS/SSL)
+     * Logging (CloudWatch, VPC Flow Logs, CloudTrail)
+     * Monitoring (CloudWatch alarms, SNS notifications)
+     * Private connectivity (VPC endpoints for AWS services)
+     * Network security (security groups with least privilege)
+     * Backup and recovery (backup plans, snapshots)
+   - Add TODO comments for practices requiring external input:
+     * "TODO: Configure customer gateway IP address"
+     * "TODO: Set up SNS email subscriptions for alarms"
+     * "TODO: Review and adjust alarm thresholds"
+   - Do NOT skip best practices - include them all with sensible defaults
+
+7. **Documentation (README.md):**
    - Brief description of what this deploys
+   - **SOC 2 Controls Addressed**: List relevant controls (CC6.1, CC6.7, CC7.1, etc.)
+   - **Security Best Practices Implemented**: What's included (encryption, logging, etc.)
+   - **Additional Recommendations**: What should be added (WAF, GuardDuty, etc.)
    - Prerequisites (existing VPC, permissions, etc.)
    - Usage instructions with terraform init/plan/apply
    - List of resources created
    - Inputs table and Outputs table
+   - Post-deployment steps (configure alarms, review logs, etc.)
 
-**CRITICAL:** Generate the COMPLETE infrastructure needed for the requirement, not just a VPC.
-Examples:
-- VPN: VPN Gateway, Customer Gateway, VPN Connection, routing
-- Direct Connect: DX Gateway, Virtual Interface, BGP configuration
-- Database: RDS instance, subnet group, security groups, parameter group
-- Web app: ALB, target groups, security groups, auto-scaling
+**CRITICAL:** Generate the COMPLETE infrastructure needed for the requirement with ALL security best practices.
+
+**Examples by Infrastructure Type:**
+
+**VPN Connection:**
+- Core: VPN Gateway, Customer Gateway, VPN Connection, route propagation
+- Security: CloudWatch alarms for tunnel status, VPC Flow Logs, transit encryption
+- SOC 2: CC6.1 (secure connectivity), CC7.1 (monitoring), CC7.2 (logging)
+- TODO: Customer gateway IP, BGP ASN, pre-shared keys
+
+**Database (RDS):**
+- Core: RDS instance, DB subnet group, parameter group
+- Security: Encryption at rest (KMS), encryption in transit (SSL), security groups (least privilege), automated backups, Multi-AZ
+- Monitoring: CloudWatch alarms (CPU, connections, storage), Enhanced Monitoring
+- SOC 2: CC6.7 (encryption), A1.3 (backup), CC7.2 (monitoring)
+- Best Practices: Private subnets, VPC endpoint for RDS API, secrets in Secrets Manager
+
+**Web Application:**
+- Core: ALB, target groups, security groups, auto-scaling
+- Security: HTTPS listeners (ACM certificate), WAF (if sensitive), access logs to S3
+- Monitoring: ALB metrics, target health alarms, 5xx error alarms
+- SOC 2: CC6.1 (access controls), CC6.8 (threat protection), CC7.1 (detection)
+- Best Practices: VPC endpoints for S3 logs, CloudWatch dashboard
+
+**S3 Data Storage:**
+- Core: S3 bucket with versioning
+- Security: Encryption at rest (KMS or SSE-S3), bucket policies (least privilege), block public access, SSL enforcement
+- Logging: Server access logging, CloudTrail data events
+- Backup: Cross-region replication, lifecycle policies
+- SOC 2: C1.1 (confidentiality), C1.2 (destruction), CC6.7 (data classification)
+- Best Practices: VPC endpoint for private access, MFA delete
+
+**IMPORTANT:** Always include monitoring, logging, encryption, and backup practices - don't wait for user to ask!
 
 **OUTPUT FORMAT:**
 Return ONLY the five files separated by markers, no extra text:
@@ -4022,6 +4076,46 @@ Return ONLY the five files separated by markers, no extra text:
     files = _parse_terraform_files(response)
 
     return files
+
+
+def _extract_soc2_controls(readme: str) -> list:
+    """Extract SOC 2 controls mentioned in README."""
+    import re
+    # Match patterns like CC6.1, CC7.2, A1.3, C1.1, etc.
+    control_pattern = r'\b(CC|A|C|PI)\d+\.\d+\b'
+    controls = re.findall(control_pattern, readme)
+    return list(set(controls))  # Unique controls
+
+
+def _extract_security_practices(readme: str) -> list:
+    """Extract security best practices from README."""
+    practices = []
+
+    # Common practice keywords
+    keywords = {
+        'encryption at rest': 'Encryption at rest (KMS)',
+        'encryption in transit': 'Encryption in transit (TLS/SSL)',
+        'vpc flow logs': 'VPC Flow Logs enabled',
+        'cloudwatch': 'CloudWatch monitoring',
+        'cloudtrail': 'CloudTrail logging',
+        'backup': 'Automated backups configured',
+        'multi-az': 'Multi-AZ deployment',
+        'vpc endpoint': 'VPC endpoints for private access',
+        'security group': 'Security groups with least privilege',
+        'kms': 'KMS encryption',
+        'ssl': 'SSL/TLS enforcement',
+        'versioning': 'Versioning enabled',
+        'mfa': 'MFA protection',
+        'waf': 'AWS WAF protection',
+        'access logging': 'Access logging enabled'
+    }
+
+    readme_lower = readme.lower()
+    for keyword, practice in keywords.items():
+        if keyword in readme_lower:
+            practices.append(practice)
+
+    return practices
 
 
 def _parse_terraform_files(response: str) -> dict:
