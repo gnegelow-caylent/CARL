@@ -3936,18 +3936,27 @@ INTELLIGENT DECISION MAKING:
 CRITICAL OUTPUT FORMAT RULES:
 You MUST ask ONE question at a time. Do NOT list multiple questions.
 
+Each option MUST include a brief explanation (1-2 sentences) for IT generalists who may not know these terms.
+
 If you need information, output EXACTLY this format:
 Question: <your single specific question here>
-Options: <option 1>, <option 2>, <option 3>, <option 4>
+Options:
+1. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
+2. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
+3. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
 
 Example of CORRECT format:
 Question: What type of connectivity do you need to your on-premises environment?
-Options: AWS Direct Connect (dedicated private connection), Site-to-Site VPN (encrypted over internet), Both Direct Connect + VPN for redundancy, Transit Gateway with multiple connections
+Options:
+1. AWS Direct Connect - Dedicated fiber connection from your datacenter to AWS. Provides consistent low latency and high bandwidth (1-100 Gbps). Best for mission-critical workloads requiring reliable performance. Cost: ~$500-2000/month.
+2. Site-to-Site VPN - Encrypted tunnel over the public internet. Quick to set up, lower cost. Best for smaller workloads or testing. Bandwidth up to 1.25 Gbps. Cost: ~$36/month.
+3. Both (hybrid redundancy) - Direct Connect as primary with VPN as backup. Best for critical workloads needing guaranteed uptime. Cost: combines both options.
+4. Transit Gateway - Central hub connecting multiple VPNs or Direct Connect links. Best for complex multi-site networks with many connections. Cost: ~$36/month + data processing fees.
 
 Example of WRONG format (DO NOT DO THIS):
-Question 1: What type of connectivity...
-Question 2: What is the bandwidth...
-(DO NOT number questions or list multiple questions)
+Question: What type of connectivity...
+Options: Direct Connect, VPN, Both
+(Missing explanations - user won't understand what these mean!)
 
 If you have everything needed:
 READY: <explain what you'll build with specific details>
@@ -4187,16 +4196,26 @@ AWS ARCHITECTURE KNOWLEDGE:
 CRITICAL OUTPUT FORMAT RULES:
 You MUST ask ONE question at a time. Do NOT list multiple questions.
 
+Each option MUST include a brief explanation (1-2 sentences) for IT generalists who may not know these terms.
+
 If more info needed, output EXACTLY this format:
 Question: <your single specific question here>
-Options: <option 1>, <option 2>, <option 3>, <option 4>
+Options:
+1. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
+2. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
+3. <Option Name> - <What it is in plain English>. <When to use it>. <Approximate cost if relevant>.
 
 Example CORRECT format:
-Question: What bandwidth do you need for the connection?
-Options: Low (<100 Mbps), Medium (100 Mbps - 1 Gbps), High (>1 Gbps), Variable/burst traffic
+Question: What bandwidth do you need for the VPN connection?
+Options:
+1. Low (<100 Mbps) - Basic connectivity for file access and light traffic. Suitable for small offices or testing. Lowest cost.
+2. Medium (100 Mbps - 1 Gbps) - Good for moderate traffic like multiple users, file transfers, and business applications. Balanced cost/performance.
+3. High (>1 Gbps) - High-bandwidth connectivity for data-intensive operations, large file transfers, or many concurrent users. Higher cost.
+4. Variable/burst - Starts low but can burst to higher speeds when needed. Good for unpredictable traffic patterns. Pay for what you use.
 
-DO NOT number questions (no "Question 1:", "Question 2:", etc.)
-DO NOT list multiple questions at once
+DO NOT use this format (missing explanations):
+Options: Low, Medium, High, Variable
+(Users won't understand what these mean!)
 
 If ready to build:
 READY: <detailed build plan with specific resources and configurations>
@@ -4294,27 +4313,28 @@ Generate complete Terraform code including:
             question_text = None
             options = []
 
-            # Try multiple parsing strategies
+            # Parse question
             question_match = re.search(r'(?:Question\s*\d*\s*:)\s*(.+?)(?:\n|$)', next_response, re.IGNORECASE)
             if question_match:
                 question_text = question_match.group(1).strip()
 
-            options_match = re.search(r'Options:\s*(.+?)(?:\n|$)', next_response, re.IGNORECASE)
-            if options_match:
-                options_text = options_match.group(1).strip()
-
-                # Try parsing as numbered list first (1. option, 2. option, etc.)
-                numbered_options = re.findall(r'\d+\.\s*(.+?)(?:,|\n|$)', options_text)
-                if numbered_options and len(numbered_options) >= 2:
-                    options = [opt.strip() for opt in numbered_options]
-                else:
-                    # Try parsing as comma-separated (most common format)
+            # Parse options with multi-line descriptions
+            # Look for numbered options (1. 2. 3. etc) with everything until next number or end
+            numbered_options = re.findall(r'\d+\.\s*(.+?)(?=\n\d+\.|\n\n|$)', next_response, re.DOTALL)
+            if numbered_options and len(numbered_options) >= 2:
+                # Clean up each option (remove extra whitespace but keep descriptions)
+                options = [' '.join(opt.strip().split()) for opt in numbered_options]
+            else:
+                # Fallback: Try single-line comma-separated format
+                options_match = re.search(r'Options:\s*(.+?)(?:\n\n|$)', next_response, re.IGNORECASE | re.DOTALL)
+                if options_match:
+                    options_text = options_match.group(1).strip()
                     comma_separated = [opt.strip() for opt in options_text.split(',') if opt.strip()]
                     if comma_separated and len(comma_separated) >= 2:
                         options = comma_separated
 
             logger.info(f"Parsed next question: {question_text}")
-            logger.info(f"Parsed next options: {options}")
+            logger.info(f"Parsed {len(options)} options")
 
             if question_text and options and len(options) >= 2:
                 # Add new question to conversation history
@@ -4325,24 +4345,40 @@ Generate complete Terraform code including:
                 })
                 session_service.table.put_item(Item=session.to_dynamodb_item())
 
-                # Helper function to shorten button text
-                def shorten_button_text(text: str, max_length: int = 40) -> str:
-                    """Extract main part before parentheses or truncate intelligently."""
-                    # Remove parenthetical explanations for button text
-                    if '(' in text:
-                        main_part = text.split('(')[0].strip()
-                        if len(main_part) > 0:
-                            return main_part[:max_length]
-                    # Truncate if still too long
-                    return text[:max_length] if len(text) > max_length else text
+                # Helper function to extract short button text
+                def extract_option_name(text: str) -> str:
+                    """Extract short name for button (max 3 words or 25 chars)."""
+                    # Remove markdown bold formatting
+                    text = text.replace('**', '')
 
-                # Show next question with buttons
+                    # Extract text before dash or parentheses (the option name)
+                    if ' - ' in text:
+                        text = text.split(' - ')[0].strip()
+                    if '(' in text:
+                        text = text.split('(')[0].strip()
+
+                    # Take first 3 words max
+                    words = text.split()
+                    if len(words) > 3:
+                        text = ' '.join(words[:3])
+
+                    # Enforce 25 char max
+                    if len(text) > 25:
+                        text = text[:25].rsplit(' ', 1)[0]  # Cut at last space
+
+                    return text.strip()
+
+                # Build formatted options text with full descriptions (strip markdown bold)
+                clean_options = [opt.replace('**', '') for opt in options]
+                options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(clean_options)])
+
+                # Show next question with full descriptions + buttons
                 blocks = [
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*Question:*\n{question_text}"
+                            "text": f"*Question:*\n{question_text}\n\n*Options:*\n{options_text}"
                         }
                     },
                     {
@@ -4351,7 +4387,7 @@ Generate complete Terraform code including:
                         "elements": [
                             {
                                 "type": "button",
-                                "text": {"type": "plain_text", "text": shorten_button_text(option)},
+                                "text": {"type": "plain_text", "text": extract_option_name(option)},
                                 "value": json.dumps({"option": option, "question": question_text}),
                                 "action_id": f"build_answer_{session_id}_{i}"
                             }
@@ -4379,10 +4415,28 @@ Generate complete Terraform code including:
 
     except Exception as e:
         logger.exception(f"Error in build answer handler: {e}")
-        slack.post_message(
-            channel_id,
-            text=f"❌ Error processing answer: {str(e)}"
-        )
+
+        # Check if this is a timeout
+        error_msg = str(e).lower()
+        is_timeout = "timeout" in error_msg or "timed out" in error_msg
+
+        if is_timeout:
+            slack.post_message(
+                channel_id,
+                text=(
+                    "⏱️ The AI took too long to generate the next question.\n\n"
+                    f"**What we know so far:**\n{len(session.conversation_history)} questions answered\n\n"
+                    "**Options:**\n"
+                    "• Reply with additional details and I'll continue\n"
+                    "• Or use `/carl build <blueprint>` with a standard blueprint\n\n"
+                    "_Tip: For complex requirements, break them into smaller pieces_"
+                )
+            )
+        else:
+            slack.post_message(
+                channel_id,
+                text=f"❌ Error processing answer: {str(e)}\n\nPlease try again or start over."
+            )
         return {"statusCode": 200, "body": ""}
 
 
