@@ -3,7 +3,7 @@
 #
 # This deploys only what's needed to talk to CARL in Slack.
 # CARL will suggest and deploy additional features based on your needs.
-# Updated: 2026-01-28 - IAM permissions fixed for CloudWatch, API Gateway, SSM
+# Updated: 2026-01-30 - Foundation module enabled, IAM permissions fixed for KMS and EventBridge
 
 terraform {
   required_version = ">= 1.0"
