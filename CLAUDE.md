@@ -142,6 +142,45 @@ Before executing any command, check:
 - [ ] Is this a local read or git commit? → Proceed
 - [ ] Is this `terraform plan` or validation? → Proceed
 
+## Development Guidelines 🛠️
+
+### Avoid Building Redundant Tools
+
+**CRITICAL: Do not create duplicate functionality. Reuse and extend existing code.**
+
+Before creating any new tool, service, or function:
+
+1. **Search First**
+   - Check if similar functionality already exists
+   - Look in `services/`, `knowledge/`, `handlers/`
+   - Search for similar tool names or patterns
+   - Check existing agent tools in `architecture_tools.py`
+
+2. **Reuse Over Rebuild**
+   - ✅ GOOD: Extend `architecture_tools.py` with new function
+   - ❌ BAD: Create `architecture_tools_v2.py` with similar tools
+   - ✅ GOOD: Add parameters to existing `get_aws_pricing()` function
+   - ❌ BAD: Create new `fetch_pricing()` function
+
+3. **Consolidate Similar Features**
+   - If you find 2+ tools doing similar things → consolidate them
+   - Prefer one flexible tool over multiple rigid tools
+   - Example: One `scan_aws()` function with parameters, not `scan_vpc()`, `scan_iam()`, `scan_s3()` separately
+
+4. **Leverage Existing Infrastructure**
+   - Use AWS services instead of custom implementations
+   - Use `agent_core.py` for all AI agents, don't create parallel systems
+   - Use existing DynamoDB tables, don't create new ones for similar data
+   - Use EventBridge for scheduling, not custom cron implementations
+
+5. **When It's OK to Create New Tools**
+   - ✅ Genuinely new capability not covered by existing code
+   - ✅ Different abstraction level (e.g., high-level orchestrator using low-level tools)
+   - ✅ AWS service integration we don't have yet
+   - ✅ New agent tool with unique purpose
+
+**If unsure, ask the user:** "I see we have [existing_tool] that does X. Should I extend it or create something new?"
+
 ## AI-Driven Decision Making & Hallucination Prevention 🤖
 
 **CRITICAL: CARL uses AI extensively for intelligent decision-making. These guardrails prevent hallucinations while maintaining self-deterministic behavior.**
@@ -936,6 +975,11 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
 4. **Continuous Learning**: User feedback improves recommendations over time
 5. **Audit-Ready**: Evidence collection and report generation for auditors
 6. **Bootstrap Through Code**: Complete AWS environment setup via automation (NEW)
+7. **Avoid Redundant Tools**: Don't build multiple tools that do the same thing. Reuse existing functionality, consolidate similar features, and prefer extending existing tools over creating new ones. Examples:
+   - Use existing `architecture_tools.py` functions instead of creating new similar tools
+   - Consolidate similar Slack commands under one interface
+   - Extend `agent_core.py` capabilities rather than building parallel agent systems
+   - Leverage AWS services instead of reimplementing functionality (e.g., use EventBridge, not custom schedulers)
 
 ## Current Capabilities (All Built)
 
