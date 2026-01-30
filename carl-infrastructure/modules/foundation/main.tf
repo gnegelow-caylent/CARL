@@ -16,90 +16,27 @@ data "aws_region" "current" {}
 # KMS Key for Encryption
 # ============================================================================
 
-resource "aws_kms_key" "carl" {
-  description             = "CARL encryption key for ${var.environment}"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "Enable IAM User Permissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow CloudWatch Logs"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:CreateGrant",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-        Condition = {
-          ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/carl-*"
-          }
-        }
-      },
-      {
-        Sid    = "Allow DynamoDB"
-        Effect = "Allow"
-        Principal = {
-          Service = "dynamodb.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:CreateGrant",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow Secrets Manager"
-        Effect = "Allow"
-        Principal = {
-          Service = "secretsmanager.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:CreateGrant",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project_name}-${var.environment}-key"
-    }
-  )
+# Use existing KMS key (created by core infrastructure)
+data "aws_kms_alias" "carl" {
+  name = "alias/${var.project_name}-${var.environment}"
 }
+
+# Uncomment to create new key if needed
+# resource "aws_kms_key" "carl" {
+#   description             = "CARL encryption key for ${var.environment}"
+#   deletion_window_in_days = 30
+#   enable_key_rotation     = true
+#
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [...]
+#   })
+#   tags = merge(var.tags, { Name = "${var.project_name}-${var.environment}-key" })
+# }
 
 resource "aws_kms_alias" "carl" {
   name          = "alias/${var.project_name}-${var.environment}"
-  target_key_id = aws_kms_key.carl.key_id
+  target_key_id = data.aws_kms_alias.carl.target_key_id
 }
 
 # ============================================================================
@@ -123,7 +60,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.carl.arn
+      kms_master_key_id = data.aws_kms_alias.carl.target_key_arn
     }
   }
 }
@@ -161,7 +98,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "reports" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.carl.arn
+      kms_master_key_id = data.aws_kms_alias.carl.target_key_arn
     }
   }
 }
@@ -204,7 +141,7 @@ resource "aws_dynamodb_table" "findings" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   point_in_time_recovery {
@@ -237,7 +174,7 @@ resource "aws_dynamodb_table" "preferences" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -266,7 +203,7 @@ resource "aws_dynamodb_table" "approvals" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -295,7 +232,7 @@ resource "aws_dynamodb_table" "remediations" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -324,7 +261,7 @@ resource "aws_dynamodb_table" "conversations" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -353,7 +290,7 @@ resource "aws_dynamodb_table" "evidence" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -382,7 +319,7 @@ resource "aws_dynamodb_table" "exceptions" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -393,34 +330,7 @@ resource "aws_dynamodb_table" "exceptions" {
   )
 }
 
-# Drift Table
-resource "aws_dynamodb_table" "drift" {
-  name         = "${var.project_name}-${var.environment}-drift"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "resource_id"
-  range_key    = "timestamp"
-
-  attribute {
-    name = "resource_id"
-    type = "S"
-  }
-  attribute {
-    name = "timestamp"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
-  }
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project_name}-${var.environment}-drift"
-    }
-  )
-}
+# Drift Table - Removed (created by drift module)
 
 # AI Feedback Table
 resource "aws_dynamodb_table" "ai_feedback" {
@@ -440,7 +350,7 @@ resource "aws_dynamodb_table" "ai_feedback" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -469,7 +379,7 @@ resource "aws_dynamodb_table" "foundation" {
 
   server_side_encryption {
     enabled     = true
-    kms_key_arn = aws_kms_key.carl.arn
+    kms_key_arn = data.aws_kms_alias.carl.target_key_arn
   }
 
   tags = merge(
@@ -488,7 +398,7 @@ resource "aws_dynamodb_table" "foundation" {
 resource "aws_secretsmanager_secret" "slack_bot_token" {
   name                    = "${var.project_name}/${var.environment}/slack/bot-token"
   description             = "Slack bot token for CARL ${var.environment}"
-  kms_key_id              = aws_kms_key.carl.arn
+  kms_key_id              = data.aws_kms_alias.carl.target_key_arn
   recovery_window_in_days = 7
 
   tags = merge(
@@ -503,7 +413,7 @@ resource "aws_secretsmanager_secret" "slack_bot_token" {
 resource "aws_secretsmanager_secret" "slack_signing_secret" {
   name                    = "${var.project_name}/${var.environment}/slack/signing-secret"
   description             = "Slack signing secret for CARL ${var.environment}"
-  kms_key_id              = aws_kms_key.carl.arn
+  kms_key_id              = data.aws_kms_alias.carl.target_key_arn
   recovery_window_in_days = 7
 
   tags = merge(
@@ -611,7 +521,7 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
           "kms:GenerateDataKey"
         ]
         Resource = [
-          aws_kms_key.carl.arn
+          data.aws_kms_alias.carl.target_key_arn
         ]
       },
       {
@@ -716,7 +626,7 @@ resource "aws_cloudwatch_event_bus" "carl" {
 
 resource "aws_sns_topic" "alerts" {
   name              = "${var.project_name}-${var.environment}-alerts"
-  kms_master_key_id = aws_kms_key.carl.id
+  kms_master_key_id = data.aws_kms_alias.carl.target_key_id
 
   tags = merge(
     var.tags,
@@ -733,7 +643,7 @@ resource "aws_sns_topic" "alerts" {
 resource "aws_cloudwatch_log_group" "carl" {
   name              = "/aws/lambda/${var.project_name}-${var.environment}"
   retention_in_days = 30
-  kms_key_id        = aws_kms_key.carl.arn
+  kms_key_id        = data.aws_kms_alias.carl.target_key_arn
 
   tags = merge(
     var.tags,
