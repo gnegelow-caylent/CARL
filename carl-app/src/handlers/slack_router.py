@@ -4188,7 +4188,8 @@ READY: <explain what you'll build with specific details>
             user_id=user_id,
             channel_id=channel_id,
             requirement=requirement,
-            environment_scan=scan_result.to_dict()
+            environment_scan=scan_result.to_dict(),
+            environment_summary=environment_summary
         )
 
         logger.info(f"Created build session {session.session_id}")
@@ -4254,6 +4255,17 @@ READY: <explain what you'll build with specific details>
                 })
                 session_service.table.put_item(Item=session.to_dynamodb_item())
 
+                # Helper function to shorten button text
+                def shorten_button_text(text: str, max_length: int = 40) -> str:
+                    """Extract main part before parentheses or truncate intelligently."""
+                    # Remove parenthetical explanations for button text
+                    if '(' in text:
+                        main_part = text.split('(')[0].strip()
+                        if len(main_part) > 0:
+                            return main_part[:max_length]
+                    # Truncate if still too long
+                    return text[:max_length] if len(text) > max_length else text
+
                 # Build Slack blocks with buttons
                 blocks = [
                     {
@@ -4269,7 +4281,7 @@ READY: <explain what you'll build with specific details>
                         "elements": [
                             {
                                 "type": "button",
-                                "text": {"type": "plain_text", "text": option[:75]},
+                                "text": {"type": "plain_text", "text": shorten_button_text(option)},
                                 "value": json.dumps({"option": option, "question": question_text}),
                                 "action_id": f"build_answer_{session.session_id}_{i}"
                             }
@@ -4369,9 +4381,8 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
             for turn in session.conversation_history
         ])
 
-        # Reconstruct environment summary from session
-        scan_result = AWSEnvironmentScan(**session.environment_scan)
-        environment_summary = scan_result.to_context_summary()
+        # Use stored environment summary
+        environment_summary = session.environment_summary
 
         context = f"""You are CARL's infrastructure build assistant with deep AWS architecture expertise.
 
@@ -4535,6 +4546,17 @@ Generate complete Terraform code including:
                 })
                 session_service.table.put_item(Item=session.to_dynamodb_item())
 
+                # Helper function to shorten button text
+                def shorten_button_text(text: str, max_length: int = 40) -> str:
+                    """Extract main part before parentheses or truncate intelligently."""
+                    # Remove parenthetical explanations for button text
+                    if '(' in text:
+                        main_part = text.split('(')[0].strip()
+                        if len(main_part) > 0:
+                            return main_part[:max_length]
+                    # Truncate if still too long
+                    return text[:max_length] if len(text) > max_length else text
+
                 # Show next question with buttons
                 blocks = [
                     {
@@ -4550,7 +4572,7 @@ Generate complete Terraform code including:
                         "elements": [
                             {
                                 "type": "button",
-                                "text": {"type": "plain_text", "text": option[:75]},
+                                "text": {"type": "plain_text", "text": shorten_button_text(option)},
                                 "value": json.dumps({"option": option, "question": question_text}),
                                 "action_id": f"build_answer_{session_id}_{i}"
                             }

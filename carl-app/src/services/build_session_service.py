@@ -24,6 +24,7 @@ class BuildSession:
     channel_id: str
     requirement: str  # Original user request
     environment_scan: Dict[str, Any]  # AWS environment scan results
+    environment_summary: str  # Human-readable summary for AI context
     conversation_history: List[Dict[str, str]]  # Q&A history
     created_at: str
     updated_at: str
@@ -39,6 +40,7 @@ class BuildSession:
             "channel_id": self.channel_id,
             "requirement": self.requirement,
             "environment_scan": json.dumps(self.environment_scan),
+            "environment_summary": self.environment_summary,
             "conversation_history": json.dumps(self.conversation_history),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -55,6 +57,7 @@ class BuildSession:
             channel_id=item["channel_id"],
             requirement=item["requirement"],
             environment_scan=json.loads(item["environment_scan"]),
+            environment_summary=item.get("environment_summary", ""),
             conversation_history=json.loads(item["conversation_history"]),
             created_at=item["created_at"],
             updated_at=item["updated_at"],
@@ -75,7 +78,8 @@ class BuildSessionService:
         user_id: str,
         channel_id: str,
         requirement: str,
-        environment_scan: Dict[str, Any]
+        environment_scan: Dict[str, Any],
+        environment_summary: str = ""
     ) -> BuildSession:
         """Create new build session."""
         session_id = str(uuid.uuid4())[:8]
@@ -87,6 +91,7 @@ class BuildSessionService:
             channel_id=channel_id,
             requirement=requirement,
             environment_scan=environment_scan,
+            environment_summary=environment_summary,
             conversation_history=[],
             created_at=now,
             updated_at=now,
