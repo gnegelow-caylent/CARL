@@ -151,7 +151,7 @@ class Evidence:
         return asdict(self)
 
     def to_dynamodb_item(self) -> dict:
-        """Convert to DynamoDB item format with pk/sk keys."""
+        """Convert to DynamoDB item format with required keys."""
         from datetime import datetime
 
         # Parse timestamp from collected_at
@@ -161,9 +161,8 @@ class Evidence:
             timestamp = datetime.utcnow().timestamp()
 
         item = {
-            "pk": f"ACCOUNT#{self.account_id}#EVIDENCE#{self.evidence_id}",
-            "sk": f"TYPE#{self.evidence_type}#TIMESTAMP#{int(timestamp)}",
             "evidence_id": self.evidence_id,
+            "timestamp": self.collected_at,  # Required range key - use ISO format
             "evidence_type": self.evidence_type,
             "title": self.title,
             "description": self.description,
