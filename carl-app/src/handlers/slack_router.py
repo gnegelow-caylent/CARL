@@ -313,91 +313,96 @@ def normalize_formatting(response: str) -> str:
     """
     import re
 
-    # Fix text stuck to OPTION headers (e.g., "Architecture Recommendation*OPTION 1:")
-    response = re.sub(r'([a-z])(\*+OPTION \d+:)', r'\1\n\n***OPTION \2', response, flags=re.IGNORECASE)
+    # STEP 1: Fix OPTION headers that are missing proper formatting or stuck to other text
+    # "OPTION 1: EC2..." -> "***OPTION 1: EC2***"
+    # "*OPTION 1:" or "**OPTION 1:" -> "***OPTION 1:***"
+    response = re.sub(r'(?:^|\n)\*{0,2}OPTION (\d+):\s*([^\n]+?)(?=\*{0,2}(?:Best for|Cost|Key points|OPTION|\n|$))',
+                      r'\n\n***OPTION \1: \2***\n', response)
 
-    # Fix OPTION headers with excessive trailing asterisks FIRST
-    # *OPTION 1:****** text -> ***OPTION 1:*** text
-    response = re.sub(r'\*{1,3}OPTION (\d+):\*{3,}', r'***OPTION \1:***', response)
+    # STEP 2: Fix text crammed together without line breaks
+    # "ALB**Best" -> "ALB\n\n**Best"
+    response = re.sub(r'([a-z])\*\*([A-Z][a-z]+)', r'\1\n\n**\2', response)
 
-    # Fix OPTION headers at line start
-    response = re.sub(r'^\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
-    response = re.sub(r'^\*\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
+    # "ALBRECOMMENDED" or "ALB RECOMMENDED" -> "ALB\nRECOMMENDED"
+    response = re.sub(r'([A-Z]{3,})\s*RECOMMENDED', r'\1\nRECOMMENDED', response)
+    response = re.sub(r'([a-z])(RECOMMENDED)', r'\1\n\2', response)
 
-    # Fix text stuck between sections without spacing
-    # "RECOMMENDED**Best" -> "RECOMMENDED\n\n**Best"
-    response = re.sub(r'(RECOMMENDED)\*\*([A-Z])', r'\1\n\n**\2', response)
-    # ")RECOMMENDED**Best" -> ")\nRECOMMENDED\n\n**Best"
-    response = re.sub(r'\)(RECOMMENDED)\*\*([A-Z])', r')\n\1\n\n**\2', response)
+    # "RECOMMENDEDBest for" -> "RECOMMENDED\n\n**Best for"
+    response = re.sub(r'RECOMMENDED\*{0,2}([A-Z][a-z]+)', r'RECOMMENDED\n\n**\1', response)
 
-    # Fix section headers with excessive asterisks BEFORE the text
-    # "***Cost:**" -> "**Cost:**"
-    response = re.sub(r'\*{3,}([A-Z][a-zA-Z\s]+):\*\*', r'**\1:**', response)
+    # STEP 3: Clean RECOMMENDED formatting (no asterisks around it)
+    response = re.sub(r'\*{1,}\s*RECOMMENDED\s*\*{1,}', 'RECOMMENDED', response)
 
-    # Fix section headers with excessive asterisks AFTER the colon
-    # "**Best for:*****" -> "**Best for:**"
-    response = re.sub(r'\*\*([A-Z][a-zA-Z\s]+):\*{3,}', r'**\1:**', response)
+    # STEP 4: Fix section headers (Best for, Cost, Key points, etc.)
+    # Remove excessive asterisks before or after section headers
+    # "***Best for:**" -> "**Best for:**"
+    # "**Best for:***" -> "**Best for:**"
+    response = re.sub(r'\*{3,}(Best for|Cost|Key points|Architecture|My Recommendation):\*{0,}', r'**\1:**', response)
+    response = re.sub(r'\*{2}(Best for|Cost|Key points|Architecture|My Recommendation):\*{2,}', r'**\1:**', response)
 
-    # Fix any remaining pattern of text:asterisks followed by non-asterisk
-    response = re.sub(r'([A-Za-z]):\*{2,}([^*])', r'\1:** \2', response)
+    # STEP 5: Ensure proper line breaks after OPTION headers
+    # "***OPTION 1: Text***RECOMMENDED" -> "***OPTION 1: Text***\nRECOMMENDED"
+    response = re.sub(r'(\*{3}OPTION \d+:[^\*]+\*{3})\s*(RECOMMENDED|Best|\*\*)', r'\1\n\2', response)
 
-    # Fix "My Recommendation" with embedded asterisks
-    # "**My **Recommendation:**" -> "**My Recommendation:**"
-    response = re.sub(r'\*{2,}My\s+\*{2,}Recommendation:\*{2,}', r'**My Recommendation:**', response)
-    # Also handle without spaces: "**My**Recommendation:**"
-    response = re.sub(r'\*{2,}My\*{2,}Recommendation:\*{2,}', r'**My Recommendation:**', response)
+    # STEP 6: Fix "My Recommendation" variations
+    response = re.sub(r'\*{1,}My\s+\*{0,}Recommendation:\*{1,}', r'**My Recommendation:**', response)
 
-    # Fix RECOMMENDED formatting (remove ALL surrounding asterisks)
-    response = re.sub(r'\*{2,}\s*RECOMMENDED\s*\*{2,}', 'RECOMMENDED', response)
-    response = re.sub(r'\*{2,}RECOMMENDED\*{2,}', 'RECOMMENDED', response)
-
-    # Clean up excessive asterisks in the middle of text
-    # But preserve proper markdown: ** for bold, *** for OPTION headers
+    # STEP 7: General cleanup - excessive asterisks
     lines = response.split('\n')
     cleaned_lines = []
 
     for line in lines:
-        # For lines with OPTION headers, ensure they're properly formatted
+        stripped = line.strip()
+
+        # Skip empty lines and dividers
+        if not stripped or stripped == '---':
+            cleaned_lines.append(line)
+            continue
+
+        # For OPTION headers - keep exactly 3 asterisks on each side
         if 'OPTION' in line and ':' in line:
-            # Standardize OPTION format: ***OPTION X:*** followed by space and text
-            line = re.sub(r'\*+OPTION (\d+):\*+\s*', r'***OPTION \1:*** ', line)
-        elif 'My Recommendation' in line:
-            # Standardize My Recommendation format
-            line = re.sub(r'\*+My\s+\*+Recommendation:\*+', r'**My Recommendation:**', line)
-            line = re.sub(r'\*+My Recommendation:\*+', r'**My Recommendation:**', line)
+            # Remove any extra asterisks and standardize
+            line = re.sub(r'\*+OPTION (\d+):[^\*]+\*+', lambda m: f"***OPTION {m.group(1)}: {m.group(0).split(':')[1].split('***')[0].strip()}***", line)
+
+        # For regular lines, convert 3+ consecutive asterisks to 2
         else:
-            # For other lines, fix excessive asterisks
-            # Replace 3+ consecutive asterisks with 2 (except in dividers)
-            if line.strip() != '---':
-                line = re.sub(r'\*{3,}', '**', line)
+            line = re.sub(r'(?<!\*)\*{3,}(?!\*)', '**', line)
 
         cleaned_lines.append(line)
 
     response = '\n'.join(cleaned_lines)
 
-    # Ensure dividers are present between options
+    # STEP 8: Ensure dividers between options
     lines = response.split('\n')
     result_lines = []
     last_option_index = -10
 
     for i, line in enumerate(lines):
-        # Check if this is an option header
-        if 'OPTION' in line and ':' in line and '***' in line:
-            # If this is not the first option and there's no divider, add one
-            if last_option_index > 0 and i - last_option_index > 1:
-                # Check if there's already a divider in between
-                has_divider = any('---' in result_lines[j] for j in range(max(0, len(result_lines) - 10), len(result_lines)))
+        stripped = line.strip()
+
+        # Detect OPTION headers
+        if 'OPTION' in stripped and ':' in stripped and '***' in stripped:
+            # Add divider before this option (except for first option)
+            if last_option_index >= 0 and i - last_option_index > 1:
+                # Check if there's already a divider nearby
+                recent_lines = result_lines[-5:] if len(result_lines) >= 5 else result_lines
+                has_divider = any('---' in l for l in recent_lines)
+
                 if not has_divider:
-                    # Add spacing and divider before this option
+                    # Add blank line, divider, blank line
                     if result_lines and result_lines[-1].strip():
                         result_lines.append('')
                     result_lines.append('---')
                     result_lines.append('')
+
             last_option_index = len(result_lines)
 
         result_lines.append(line)
 
     response = '\n'.join(result_lines)
+
+    # STEP 9: Final cleanup - remove excessive blank lines
+    response = re.sub(r'\n{4,}', '\n\n\n', response)
 
     return response
 
@@ -2911,13 +2916,22 @@ Note: If response gets verbose, system will automatically condense it intelligen
         if learned_context:
             base_instructions += learned_context
 
-        # Create architecture agent
+        # Create progress callback to update Slack in real-time
+        def progress_callback(status_message: str):
+            """Post progress updates to Slack as agent works."""
+            try:
+                slack.post_message(channel_id, text=status_message)
+            except Exception as e:
+                logger.warning(f"Failed to post progress update: {e}")
+
+        # Create architecture agent with progress callback
         architecture_agent = Agent(
             tools=architecture_tools,
-            instructions=base_instructions
+            instructions=base_instructions,
+            progress_callback=progress_callback
         )
 
-        # Execute agent
+        # Execute agent (progress updates will be posted automatically)
         logger.info("🏗️ Architecture agent analyzing requirement")
         response = architecture_agent.execute(
             f"Provide architecture recommendation for: {requirement}"
