@@ -839,6 +839,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Generate the Terraform code
         return handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
 
+    if event.get("action") == "process_intelligent_build":
+        logger.info("Processing intelligent build request")
+        slack = get_slack_service()
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        requirement = event.get("requirement")
+        trigger_id = event.get("trigger_id")
+
+        return handle_intelligent_build(slack, channel_id, user_id, requirement, trigger_id)
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -4169,6 +4179,116 @@ def handle_build_blueprint_button(payload: dict, action: dict) -> dict:
     return handle_build_command(slack, channel_id, user_id, blueprint_name, trigger_id=trigger_id)
 
 
+def handle_intelligent_build(
+    slack: SlackService, channel_id: str, user_id: str, requirement: str, trigger_id: str
+) -> dict:
+    """
+    Intelligent build handler that scans AWS and asks context-aware questions.
+
+    Instead of static predetermined questions, this:
+    1. Scans AWS to see what exists
+    2. Uses AI to decide what questions to ask
+    3. Only asks relevant questions based on context
+    """
+    from services.resource_detector import ResourceDetector
+    from services.agent_core import Agent
+
+    try:
+        # Scan AWS to understand current state
+        slack.post_message(channel_id, text="🔍 Scanning your AWS environment...")
+
+        detector = ResourceDetector()
+
+        # Scan for existing resources
+        vpcs = detector.detect_vpcs()
+        security_services = {
+            'guardduty': detector.detect_guardduty(),
+            'security_hub': detector.detect_security_hub(),
+            'cloudtrail': detector.detect_cloudtrail(),
+            'config': detector.detect_config()
+        }
+
+        # Build context for AI agent
+        context = f"""User wants to build: {requirement}
+
+Current AWS Environment:
+- VPCs: {len(vpcs)} found
+"""
+
+        if vpcs:
+            context += "\nExisting VPCs:\n"
+            for vpc in vpcs[:3]:  # Show first 3
+                context += f"  - {vpc.get('vpc_id')} ({vpc.get('cidr', 'unknown CIDR')})"
+                if vpc.get('name'):
+                    context += f" - {vpc['name']}"
+                context += "\n"
+
+        context += f"""
+Security Services:
+- GuardDuty: {'✓ Enabled' if security_services['guardduty']['enabled'] else '✗ Not enabled'}
+- Security Hub: {'✓ Enabled' if security_services['security_hub']['enabled'] else '✗ Not enabled'}
+- CloudTrail: {'✓ Enabled' if security_services['cloudtrail']['enabled'] else '✗ Not enabled'}
+- Config: {'✓ Enabled' if security_services['config']['enabled'] else '✗ Not enabled'}
+
+Your task: Analyze what's needed and ask 1-2 intelligent questions to gather missing information.
+
+Rules:
+- If VPCs exist, ask if they want to use existing or create new
+- If no VPCs exist, assume they want a new VPC and ask for CIDR
+- Focus only on what's relevant to their requirement
+- Don't ask generic questions about scale/size
+- Be specific and context-aware
+
+Output format:
+Question 1: <specific question>
+Options: <2-4 specific options as comma-separated list>
+
+Question 2: <specific question if needed>
+Options: <2-4 specific options>
+
+Or if you have everything needed:
+READY: No questions needed, I can generate this now.
+"""
+
+        # Create agent to decide what questions to ask
+        build_planner = Agent(
+            tools=[],  # No tools needed for planning
+            instructions=context
+        )
+
+        questions_response = build_planner.execute("What questions do I need to ask?")
+
+        logger.info(f"Build planner response: {questions_response}")
+
+        # Parse response and show questions to user
+        if "READY:" in questions_response:
+            # No questions needed - proceed to generation
+            slack.post_message(
+                channel_id,
+                text=f"✅ I have everything needed to generate your infrastructure!\n\n{questions_response.split('READY:')[1].strip()}\n\nGenerating Terraform code..."
+            )
+
+            # TODO: Call infrastructure generation
+            slack.post_message(channel_id, text="🚧 Infrastructure generation coming soon!")
+
+        else:
+            # Show questions as Slack message with buttons
+            slack.post_message(
+                channel_id,
+                text=f"📋 Based on your environment scan:\n\n{questions_response}\n\n_Interactive question flow coming soon. For now, use `/carl foundation start` for the guided builder._"
+            )
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.exception(f"Error in intelligent build: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to analyze build requirements: {str(e)}"
+        )
+        return {"statusCode": 200, "body": ""}
+
+
 def handle_architecture_build_button(payload: dict, action: dict) -> dict:
     """Handle 'Build This' button click from architecture recommendations."""
     slack = get_slack_service()
@@ -4185,16 +4305,38 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
 
         logger.info(f"Intelligent build requested for: {requirement}")
 
-        # Use foundation builder with context about what was requested
-        # The foundation builder will intelligently ask questions based on the requirement
+        # Invoke intelligent build agent asynchronously
+        # This agent will:
+        # 1. Scan AWS to understand current state (VPCs, subnets, etc.)
+        # 2. Analyze the requirement context
+        # 3. Ask only relevant questions intelligently
+        # 4. Generate Terraform code
         slack.post_message(
             channel_id,
-            text=f"🏗️ Starting intelligent build process for: _{requirement}_\n\nI'll walk you through the setup with relevant questions..."
+            text=f"🏗️ Analyzing your AWS environment and determining what's needed for: _{requirement}_\n\nThis may take a moment..."
         )
 
-        # TODO: Integrate with intelligent foundation builder that uses the requirement context
-        # For now, route to foundation builder
-        return handle_foundation_command(slack, channel_id, user_id, "start")
+        try:
+            lambda_client = boto3.client('lambda')
+            lambda_client.invoke(
+                FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+                InvocationType='Event',  # Async
+                Payload=json.dumps({
+                    'action': 'process_intelligent_build',
+                    'channel_id': channel_id,
+                    'user_id': user_id,
+                    'requirement': requirement,
+                    'trigger_id': trigger_id
+                })
+            )
+        except Exception as e:
+            logger.error(f"Failed to invoke intelligent build: {e}")
+            slack.post_message(
+                channel_id,
+                text=f"❌ Failed to start build process: {str(e)}"
+            )
+
+        return {"statusCode": 200, "body": ""}
 
     elif button_value.startswith("build:"):
         # Legacy blueprint-based build
