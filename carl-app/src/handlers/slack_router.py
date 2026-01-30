@@ -2778,35 +2778,79 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
             block_group = content_blocks[i:i+50]
             slack.post_message(channel_id, blocks=block_group)
 
-        # Add a single generic "Build This" button
-        # The build process will intelligently ask questions based on the context
-        action_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "_Ready to generate Terraform code?_"
-                }
-            },
-            {
-                "type": "actions",
-                "block_id": f"architecture_actions_{interaction_id}",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "🏗️ Build This",
-                            "emoji": True
-                        },
-                        "value": f"build_context:{requirement[:100]}",
-                        "action_id": "architecture_build_from_recommendation",
-                        "style": "primary"
+        # Store recommendation in session for build flow
+        # This allows build to ask "Which option?" instead of starting over
+        from services.build_session_service import BuildSessionService
+        session_service = BuildSessionService()
+
+        try:
+            # Create a recommendation session (not a full build session yet)
+            rec_session = session_service.create_session(
+                user_id=user_id,
+                channel_id=channel_id,
+                requirement=requirement,
+                environment_scan={"recommendation": response[:4000]},  # Store recommendation
+                environment_summary=f"Recommendation generated for: {requirement}"
+            )
+
+            # Add "Build This" button that references the recommendation session
+            action_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Ready to generate Terraform code for one of these options?_"
                     }
-                ]
-            }
-        ]
-        slack.post_message(channel_id, blocks=action_blocks)
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"architecture_actions_{interaction_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🏗️ Build This",
+                                "emoji": True
+                            },
+                            "value": f"rec_session:{rec_session.session_id}",
+                            "action_id": "architecture_build_from_recommendation",
+                            "style": "primary"
+                        }
+                    ]
+                }
+            ]
+            slack.post_message(channel_id, blocks=action_blocks)
+        except Exception as e:
+            logger.warning(f"Failed to create recommendation session: {e}")
+            # Fallback to old behavior
+            action_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Ready to generate Terraform code?_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"architecture_actions_{interaction_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🏗️ Build This",
+                                "emoji": True
+                            },
+                            "value": f"build_context:{requirement[:100]}",
+                            "action_id": "architecture_build_from_recommendation",
+                            "style": "primary"
+                        }
+                    ]
+                }
+            ]
+            slack.post_message(channel_id, blocks=action_blocks)
 
         # Add feedback buttons
         if interaction_id:
@@ -4450,7 +4494,144 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
     # Extract context from button value
     button_value = action.get("value", "")
 
-    if button_value.startswith("build_context:"):
+    if button_value.startswith("rec_session:"):
+        # New flow: Ask which option from recommendation to build
+        import re
+        from services.build_session_service import BuildSessionService
+
+        session_id = button_value.replace("rec_session:", "")
+        session_service = BuildSessionService()
+        rec_session = session_service.get_session(session_id, user_id)
+
+        if not rec_session:
+            slack.post_message(channel_id, text="❌ Recommendation session expired. Please run `/carl recommend` again.")
+            return {"statusCode": 200, "body": ""}
+
+        # Extract recommendation text
+        recommendation = rec_session.environment_scan.get("recommendation", "")
+
+        # Parse options from recommendation (look for "OPTION 1:", "OPTION 2:", etc.)
+        options = []
+        option_matches = re.findall(r'OPTION\s+(\d+):\s*([^\n]+)', recommendation, re.IGNORECASE)
+
+        if option_matches:
+            for num, title in option_matches:
+                # Extract the detailed description for this option
+                # Find text between this OPTION and the next OPTION or end
+                pattern = rf'OPTION\s+{num}:.*?(?=OPTION\s+\d+:|My Recommendation:|$)'
+                option_detail = re.search(pattern, recommendation, re.IGNORECASE | re.DOTALL)
+
+                if option_detail:
+                    detail_text = option_detail.group(0).strip()
+                    # Clean up and shorten for button/display
+                    options.append({
+                        "number": num,
+                        "title": title.strip(),
+                        "detail": detail_text[:500]  # First 500 chars
+                    })
+
+        if options:
+            # Ask which option to build
+            options_text = "\n\n".join([
+                f"*Option {opt['number']}: {opt['title']}*"
+                for opt in options
+            ])
+
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Which option do you want to build?*\n\n{options_text}"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"choose_option_{session_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": f"Option {opt['number']}"},
+                            "value": f"build_option:{session_id}:{opt['number']}",
+                            "action_id": f"build_chosen_option_{opt['number']}",
+                            "style": "primary" if idx == 0 else None
+                        }
+                        for idx, opt in enumerate(options[:5])  # Max 5 options
+                    ]
+                }
+            ]
+
+            slack.post_message(channel_id, blocks=blocks)
+        else:
+            # Couldn't parse options, fall back to generic build
+            requirement = rec_session.requirement
+            slack.post_message(channel_id, text=f"🏗️ Starting build for: _{requirement}_")
+
+            # Proceed with intelligent build
+            lambda_client = boto3.client('lambda')
+            lambda_client.invoke(
+                FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+                InvocationType='Event',
+                Payload=json.dumps({
+                    'action': 'process_intelligent_build',
+                    'channel_id': channel_id,
+                    'user_id': user_id,
+                    'requirement': requirement,
+                    'trigger_id': trigger_id
+                })
+            )
+
+        return {"statusCode": 200, "body": ""}
+
+    elif button_value.startswith("build_option:"):
+        # User chose a specific option - start intelligent build for that option
+        import json as json_module
+        parts = button_value.split(":")
+        if len(parts) < 3:
+            slack.post_message(channel_id, text="❌ Invalid option selection")
+            return {"statusCode": 200, "body": ""}
+
+        session_id = parts[1]
+        option_number = parts[2]
+
+        from services.build_session_service import BuildSessionService
+        session_service = BuildSessionService()
+        rec_session = session_service.get_session(session_id, user_id)
+
+        if not rec_session:
+            slack.post_message(channel_id, text="❌ Session expired")
+            return {"statusCode": 200, "body": ""}
+
+        # Get the recommendation and extract chosen option details
+        recommendation = rec_session.environment_scan.get("recommendation", "")
+        pattern = rf'OPTION\s+{option_number}:.*?(?=OPTION\s+\d+:|My Recommendation:|$)'
+        option_match = re.search(pattern, recommendation, re.IGNORECASE | re.DOTALL)
+
+        if option_match:
+            chosen_option_text = option_match.group(0).strip()
+            requirement = f"{rec_session.requirement} - {chosen_option_text[:200]}"
+        else:
+            requirement = f"{rec_session.requirement} - Option {option_number}"
+
+        slack.post_message(channel_id, text=f"✅ Building *Option {option_number}*\n\nAnalyzing AWS environment and determining configuration questions...")
+
+        # Start intelligent build for this specific option
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',
+            Payload=json_module.dumps({
+                'action': 'process_intelligent_build',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'requirement': requirement,
+                'trigger_id': trigger_id
+            })
+        )
+
+        return {"statusCode": 200, "body": ""}
+
+    elif button_value.startswith("build_context:"):
         # New intelligent build - extract what user asked for
         requirement = button_value.replace("build_context:", "")
 
@@ -4799,6 +4980,8 @@ def handle_interaction(payload: dict) -> dict:
             elif action_id.startswith("estimate_option_"):
                 return handle_estimate_option_button(payload, action)
             elif action_id.startswith("architecture_build_"):
+                return handle_architecture_build_button(payload, action)
+            elif action_id.startswith("build_chosen_option_"):
                 return handle_architecture_build_button(payload, action)
             elif action_id.startswith("build_answer_"):
                 return handle_build_answer_button(payload, action)
