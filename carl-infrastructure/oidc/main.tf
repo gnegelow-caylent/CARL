@@ -333,7 +333,10 @@ data "aws_iam_policy_document" "carl_deployer" {
       "secretsmanager:UpdateSecret",
       "secretsmanager:TagResource",
       "secretsmanager:UntagResource",
-      "secretsmanager:ListSecrets"
+      "secretsmanager:ListSecrets",
+      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:PutResourcePolicy",
+      "secretsmanager:DeleteResourcePolicy"
     ]
     resources = [
       "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:carl/*"
