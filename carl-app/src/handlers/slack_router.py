@@ -316,60 +316,77 @@ def normalize_formatting(response: str) -> str:
     # Fix text stuck to OPTION headers (e.g., "Architecture Recommendation*OPTION 1:")
     response = re.sub(r'([a-z])(\*+OPTION \d+:)', r'\1\n\n***OPTION \2', response, flags=re.IGNORECASE)
 
-    # Fix option headers that are malformed
-    # *OPTION 1: -> ***OPTION 1:***
+    # Fix OPTION headers with excessive trailing asterisks FIRST
+    # *OPTION 1:****** text -> ***OPTION 1:*** text
+    response = re.sub(r'\*{1,3}OPTION (\d+):\*{3,}', r'***OPTION \1:***', response)
+
+    # Fix OPTION headers at line start
     response = re.sub(r'^\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
-    # **OPTION 1: -> ***OPTION 1:***
     response = re.sub(r'^\*\*OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
-    # ****OPTION 1: -> ***OPTION 1:***
-    response = re.sub(r'^\*{4,}OPTION (\d+):', r'***OPTION \1:***', response, flags=re.MULTILINE)
-    # Mid-line OPTION with extra asterisks
-    response = re.sub(r'(\*{3,})OPTION (\d+):', r'***OPTION \2:***', response)
 
-    # Fix malformed section headers like "***Cost:**" or "Best for:**"
-    # Pattern: 3+ asterisks + text + colon + 2 asterisks → **text:**
-    response = re.sub(r'\*{3,}([A-Z][a-z\s]+):\*\*', r'**\1:**', response)
-    # Pattern: text + colon + 2 asterisks at end → **text:**
-    response = re.sub(r'([A-Z][a-z\s]+):\*\*([^\*])', r'**\1:** \2', response)
-    # Pattern: text stuck to asterisks like "Multi-AZ**Best"
-    response = re.sub(r'([a-z])\*\*([A-Z][a-z]+)', r'\1\n\n**\2', response)
+    # Fix text stuck between sections without spacing
+    # "RECOMMENDED**Best" -> "RECOMMENDED\n\n**Best"
+    response = re.sub(r'(RECOMMENDED)\*\*([A-Z])', r'\1\n\n**\2', response)
+    # ")RECOMMENDED**Best" -> ")\nRECOMMENDED\n\n**Best"
+    response = re.sub(r'\)(RECOMMENDED)\*\*([A-Z])', r')\n\1\n\n**\2', response)
 
-    # Fix RECOMMENDED formatting
-    # *** RECOMMENDED*** -> RECOMMENDED
+    # Fix section headers with excessive asterisks BEFORE the text
+    # "***Cost:**" -> "**Cost:**"
+    response = re.sub(r'\*{3,}([A-Z][a-zA-Z\s]+):\*\*', r'**\1:**', response)
+
+    # Fix section headers with excessive asterisks AFTER the colon
+    # "**Best for:*****" -> "**Best for:**"
+    response = re.sub(r'\*\*([A-Z][a-zA-Z\s]+):\*{3,}', r'**\1:**', response)
+
+    # Fix any remaining pattern of text:asterisks followed by non-asterisk
+    response = re.sub(r'([A-Za-z]):\*{2,}([^*])', r'\1:** \2', response)
+
+    # Fix "My Recommendation" with embedded asterisks
+    # "**My **Recommendation:**" -> "**My Recommendation:**"
+    response = re.sub(r'\*{2,}My\s+\*{2,}Recommendation:\*{2,}', r'**My Recommendation:**', response)
+    # Also handle without spaces: "**My**Recommendation:**"
+    response = re.sub(r'\*{2,}My\*{2,}Recommendation:\*{2,}', r'**My Recommendation:**', response)
+
+    # Fix RECOMMENDED formatting (remove ALL surrounding asterisks)
     response = re.sub(r'\*{2,}\s*RECOMMENDED\s*\*{2,}', 'RECOMMENDED', response)
+    response = re.sub(r'\*{2,}RECOMMENDED\*{2,}', 'RECOMMENDED', response)
 
-    # Fix "My Recommendation" header
-    # *My Recommendation:*** -> ***My Recommendation:***
-    response = re.sub(r'^\*+My Recommendation:\*+', r'**My Recommendation:**', response, flags=re.MULTILINE)
-    response = re.sub(r'(\*+)(My Recommendation:)(\*+)', r'**\2**', response)
-
-    # Clean up excessive asterisks (but preserve *** for OPTION headers)
-    # This must come AFTER option header fixes
+    # Clean up excessive asterisks in the middle of text
+    # But preserve proper markdown: ** for bold, *** for OPTION headers
     lines = response.split('\n')
     cleaned_lines = []
+
     for line in lines:
-        # Skip OPTION headers
-        if 'OPTION' in line and '***' in line:
-            cleaned_lines.append(line)
+        # For lines with OPTION headers, ensure they're properly formatted
+        if 'OPTION' in line and ':' in line:
+            # Standardize OPTION format: ***OPTION X:*** followed by space and text
+            line = re.sub(r'\*+OPTION (\d+):\*+\s*', r'***OPTION \1:*** ', line)
+        elif 'My Recommendation' in line:
+            # Standardize My Recommendation format
+            line = re.sub(r'\*+My\s+\*+Recommendation:\*+', r'**My Recommendation:**', line)
+            line = re.sub(r'\*+My Recommendation:\*+', r'**My Recommendation:**', line)
         else:
-            # Convert 3+ asterisks to 2 for regular text (except OPTION headers)
-            line = re.sub(r'\*{3,}', '**', line)
-            cleaned_lines.append(line)
+            # For other lines, fix excessive asterisks
+            # Replace 3+ consecutive asterisks with 2 (except in dividers)
+            if line.strip() != '---':
+                line = re.sub(r'\*{3,}', '**', line)
+
+        cleaned_lines.append(line)
+
     response = '\n'.join(cleaned_lines)
 
     # Ensure dividers are present between options
-    # If we have multiple ***OPTION*** headers without --- separators, add them
     lines = response.split('\n')
     result_lines = []
-    last_option_index = -10  # Track last option position
+    last_option_index = -10
 
     for i, line in enumerate(lines):
         # Check if this is an option header
-        if '***OPTION' in line and ':' in line:
+        if 'OPTION' in line and ':' in line and '***' in line:
             # If this is not the first option and there's no divider, add one
             if last_option_index > 0 and i - last_option_index > 1:
                 # Check if there's already a divider in between
-                has_divider = any('---' in result_lines[j] for j in range(len(result_lines) - 5, len(result_lines)) if j >= 0)
+                has_divider = any('---' in result_lines[j] for j in range(max(0, len(result_lines) - 10), len(result_lines)))
                 if not has_divider:
                     # Add spacing and divider before this option
                     if result_lines and result_lines[-1].strip():
