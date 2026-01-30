@@ -202,6 +202,116 @@ resource "aws_dynamodb_table" "exceptions" {
   })
 }
 
+# ============================================================================
+# KMS ENCRYPTION KEY
+# ============================================================================
+
+# KMS key for encrypting CARL data (DynamoDB, Secrets Manager, CloudWatch Logs)
+resource "aws_kms_key" "carl" {
+  description             = "CARL encryption key for ${var.environment}"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow Deployer Role"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.account_id}:role/carl-deployer-${var.environment}"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:DescribeKey",
+          "kms:CreateGrant",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${local.region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/carl-*"
+          }
+        }
+      },
+      {
+        Sid    = "Allow DynamoDB"
+        Effect = "Allow"
+        Principal = {
+          Service = "dynamodb.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow Secrets Manager"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = local.account_id
+            "kms:ViaService"    = "secretsmanager.${local.region}.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-key"
+  })
+}
+
+# KMS key alias for easy reference
+resource "aws_kms_alias" "carl" {
+  name          = "alias/${local.name_prefix}"
+  target_key_id = aws_kms_key.carl.key_id
+}
+
 # 5. Setup Configuration Table (stores workspace setup and preferences)
 resource "aws_dynamodb_table" "setup_config" {
   name         = "${local.name_prefix}-setup-config"
@@ -244,7 +354,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.carl.arn
     }
   }
 }
@@ -290,7 +401,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "aws:kms"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.carl.arn
     }
   }
 }
@@ -343,7 +455,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "reports" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.carl.arn
     }
   }
 }

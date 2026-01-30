@@ -379,6 +379,39 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### Foundation Module KMS Infrastructure 🔐 (January 29-30, 2026)
+
+**Status: COMPLETE** - All manual changes captured in code, resources imported
+
+**What Changed:**
+1. ✅ **Added KMS Key Resource to Core Infrastructure** - Comprehensive key policy with 5 principals
+2. ✅ **Imported Existing KMS Key into Terraform State** - Prevents recreation on next deployment
+3. ✅ **Imported Secrets Manager Secrets** - Existing secrets now managed by Terraform
+4. ✅ **Updated S3 Bucket Encryption** - All buckets now use KMS instead of AES256
+5. ✅ **Created DEPLOYMENT_NOTES.md** - Complete 500-line deployment guide
+
+**KMS Key Policy Includes:**
+- Root account (full access)
+- Deployer role (encrypt, decrypt, generate data keys, create grants)
+- CloudWatch Logs (with log group ARN condition)
+- DynamoDB (unrestricted for table encryption)
+- Secrets Manager (with account + ViaService conditions)
+
+**Resources Imported:**
+- `aws_kms_key.carl` (ID: 1dd3d095-92da-4519-8870-c22892cadb44)
+- `aws_kms_alias.carl` (alias/carl-dev)
+- `module.foundation[0].aws_secretsmanager_secret.slack_bot_token`
+- `module.foundation[0].aws_secretsmanager_secret.slack_signing_secret`
+
+**Files Modified:**
+- `carl-infrastructure/core/main.tf` - Added KMS key resource, updated S3 encryption
+- `DEPLOYMENT_NOTES.md` - New comprehensive deployment guide (500+ lines)
+
+**Verified:**
+- `terraform plan` shows 0 to add, 49 to change (tags only), 0 to destroy
+- All manual KMS policy changes now in code
+- Fresh deployments will work without manual setup
+
 ### Phase 2 Deployment & Bug Fixes 🐛 (January 29, 2026 - Evening)
 
 **Status: DEPLOYED** - Continuous learning system deployed to AWS
