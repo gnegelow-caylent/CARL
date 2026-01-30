@@ -1357,6 +1357,304 @@ def handle_ask_command_sync(
         return handle_ask_command_fallback(slack, channel_id, user_id, question)
 
 
+def classify_question_type(question: str) -> str:
+    """
+    Classify a question as 'compliance' (scan existing) or 'architecture' (design new).
+
+    Args:
+        question: User's question
+
+    Returns:
+        'compliance' or 'architecture'
+    """
+    from services.bedrock_service import BedrockService
+
+    question_lower = question.lower()
+
+    # Simple heuristics first (fast path)
+    architecture_keywords = [
+        "design", "build", "create", "architect", "recommend", "best practice",
+        "should i use", "what service", "which is better", "how to implement",
+        "what's the best way", "how much would", "cost estimate", "pricing",
+        "options for", "alternatives to"
+    ]
+
+    compliance_keywords = [
+        "is my", "are my", "do i have", "am i", "show me", "check",
+        "configured", "enabled", "compliant", "secure", "vulnerability",
+        "findings", "status of"
+    ]
+
+    arch_score = sum(1 for kw in architecture_keywords if kw in question_lower)
+    comp_score = sum(1 for kw in compliance_keywords if kw in question_lower)
+
+    if arch_score > comp_score:
+        return "architecture"
+    elif comp_score > arch_score:
+        return "compliance"
+    else:
+        # Ambiguous - use AI to classify
+        bedrock = BedrockService()
+        prompt = f"""Classify this AWS question as either "COMPLIANCE" or "ARCHITECTURE":
+
+Question: {question}
+
+- COMPLIANCE: Questions about existing deployed AWS resources (checking status, configuration, security)
+- ARCHITECTURE: Questions about what to build or how to design something new
+
+Reply with ONLY one word: COMPLIANCE or ARCHITECTURE"""
+
+        try:
+            response = bedrock.bedrock_client.invoke_model(
+                modelId=bedrock.model_id,
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 10,
+                    "temperature": 0,
+                    "messages": [{"role": "user", "content": prompt}]
+                })
+            )
+
+            response_body = json.loads(response['body'].read())
+            classification = response_body['content'][0]['text'].strip().upper()
+
+            if "ARCHITECTURE" in classification:
+                return "architecture"
+            else:
+                return "compliance"
+
+        except Exception as e:
+            logger.warning(f"AI classification failed: {e}, defaulting to compliance")
+            return "compliance"
+
+
+def handle_architecture_question(
+    slack: SlackService, channel_id: str, user_id: str, question: str
+) -> dict:
+    """
+    Handle architecture/design questions with the Architecture Agent + learning.
+
+    This agent provides:
+    - Architecture patterns and recommendations
+    - Real-time AWS pricing
+    - Cost estimates
+    - Compliance requirements
+    - Learned context from past architecture decisions
+    """
+    import time
+    from agent_core import Agent
+    from services.architecture_tools import create_architecture_tools
+    from services.learning_service import LearningService
+    from utils.formatting import format_markdown_to_blocks
+
+    logger.info(f"Architecture question from user {user_id}: {question[:100]}...")
+
+    # Track timing
+    start_time = time.time()
+    tools_used = []
+    components_mentioned = []
+
+    try:
+        # Initialize learning service
+        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+
+        learning_service = LearningService(
+            scan_history_table=scan_history_table,
+            resource_graph_table=resource_graph_table
+        )
+
+        # Get learned context for architecture recommendations
+        learned_context = learning_service.get_learned_context(question, interaction_type="architecture")
+
+        # Create architecture tools
+        architecture_tools = create_architecture_tools()
+
+        # Build agent instructions
+        base_instructions = """You are CARL's architecture advisor.
+
+Your job: Provide AWS architecture recommendations that are secure, cost-effective, and compliant.
+
+Available tools:
+- get_architecture_patterns: Get proven architecture patterns by category
+- get_aws_pricing: Get real-time AWS pricing (ALWAYS use this for accurate costs)
+- estimate_architecture_cost: Estimate total monthly cost for a solution
+- get_compliance_requirements: Get SOC 2 compliance requirements for patterns
+- compare_architecture_options: Compare two options across criteria
+
+Guidelines:
+1. ALWAYS show 2-3 OPTIONS with tradeoffs - let user choose
+2. ALWAYS include cost information - use get_aws_pricing for accuracy
+3. Explain tradeoffs clearly (cost vs complexity, scalability vs simplicity)
+4. Consider SOC 2 compliance - security and audit requirements
+5. Recommend best VALUE (not always cheapest - factor in operational overhead)
+6. Be specific - mention actual AWS services and configurations
+7. Format as: Option 1: [details + cost], Option 2: [details + cost], Recommendation: [with reasoning]
+
+After recommendations:
+- Mention: "To generate Terraform code for any of these options, use `/carl build <blueprint>`"
+- Available blueprints: networking/standard-vpc, security/basic-stack, security/soc2-stack
+
+Examples:
+- "What IoT services should I use?" → Show 3 options (IoT Core, Greengrass, SiteWise) with costs and pros/cons
+- "Design a data pipeline" → Compare Glue vs EMR vs EC2, show monthly costs, recommend based on requirements
+- "How much would a web app cost?" → Provide 3 architectures (serverless, containers, VMs) with cost breakdowns
+"""
+
+        # Add learned context if available
+        if learned_context:
+            base_instructions += learned_context
+
+        # Create architecture agent
+        architecture_agent = Agent(
+            tools=architecture_tools,
+            instructions=base_instructions
+        )
+
+        # Execute agent
+        logger.info("🏗️ Architecture agent analyzing question")
+        response = architecture_agent.execute(
+            f"Provide architecture recommendation for: {question}"
+        )
+
+        logger.info(f"Architecture agent response: {response[:500]}...")
+
+        # Extract tools used and components mentioned (for learning)
+        # This is a simple heuristic - in production you'd track tool calls directly
+        if "ec2" in response.lower():
+            components_mentioned.append("ec2")
+        if "rds" in response.lower():
+            components_mentioned.append("rds")
+        if "lambda" in response.lower():
+            components_mentioned.append("lambda")
+        if "s3" in response.lower():
+            components_mentioned.append("s3")
+        if "dynamodb" in response.lower():
+            components_mentioned.append("dynamodb")
+
+        # Simple tool tracking - would be better to track actual tool invocations
+        tools_used = ["architecture_agent"]  # Placeholder
+
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Log interaction for learning
+        interaction_id = None
+        try:
+            interaction_id = learning_service.log_interaction(
+                user_id=user_id,
+                question=question,
+                scans_performed=tools_used,
+                resources_found=components_mentioned,
+                scan_duration_ms=duration_ms,
+                interaction_type="architecture",
+                metadata={"channel_id": channel_id}
+            )
+
+            logger.info(f"Logged architecture interaction {interaction_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log architecture interaction: {e}")
+
+        # Format and post response
+        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
+        for block_group in formatted_blocks:
+            slack.post_message(channel_id, blocks=block_group)
+
+        # Parse response for blueprint recommendations and add action buttons
+        build_buttons = []
+
+        # Simple heuristic: look for blueprint mentions in response
+        blueprint_mappings = {
+            "standard vpc": "networking/standard-vpc",
+            "basic security": "security/basic-stack",
+            "soc2": "security/soc2-stack",
+            "soc 2": "security/soc2-stack",
+        }
+
+        response_lower = response.lower()
+        for keyword, blueprint in blueprint_mappings.items():
+            if keyword in response_lower:
+                # Create a build button for this blueprint
+                build_buttons.append({
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"🏗️ Build: {blueprint.split('/')[-1].replace('-', ' ').title()}",
+                        "emoji": True
+                    },
+                    "value": f"build:{blueprint}",
+                    "action_id": "architecture_build_blueprint",
+                    "style": "primary"
+                })
+
+        # If we found blueprints, add build action buttons
+        if build_buttons and len(build_buttons) <= 3:  # Max 3 buttons for clean UI
+            action_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Ready to build? Select an option:_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"architecture_actions_{interaction_id}",
+                    "elements": build_buttons
+                }
+            ]
+            slack.post_message(channel_id, blocks=action_blocks)
+
+        # Add feedback buttons
+        if interaction_id:
+            feedback_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Was this recommendation helpful?_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"feedback_{interaction_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👍 Yes",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:helpful",
+                            "action_id": "feedback_positive"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👎 No",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:not_helpful",
+                            "action_id": "feedback_negative"
+                        }
+                    ]
+                }
+            ]
+
+            slack.post_message(channel_id, blocks=feedback_blocks)
+
+    except Exception as e:
+        logger.error(f"Architecture agent failed: {e}", exc_info=True)
+        slack.post_message(
+            channel_id,
+            text=f"❌ Sorry, I encountered an error providing architecture recommendations: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_ask_command_fallback(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
@@ -1368,6 +1666,7 @@ def handle_ask_command_fallback(
     AI-driven scanning decisions.
 
     NEW: Integrates with LearningService for continuous learning.
+    NEW: Routes architecture questions to architecture agent.
     """
     import os
     import json
@@ -1380,7 +1679,19 @@ def handle_ask_command_fallback(
     # Get Bedrock service for final response generation
     bedrock = get_bedrock_service()
 
-    logger.info(f"Processing ask command with intelligent scanning: {question}")
+    logger.info(f"Processing ask command: {question}")
+
+    # Classify question type first
+    question_type = classify_question_type(question)
+    logger.info(f"Question classified as: {question_type}")
+
+    # Route to appropriate handler
+    if question_type == "architecture":
+        logger.info("Routing to architecture agent")
+        return handle_architecture_question(slack, channel_id, user_id, question)
+
+    # Continue with compliance/scanning agent
+    logger.info("Processing as compliance question with intelligent scanning")
 
     # Track for learning
     scan_start_time = time.time()
@@ -1415,25 +1726,11 @@ def handle_ask_command_fallback(
         scanning_tools = create_scanning_tools(collector)
 
         # Create scanning agent with tools + learned context
-        base_instructions = """You are CARL's intelligent AWS assistant.
+        base_instructions = """You are CARL's intelligent AWS compliance scanner.
 
-Your job: Analyze the user's question and provide helpful answers about AWS.
+Your job: Scan AWS resources to answer compliance and security questions.
 
-QUESTION TYPES:
-
-1. **Compliance/Security Questions** (about existing resources):
-   - "Is my VPC secure?"
-   - "Do I have MFA enabled?"
-   - "Are my S3 buckets encrypted?"
-   → ACTION: Scan relevant resources using tools, report actual state
-
-2. **Architecture/Design Questions** (about what to build):
-   - "What IoT services should I use?"
-   - "How do I design a serverless app?"
-   - "What's the best way to build X?"
-   → ACTION: Don't scan (nothing deployed yet). Respond: "ARCHITECTURE_QUESTION: Provide design guidance"
-
-Available scanning tools (use ONLY for compliance/security questions):
+Available scanning tools:
 - scan_iam: IAM users, roles, policies, MFA, password policies
 - scan_s3: S3 buckets, encryption, public access, versioning
 - scan_vpc: VPCs, security groups, flow logs, network configuration
@@ -1442,16 +1739,16 @@ Available scanning tools (use ONLY for compliance/security questions):
 - scan_all: Comprehensive scan of all resources
 
 Instructions:
-1. Determine if this is a compliance question or architecture question
-2. If compliance → scan relevant resources, return findings
-3. If architecture → respond with "ARCHITECTURE_QUESTION" (don't scan, provide guidance instead)
-4. Be helpful - never refuse to answer or say "that's not my job"
+1. Analyze the question to determine which AWS resources are relevant
+2. Call the appropriate scanning tools to gather current state
+3. Return the scan results with resource details
+4. Focus on security, compliance, and configuration
 
 Examples:
-- "Do I have MFA enabled?" → scan_iam (compliance)
-- "How is my VPC configured?" → scan_vpc (compliance)
-- "What IoT services should I use?" → ARCHITECTURE_QUESTION (design guidance)
-- "How do I build a data pipeline?" → ARCHITECTURE_QUESTION (design guidance)
+- "Do I have MFA enabled?" → scan_iam
+- "Are my S3 buckets encrypted?" → scan_s3
+- "How is my VPC configured?" → scan_vpc
+- "Show me all security issues" → scan_security_hub or scan_all
 """
 
         # Add learned context if available
@@ -1471,25 +1768,7 @@ Examples:
 
         logger.info(f"Agent scan results: {scan_results_raw[:500]}...")  # Log first 500 chars
 
-        # Check if this is an architecture question
-        if "ARCHITECTURE_QUESTION" in scan_results_raw:
-            logger.info("Detected architecture/design question - providing guidance")
-
-            # Use architecture advisor for design questions
-            from services.architecture_advisor import ArchitectureAdvisor
-
-            advisor = ArchitectureAdvisor()
-            response = advisor.get_recommendation(question)
-
-            # Format and post response
-            formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Architecture Guidance")
-            for block_group in formatted_blocks:
-                slack.post_message(channel_id, blocks=block_group)
-
-            # No feedback buttons for architecture questions (not learning yet)
-            return {"statusCode": 200, "body": ""}
-
-        # Parse scan results and build context (compliance questions)
+        # Parse scan results and build context
         try:
             # The agent returns a text response, extract JSON from it
             # Look for JSON blocks in the response
@@ -2426,6 +2705,36 @@ def handle_build_command(
 
             logger.info(f"Uploaded code to GitHub: PR #{upload_result['pr_number']}")
 
+            # Log interaction for learning
+            try:
+                from services.learning_service import LearningService
+
+                scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+                resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+
+                learning_service = LearningService(
+                    scan_history_table=scan_history_table,
+                    resource_graph_table=resource_graph_table
+                )
+
+                interaction_id = learning_service.log_interaction(
+                    user_id=user_id,
+                    question=f"Build blueprint: {blueprint_name}",
+                    scans_performed=["build_infrastructure"],
+                    resources_found=[blueprint_name],
+                    scan_duration_ms=0,  # Track if needed
+                    interaction_type="architecture",
+                    metadata={
+                        "channel_id": channel_id,
+                        "pr_number": upload_result.get('pr_number'),
+                        "config": config
+                    }
+                )
+
+                logger.info(f"Logged build interaction {interaction_id}")
+            except Exception as e:
+                logger.warning(f"Failed to log build interaction: {e}")
+
         except Exception as e:
             logger.error(f"Failed to upload to GitHub: {e}")
             slack.post_message(
@@ -3190,6 +3499,27 @@ def handle_build_blueprint_button(payload: dict, action: dict) -> dict:
     return handle_build_command(slack, channel_id, user_id, blueprint_name, trigger_id=trigger_id)
 
 
+def handle_architecture_build_button(payload: dict, action: dict) -> dict:
+    """Handle 'Build This' button click from architecture recommendations."""
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+    user_id = payload["user"]["id"]
+    trigger_id = payload.get("trigger_id")
+
+    # Extract blueprint name from button value (format: build:<blueprint>)
+    button_value = action.get("value", "")
+    if button_value.startswith("build:"):
+        blueprint_name = button_value.replace("build:", "")
+
+        logger.info(f"Architecture build button clicked: {blueprint_name}")
+
+        # Call the build command handler directly
+        return handle_build_command(slack, channel_id, user_id, blueprint_name, trigger_id=trigger_id)
+    else:
+        slack.post_message(channel_id, text="❌ Invalid build action")
+        return {"statusCode": 200, "body": ""}
+
+
 def handle_estimate_option_button(payload: dict, action: dict) -> dict:
     """Handle 'Detailed Estimate' button click from recommendations."""
     slack = get_slack_service()
@@ -3487,6 +3817,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_build_blueprint_button(payload, action)
             elif action_id.startswith("estimate_option_"):
                 return handle_estimate_option_button(payload, action)
+            elif action_id == "architecture_build_blueprint":
+                return handle_architecture_build_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
 
@@ -5696,8 +6028,14 @@ def handle_compliance_assess_sync(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
     """Synchronous version - does the actual compliance assessment work."""
+    import time
+
+    start_time = time.time()
+    interaction_id = None
+
     try:
         from services.compliance_agent import ComplianceAgent
+        from services.learning_service import LearningService
         import os
 
         # Get agent ID and alias ID from environment (will be configured via CDK/CloudFormation)
@@ -5718,11 +6056,15 @@ def handle_compliance_assess_sync(
             auto_create_tickets=True
         )
 
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+
         # Post results to Slack
         coverage = result.get("coverage_percent", 0)
         gaps_count = len(result.get("gaps", []))
         epic_url = result.get("jira_epic_url")
         story_count = result.get("jira_story_count", 0)
+        finding_ids = [f"FND-{i}" for i in range(gaps_count)]  # Simplified - would get actual IDs
 
         blocks = [
             {
@@ -5756,6 +6098,76 @@ def handle_compliance_assess_sync(
             })
 
         slack.post_message(channel_id, blocks=blocks)
+
+        # Log interaction for learning
+        try:
+            scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+            resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+
+            learning_service = LearningService(
+                scan_history_table=scan_history_table,
+                resource_graph_table=resource_graph_table
+            )
+
+            interaction_id = learning_service.log_interaction(
+                user_id=user_id,
+                question="SOC 2 compliance assessment",
+                scans_performed=["assess_soc2", "create_epic"],
+                resources_found=finding_ids,
+                scan_duration_ms=duration_ms,
+                interaction_type="compliance",
+                metadata={
+                    "channel_id": channel_id,
+                    "coverage": coverage,
+                    "gaps_count": gaps_count,
+                    "epic_url": epic_url,
+                    "story_count": story_count
+                }
+            )
+
+            logger.info(f"Logged compliance assessment interaction {interaction_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log compliance interaction: {e}")
+
+        # Add feedback buttons
+        if interaction_id:
+            feedback_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Was this assessment helpful?_"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"feedback_{interaction_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👍 Yes",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:helpful",
+                            "action_id": "feedback_positive"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "👎 No",
+                                "emoji": True
+                            },
+                            "value": f"{interaction_id}:not_helpful",
+                            "action_id": "feedback_negative"
+                        }
+                    ]
+                }
+            ]
+
+            slack.post_message(channel_id, blocks=feedback_blocks)
 
     except Exception as e:
         logger.error(f"Compliance assessment failed: {e}")

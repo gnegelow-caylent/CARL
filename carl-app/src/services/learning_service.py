@@ -30,14 +30,15 @@ logger = get_logger(__name__)
 
 @dataclass
 class ScanInteraction:
-    """A single scan interaction for learning."""
+    """A single interaction for learning (scan, architecture, or compliance)."""
     interaction_id: str
     account_id: str
     user_id: str
+    interaction_type: str  # "scan", "architecture", or "compliance"
     question: str
     question_hash: str  # MD5 hash for grouping similar questions
-    scans_performed: list[str]  # Tool names called
-    resources_found: list[str]  # Resource IDs discovered
+    scans_performed: list[str]  # Tool names called (or recommendations for architecture)
+    resources_found: list[str]  # Resource IDs discovered (or components recommended)
     scan_duration_ms: int
     was_useful: Optional[bool] = None  # User feedback (None = no feedback yet)
     timestamp: str = ""
@@ -55,6 +56,7 @@ class ScanInteraction:
             "interaction_id": self.interaction_id,
             "account_id": self.account_id,
             "user_id": self.user_id,
+            "interaction_type": self.interaction_type,
             "question": self.question,
             "question_hash": self.question_hash,
             "scans_performed": self.scans_performed,
@@ -144,26 +146,38 @@ class LearningService:
         scans_performed: list[str],
         resources_found: list[str],
         scan_duration_ms: int,
+        interaction_type: str = "scan",
         metadata: dict = None
     ) -> str:
         """
-        Log a scan interaction for learning.
+        Log an interaction for learning (scan, architecture, or compliance).
 
         Args:
             user_id: Slack user ID
-            question: User's question
+            question: User's question or request
             scans_performed: List of tool names called (e.g., ["scan_vpc", "scan_iam"])
+                           For architecture: patterns/tools used (e.g., ["get_patterns", "get_pricing"])
+                           For compliance: assessment steps (e.g., ["assess_soc2", "create_epic"])
             resources_found: List of resource IDs discovered
-            scan_duration_ms: How long the scan took
+                           For architecture: components recommended (e.g., ["vpc", "ec2:t3.medium"])
+                           For compliance: findings IDs (e.g., ["FND-001", "FND-002"])
+            scan_duration_ms: How long the operation took
+            interaction_type: Type of interaction: "scan", "architecture", or "compliance"
             metadata: Additional context
 
         Returns:
             interaction_id for later feedback association
         """
         try:
-            # Generate interaction ID
+            # Validate interaction type
+            if interaction_type not in ["scan", "architecture", "compliance"]:
+                logger.warning(f"Invalid interaction_type: {interaction_type}, defaulting to 'scan'")
+                interaction_type = "scan"
+
+            # Generate interaction ID with type prefix
             timestamp = datetime.utcnow()
-            interaction_id = f"int_{timestamp.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(question.encode()).hexdigest()[:8]}"
+            type_prefix = interaction_type[:4].upper()  # SCAN, ARCH, COMP
+            interaction_id = f"{type_prefix}_{timestamp.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(question.encode()).hexdigest()[:8]}"
 
             # Hash question for pattern matching (normalize to lowercase, remove punctuation)
             question_normalized = question.lower().strip().rstrip('?!')
@@ -173,6 +187,7 @@ class LearningService:
                 interaction_id=interaction_id,
                 account_id=self.account_id,
                 user_id=user_id,
+                interaction_type=interaction_type,
                 question=question,
                 question_hash=question_hash,
                 scans_performed=scans_performed,
@@ -185,7 +200,7 @@ class LearningService:
             # Store in DynamoDB
             self.history_table.put_item(Item=interaction.to_dynamodb_item())
 
-            logger.info(f"Logged interaction {interaction_id}: {len(scans_performed)} scans, {len(resources_found)} resources")
+            logger.info(f"Logged {interaction_type} interaction {interaction_id}: {len(scans_performed)} actions, {len(resources_found)} items")
 
             return interaction_id
 
@@ -304,12 +319,13 @@ class LearningService:
         except Exception as e:
             logger.error(f"Failed to update resource graph: {e}", exc_info=True)
 
-    def analyze_patterns(self, days_lookback: int = 30) -> dict[str, LearnedPattern]:
+    def analyze_patterns(self, days_lookback: int = 30, interaction_type: str = None) -> dict[str, LearnedPattern]:
         """
         Analyze historical interactions to learn patterns.
 
         Args:
             days_lookback: How many days of history to analyze
+            interaction_type: Filter by interaction type ("scan", "architecture", "compliance") or None for all
 
         Returns:
             Dictionary of learned patterns by type
@@ -323,17 +339,24 @@ class LearningService:
                 KeyConditionExpression=Key("account_id").eq(self.account_id) & Key("timestamp").gte(since)
             )
 
-            interactions = response.get("Items", [])
+            all_interactions = response.get("Items", [])
+
+            # Filter by interaction type if specified
+            if interaction_type:
+                interactions = [i for i in all_interactions if i.get("interaction_type") == interaction_type]
+                logger.info(f"Filtered to {len(interactions)} {interaction_type} interactions (from {len(all_interactions)} total)")
+            else:
+                interactions = all_interactions
 
             if not interactions:
-                logger.info("No interactions found for pattern analysis")
+                logger.info(f"No {interaction_type or 'any'} interactions found for pattern analysis")
                 return {}
 
             logger.info(f"Analyzing {len(interactions)} interactions from last {days_lookback} days")
 
             patterns = {}
 
-            # Pattern 1: Question → Scans mapping
+            # Pattern 1: Question → Scans/Recommendations mapping
             question_scan_map = {}
             for item in interactions:
                 q_hash = item.get("question_hash")
@@ -419,7 +442,7 @@ class LearningService:
             logger.error(f"Failed to analyze patterns: {e}", exc_info=True)
             return {}
 
-    def get_learned_context(self, question: str = None) -> str:
+    def get_learned_context(self, question: str = None, interaction_type: str = None) -> str:
         """
         Generate learned context for agent instructions.
 
@@ -428,18 +451,30 @@ class LearningService:
 
         Args:
             question: Current question (optional, for question-specific context)
+            interaction_type: Filter by interaction type ("scan", "architecture", "compliance")
 
         Returns:
             String with learned context for agent
         """
         try:
-            # Analyze recent patterns
-            patterns = self.analyze_patterns(days_lookback=30)
+            # Analyze recent patterns (filtered by type if specified)
+            patterns = self.analyze_patterns(days_lookback=30, interaction_type=interaction_type)
 
             if not patterns:
                 return ""
 
             context_parts = []
+
+            # Add interaction type specific header
+            if interaction_type == "architecture":
+                header_prefix = "Architecture"
+                action_word = "recommendations"
+            elif interaction_type == "compliance":
+                header_prefix = "Compliance"
+                action_word = "assessments"
+            else:
+                header_prefix = "Scan"
+                action_word = "scans"
 
             # Add common topics
             if "common_topics" in patterns:
@@ -448,14 +483,14 @@ class LearningService:
                     topic_str = ", ".join([t["topic"] for t in topics])
                     context_parts.append(f"Users frequently ask about: {topic_str}")
 
-            # Add frequently checked resources
-            if "resource_frequency" in patterns:
+            # Add frequently checked resources (for scan type)
+            if interaction_type in [None, "scan"] and "resource_frequency" in patterns:
                 resources = patterns["resource_frequency"].pattern_data.get("top_resources", [])[:5]
                 if resources:
                     resource_str = ", ".join([r["id"] for r in resources])
                     context_parts.append(f"Frequently checked resources: {resource_str}")
 
-            # Add question-specific scan recommendations
+            # Add question-specific recommendations
             if question and "question_to_scans" in patterns:
                 q_normalized = question.lower().strip().rstrip('?!')
                 q_hash = hashlib.md5(q_normalized.encode()).hexdigest()
@@ -467,10 +502,10 @@ class LearningService:
 
                     if confidence > 0.6:  # High confidence
                         scan_str = ", ".join(recommended_scans)
-                        context_parts.append(f"For similar questions, these scans were most useful: {scan_str}")
+                        context_parts.append(f"For similar questions, these {action_word} were most useful: {scan_str}")
 
             if context_parts:
-                header = "\n\nLearned from past interactions:"
+                header = f"\n\nLearned from past {interaction_type or 'all'} interactions:"
                 return header + "\n• " + "\n• ".join(context_parts)
 
             return ""
