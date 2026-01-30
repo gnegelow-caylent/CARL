@@ -68,7 +68,9 @@ resource "aws_dynamodb_table" "config" {
 }
 
 # 2. Evidence Table (stores audit evidence)
+# Only create if foundation module is disabled (foundation module creates this)
 resource "aws_dynamodb_table" "evidence" {
+  count        = var.enable_foundation ? 0 : 1
   name         = "${local.name_prefix}-evidence"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
@@ -99,7 +101,9 @@ resource "aws_dynamodb_table" "evidence" {
 }
 
 # 3. Findings Table (stores security findings)
+# Only create if foundation module is disabled (foundation module creates this)
 resource "aws_dynamodb_table" "findings" {
+  count        = var.enable_foundation ? 0 : 1
   name         = "${local.name_prefix}-findings"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
@@ -166,7 +170,9 @@ resource "aws_dynamodb_table" "findings" {
 }
 
 # 4. Exceptions Table (stores risk exceptions)
+# Only create if foundation module is disabled (foundation module creates this)
 resource "aws_dynamodb_table" "exceptions" {
+  count        = var.enable_foundation ? 0 : 1
   name         = "${local.name_prefix}-exceptions"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
