@@ -2585,7 +2585,7 @@ def handle_foundation_command(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Question 1/{len(engine.get_all_patterns()) + 10}:* {first_question['question']}\n\n_{first_question['description']}_",
+                    "text": f"*Question 1:* {first_question['question']}\n\n_{first_question['description']}_",
                 },
             },
         ]
