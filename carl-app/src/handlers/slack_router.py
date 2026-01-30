@@ -4200,35 +4200,29 @@ def handle_intelligent_build(
         detector = ResourceDetector()
 
         # Scan for existing resources
-        vpcs = detector.detect_vpcs()
-        security_services = {
-            'guardduty': detector.detect_guardduty(),
-            'security_hub': detector.detect_security_hub(),
-            'cloudtrail': detector.detect_cloudtrail(),
-            'config': detector.detect_config()
-        }
+        security = detector.detect_security_resources()
+        vpc = detector.detect_vpc_resources()
 
         # Build context for AI agent
         context = f"""User wants to build: {requirement}
 
 Current AWS Environment:
-- VPCs: {len(vpcs)} found
 """
 
-        if vpcs:
-            context += "\nExisting VPCs:\n"
-            for vpc in vpcs[:3]:  # Show first 3
-                context += f"  - {vpc.get('vpc_id')} ({vpc.get('cidr', 'unknown CIDR')})"
-                if vpc.get('name'):
-                    context += f" - {vpc['name']}"
-                context += "\n"
+        if vpc.vpc_exists:
+            context += f"- VPC: ✓ Exists ({vpc.vpc_id}, CIDR: {vpc.vpc_cidr})\n"
+            context += f"  - Subnets: {vpc.subnet_count} found\n"
+            context += f"  - NAT Gateways: {vpc.nat_gateway_count} found\n"
+            context += f"  - Internet Gateway: {'✓' if vpc.internet_gateway_exists else '✗'}\n"
+        else:
+            context += "- VPC: ✗ None found (will need to create)\n"
 
         context += f"""
 Security Services:
-- GuardDuty: {'✓ Enabled' if security_services['guardduty']['enabled'] else '✗ Not enabled'}
-- Security Hub: {'✓ Enabled' if security_services['security_hub']['enabled'] else '✗ Not enabled'}
-- CloudTrail: {'✓ Enabled' if security_services['cloudtrail']['enabled'] else '✗ Not enabled'}
-- Config: {'✓ Enabled' if security_services['config']['enabled'] else '✗ Not enabled'}
+- GuardDuty: {'✓ Enabled' if security.guardduty_exists else '✗ Not enabled'}
+- Security Hub: {'✓ Enabled' if security.security_hub_exists else '✗ Not enabled'}
+- CloudTrail: {'✓ Enabled' if security.cloudtrail_exists else '✗ Not enabled'}
+- Config: {'✓ Enabled' if security.config_exists else '✗ Not enabled'}
 
 Your task: Analyze what's needed and ask 1-2 intelligent questions to gather missing information.
 
