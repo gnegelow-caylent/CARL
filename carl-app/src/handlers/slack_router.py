@@ -4190,58 +4190,55 @@ def handle_intelligent_build(
     2. Uses AI to decide what questions to ask
     3. Only asks relevant questions based on context
     """
-    from services.resource_detector import ResourceDetector
+    from services.aws_environment_scanner import AWSEnvironmentScanner
     from services.agent_core import Agent
 
     try:
-        # Scan AWS to understand current state
-        slack.post_message(channel_id, text="🔍 Scanning your AWS environment...")
+        # Comprehensive AWS environment scan
+        slack.post_message(channel_id, text="🔍 Performing deep scan of your AWS environment...")
 
-        detector = ResourceDetector()
+        scanner = AWSEnvironmentScanner(region="us-east-1")
+        scan_result = scanner.scan()
 
-        # Scan for existing resources
-        security = detector.detect_security_resources()
-        vpc = detector.detect_vpc_resources()
+        # Get human-readable summary for AI context
+        environment_summary = scan_result.to_context_summary()
 
-        # Build context for AI agent
-        context = f"""User wants to build: {requirement}
+        slack.post_message(channel_id, text=f"✅ Scan complete! Found: {len(scan_result.networking.vpcs)} VPCs, {len(scan_result.databases.rds_instances)} RDS instances, {len(scan_result.compute.ec2_instances)} EC2 instances")
 
-Current AWS Environment:
-"""
+        # Build context for AI agent with deep AWS knowledge
+        context = f"""You are CARL's infrastructure build assistant with deep AWS architecture expertise.
 
-        if vpc.vpc_exists:
-            context += f"- VPC: ✓ Exists ({vpc.vpc_id}, CIDR: {vpc.vpc_cidr})\n"
-            context += f"  - Subnets: {vpc.subnet_count} found\n"
-            context += f"  - NAT Gateways: {vpc.nat_gateway_count} found\n"
-            context += f"  - Internet Gateway: {'✓' if vpc.internet_gateway_exists else '✗'}\n"
-        else:
-            context += "- VPC: ✗ None found (will need to create)\n"
+USER'S REQUEST:
+{requirement}
 
-        context += f"""
-Security Services:
-- GuardDuty: {'✓ Enabled' if security.guardduty_exists else '✗ Not enabled'}
-- Security Hub: {'✓ Enabled' if security.security_hub_exists else '✗ Not enabled'}
-- CloudTrail: {'✓ Enabled' if security.cloudtrail_exists else '✗ Not enabled'}
-- Config: {'✓ Enabled' if security.config_exists else '✗ Not enabled'}
+{environment_summary}
 
-Your task: Analyze what's needed and ask 1-2 intelligent questions to gather missing information.
+YOUR TASK:
+Analyze the user's request and current AWS environment to determine what questions to ask.
 
-Rules:
-- If VPCs exist, ask if they want to use existing or create new
-- If no VPCs exist, assume they want a new VPC and ask for CIDR
-- Focus only on what's relevant to their requirement
-- Don't ask generic questions about scale/size
-- Be specific and context-aware
+YOUR AWS ARCHITECTURE KNOWLEDGE:
+- Web apps typically need: VPC, subnets (public + private), load balancer, compute (EC2/ECS/Lambda), database
+- SQL Server on AWS options: RDS SQL Server (managed), SQL Server on EC2 (self-managed)
+- Redundancy requires: Multi-AZ, multiple subnets, load balancer, Auto Scaling
+- If existing VPC has proper subnets (public + private across AZs), can reuse
+- If no VPC or inadequate subnets, need to create new infrastructure
 
-Output format:
+INTELLIGENT QUESTION RULES:
+1. If existing VPC has proper architecture for their need → ask if they want to use it
+2. If no VPC or existing VPC lacks needed components → plan to create new
+3. For SQL Server → ask about RDS vs EC2, edition, size
+4. For redundancy → ensure Multi-AZ is included
+5. Only ask 1-2 essential questions - be specific, not generic
+
+OUTPUT FORMAT:
 Question 1: <specific question>
-Options: <2-4 specific options as comma-separated list>
+Options: <2-4 specific options>
 
 Question 2: <specific question if needed>
 Options: <2-4 specific options>
 
-Or if you have everything needed:
-READY: No questions needed, I can generate this now.
+Or if you have enough info:
+READY: <explain what you'll build>
 """
 
         # Create agent to decide what questions to ask
