@@ -12,12 +12,20 @@ Usage:
 """
 
 import boto3
+from botocore.config import Config
 import json
 from typing import Optional
 from utils.logger import get_logger
 from services.agent_core import Tool
 
 logger = get_logger(__name__)
+
+# Boto3 config with timeouts to prevent hanging on slow API calls
+PRICING_API_CONFIG = Config(
+    connect_timeout=5,   # 5 seconds to establish connection
+    read_timeout=10,     # 10 seconds to read response
+    retries={'max_attempts': 2}  # Retry once if it fails
+)
 
 
 def get_aws_pricing(
@@ -75,7 +83,8 @@ def get_aws_pricing(
         location = region_code_map.get(region, region)
 
         # Initialize pricing client (always use us-east-1 for Price List API)
-        pricing_client = boto3.client('pricing', region_name='us-east-1')
+        # Use config with timeouts to prevent hanging on slow API responses
+        pricing_client = boto3.client('pricing', region_name='us-east-1', config=PRICING_API_CONFIG)
 
         # Build filters
         api_filters = filters or []

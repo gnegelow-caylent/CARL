@@ -6,11 +6,13 @@ autonomously provide architecture recommendations, pricing, and compliance guida
 """
 
 import json
+import os
 from typing import Any
 
 from agent_core import Tool
 from services.architecture_advisor import ArchitectureAdvisor
 from services.pricing_tool import get_aws_pricing
+from services.pricing_prefetch_service import PricingPrefetchService
 from services.cost_estimator import CostEstimator
 from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import VPC_PATTERNS
@@ -19,6 +21,17 @@ from knowledge.identity_patterns import IDENTITY_PATTERNS
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Initialize pricing cache service
+_pricing_cache = None
+
+def _get_pricing_cache():
+    """Get or create pricing cache service instance."""
+    global _pricing_cache
+    if _pricing_cache is None:
+        pricing_cache_table = os.environ.get("PRICING_CACHE_TABLE", "carl-dev-pricing-cache")
+        _pricing_cache = PricingPrefetchService(pricing_cache_table=pricing_cache_table)
+    return _pricing_cache
 
 
 def create_architecture_tools() -> list[Tool]:
@@ -85,7 +98,10 @@ def create_architecture_tools() -> list[Tool]:
 
     def get_pricing(service_name: str, **kwargs) -> dict:
         """
-        Get real-time AWS pricing for a service.
+        Get AWS pricing for a service (cached or real-time).
+
+        This function first checks the pricing cache (DynamoDB) for instant results,
+        then falls back to AWS Price List API if not cached.
 
         Args:
             service_name: AWS service (ec2, rds, s3, lambda, dynamodb, etc.)
@@ -95,11 +111,47 @@ def create_architecture_tools() -> list[Tool]:
             Dict with pricing information
         """
         try:
+            region = kwargs.get("region", "us-east-1")
+
+            # Try cache first for instant results
+            cache_key = None
+            if service_name == "ec2" and "instance_type" in kwargs:
+                cache_key = f"ec2#{kwargs['instance_type']}"
+            elif service_name == "rds" and "instance_class" in kwargs:
+                cache_key = f"rds#{kwargs['instance_class']}"
+            elif service_name == "lambda":
+                cache_key = "lambda#execution"
+            elif service_name == "s3":
+                cache_key = "s3#standard-storage"
+            elif service_name == "dynamodb":
+                cache_key = "dynamodb#on-demand-write"
+            elif service_name == "ecs":
+                cache_key = "ecs#fargate-vcpu"
+
+            # Check cache if we have a key
+            if cache_key:
+                try:
+                    pricing_cache = _get_pricing_cache()
+                    cached = pricing_cache.get_cached_price(cache_key, region)
+                    if cached:
+                        logger.info(f"✓ Pricing cache hit: {cache_key} in {region}")
+                        return {
+                            "success": True,
+                            "service": service_name,
+                            "pricing": cached,
+                            "source": "cache"
+                        }
+                except Exception as cache_error:
+                    logger.warning(f"Cache lookup failed, falling back to API: {cache_error}")
+
+            # Fallback to API if not cached
+            logger.info(f"Cache miss, querying AWS Price List API: {service_name}")
             result = get_aws_pricing(service_name=service_name, **kwargs)
             return {
                 "success": True,
                 "service": service_name,
-                "pricing": result
+                "pricing": result,
+                "source": "api"
             }
         except Exception as e:
             logger.error(f"Error getting pricing for {service_name}: {e}")

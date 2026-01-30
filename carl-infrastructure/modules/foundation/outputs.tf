@@ -220,3 +220,30 @@ output "pattern_analysis_rule_name" {
   description = "Name of the EventBridge rule for pattern analysis"
   value       = aws_cloudwatch_event_rule.pattern_analysis.name
 }
+
+# Pricing Cache Table
+output "pricing_cache_table_name" {
+  description = "Name of the pricing cache DynamoDB table"
+  value       = aws_dynamodb_table.pricing_cache.name
+}
+
+output "pricing_cache_table_arn" {
+  description = "ARN of the pricing cache DynamoDB table"
+  value       = aws_dynamodb_table.pricing_cache.arn
+}
+
+# Pricing Prefetch Lambda
+output "pricing_prefetch_function_name" {
+  description = "Name of the pricing prefetch Lambda function"
+  value       = aws_lambda_function.pricing_prefetch.function_name
+}
+
+output "pricing_prefetch_function_arn" {
+  description = "ARN of the pricing prefetch Lambda function"
+  value       = aws_lambda_function.pricing_prefetch.arn
+}
+
+output "pricing_prefetch_schedule" {
+  description = "Pricing prefetch schedule (cron)"
+  value       = aws_cloudwatch_event_rule.pricing_prefetch_schedule.schedule_expression
+}
