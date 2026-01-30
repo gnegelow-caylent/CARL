@@ -240,6 +240,19 @@ resource "aws_kms_key" "carl" {
         Resource = "*"
       },
       {
+        Sid    = "Allow Lambda Execution Role"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.account_id}:role/${local.name_prefix}-lambda-role"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "Allow CloudWatch Logs"
         Effect = "Allow"
         Principal = {
