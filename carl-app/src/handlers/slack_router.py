@@ -4214,7 +4214,7 @@ USER'S REQUEST:
 {environment_summary}
 
 YOUR TASK:
-Analyze the user's request and current AWS environment to determine what questions to ask.
+Analyze the user's request and current AWS environment. Determine what information you need to build this infrastructure correctly.
 
 YOUR AWS ARCHITECTURE KNOWLEDGE:
 - Web apps typically need: VPC, subnets (public + private), load balancer, compute (EC2/ECS/Lambda), database
@@ -4223,22 +4223,20 @@ YOUR AWS ARCHITECTURE KNOWLEDGE:
 - If existing VPC has proper subnets (public + private across AZs), can reuse
 - If no VPC or inadequate subnets, need to create new infrastructure
 
-INTELLIGENT QUESTION RULES:
-1. If existing VPC has proper architecture for their need → ask if they want to use it
-2. If no VPC or existing VPC lacks needed components → plan to create new
-3. For SQL Server → ask about RDS vs EC2, edition, size
-4. For redundancy → ensure Multi-AZ is included
-5. Only ask 1-2 essential questions - be specific, not generic
+INTELLIGENT DECISION MAKING:
+- Ask questions iteratively - each answer may lead to more questions
+- Don't ask unnecessary questions if you can infer the answer from the scan
+- Ask as many questions as needed to build correctly - NO arbitrary limits
+- Be specific and context-aware - reference actual resources from the scan
+- Stop asking when you have everything needed
 
 OUTPUT FORMAT:
-Question 1: <specific question>
+If you need information, ask questions (as many as needed):
+Question: <specific question>
 Options: <2-4 specific options>
 
-Question 2: <specific question if needed>
-Options: <2-4 specific options>
-
-Or if you have enough info:
-READY: <explain what you'll build>
+If you have everything needed:
+READY: <explain what you'll build with specific details>
 """
 
         # Create agent to decide what questions to ask
@@ -4247,26 +4245,93 @@ READY: <explain what you'll build>
             instructions=context
         )
 
-        questions_response = build_planner.execute("What questions do I need to ask?")
+        # Start iterative question flow
+        # Store context in session for follow-up questions
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+
+        # Store session data (in-memory for now, could use DynamoDB)
+        # TODO: Store in DynamoDB for persistence across Lambda invocations
+        session_data = {
+            "session_id": session_id,
+            "requirement": requirement,
+            "scan_result": scan_result.to_dict(),
+            "environment_summary": environment_summary,
+            "conversation_history": []
+        }
+
+        # Get first question(s) from AI
+        questions_response = build_planner.execute("Analyze the environment and user request. What information do you need to build this?")
 
         logger.info(f"Build planner response: {questions_response}")
 
-        # Parse response and show questions to user
+        # Parse response
         if "READY:" in questions_response:
-            # No questions needed - proceed to generation
+            # AI has everything it needs - proceed to generation
+            ready_text = questions_response.split('READY:')[1].strip()
             slack.post_message(
                 channel_id,
-                text=f"✅ I have everything needed to generate your infrastructure!\n\n{questions_response.split('READY:')[1].strip()}\n\nGenerating Terraform code..."
+                text=f"✅ I have everything needed to generate your infrastructure!\n\n{ready_text}\n\nGenerating Terraform code..."
             )
 
             # TODO: Call infrastructure generation
             slack.post_message(channel_id, text="🚧 Infrastructure generation coming soon!")
 
+        elif "Question:" in questions_response:
+            # AI needs information - parse and show question
+            # Extract question and options
+            lines = questions_response.strip().split('\n')
+            question_text = None
+            options = []
+
+            for line in lines:
+                if line.startswith("Question:"):
+                    question_text = line.replace("Question:", "").strip()
+                elif line.startswith("Options:"):
+                    options_str = line.replace("Options:", "").strip()
+                    options = [opt.strip() for opt in options_str.split(',')]
+
+            if question_text and options:
+                # Build Slack blocks with buttons
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{question_text}*"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "block_id": f"build_question_{session_id}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": option[:75]},
+                                "value": option,
+                                "action_id": f"build_answer_{session_id}_{i}"
+                            }
+                            for i, option in enumerate(options[:5])  # Max 5 buttons
+                        ]
+                    }
+                ]
+
+                slack.post_message(channel_id, blocks=blocks)
+
+                # Store session data for when user answers
+                # TODO: Store in DynamoDB
+                logger.info(f"Created build session {session_id}")
+            else:
+                # Couldn't parse question format
+                slack.post_message(
+                    channel_id,
+                    text=f"📋 Based on your environment:\n\n{questions_response}\n\n_I'm still learning to format questions properly. Manual build coming soon!_"
+                )
         else:
-            # Show questions as Slack message with buttons
+            # Unexpected format
             slack.post_message(
                 channel_id,
-                text=f"📋 Based on your environment scan:\n\n{questions_response}\n\n_Interactive question flow coming soon. For now, use `/carl foundation start` for the guided builder._"
+                text=f"🤔 I analyzed your environment:\n\n{questions_response}\n\n_Building question flow..._"
             )
 
         return {"statusCode": 200, "body": ""}
