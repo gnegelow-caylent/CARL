@@ -4190,6 +4190,8 @@ def handle_intelligent_build(
     2. Uses AI to decide what questions to ask
     3. Only asks relevant questions based on context
     """
+    import json
+    from datetime import datetime
     from services.aws_environment_scanner import AWSEnvironmentScanner
     from services.agent_core import Agent
 
@@ -4245,20 +4247,18 @@ READY: <explain what you'll build with specific details>
             instructions=context
         )
 
-        # Start iterative question flow
-        # Store context in session for follow-up questions
-        import uuid
-        session_id = str(uuid.uuid4())[:8]
+        # Create session to track iterative Q&A
+        from services.build_session_service import BuildSessionService
 
-        # Store session data (in-memory for now, could use DynamoDB)
-        # TODO: Store in DynamoDB for persistence across Lambda invocations
-        session_data = {
-            "session_id": session_id,
-            "requirement": requirement,
-            "scan_result": scan_result.to_dict(),
-            "environment_summary": environment_summary,
-            "conversation_history": []
-        }
+        session_service = BuildSessionService()
+        session = session_service.create_session(
+            user_id=user_id,
+            channel_id=channel_id,
+            requirement=requirement,
+            environment_scan=scan_result.to_dict()
+        )
+
+        logger.info(f"Created build session {session.session_id}")
 
         # Get first question(s) from AI
         questions_response = build_planner.execute("Analyze the environment and user request. What information do you need to build this?")
@@ -4292,6 +4292,14 @@ READY: <explain what you'll build with specific details>
                     options = [opt.strip() for opt in options_str.split(',')]
 
             if question_text and options:
+                # Store the current question in session for reference
+                session.conversation_history.append({
+                    "question": question_text,
+                    "answer": None,  # Will be filled when user responds
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                session_service.table.put_item(Item=session.to_dynamodb_item())
+
                 # Build Slack blocks with buttons
                 blocks = [
                     {
@@ -4303,13 +4311,13 @@ READY: <explain what you'll build with specific details>
                     },
                     {
                         "type": "actions",
-                        "block_id": f"build_question_{session_id}",
+                        "block_id": f"build_question_{session.session_id}",
                         "elements": [
                             {
                                 "type": "button",
                                 "text": {"type": "plain_text", "text": option[:75]},
-                                "value": option,
-                                "action_id": f"build_answer_{session_id}_{i}"
+                                "value": json.dumps({"option": option, "question": question_text}),
+                                "action_id": f"build_answer_{session.session_id}_{i}"
                             }
                             for i, option in enumerate(options[:5])  # Max 5 buttons
                         ]
@@ -4317,10 +4325,7 @@ READY: <explain what you'll build with specific details>
                 ]
 
                 slack.post_message(channel_id, blocks=blocks)
-
-                # Store session data for when user answers
-                # TODO: Store in DynamoDB
-                logger.info(f"Created build session {session_id}")
+                logger.info(f"Asked question in build session {session.session_id}")
             else:
                 # Couldn't parse question format
                 slack.post_message(
@@ -4341,6 +4346,193 @@ READY: <explain what you'll build with specific details>
         slack.post_message(
             channel_id,
             text=f"❌ Failed to analyze build requirements: {str(e)}"
+        )
+        return {"statusCode": 200, "body": ""}
+
+
+def handle_build_answer_button(payload: dict, action: dict) -> dict:
+    """
+    Handle user's answer to an intelligent build question.
+
+    This continues the iterative Q&A conversation until AI has enough info.
+    """
+    import json
+    from datetime import datetime
+    from services.build_session_service import BuildSessionService
+    from services.aws_environment_scanner import AWSEnvironmentScan
+    from services.agent_core import Agent
+
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+    user_id = payload["user"]["id"]
+
+    # Parse action_id: build_answer_{session_id}_{index}
+    action_id = action.get("action_id", "")
+    parts = action_id.replace("build_answer_", "").split("_")
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+
+    # Parse answer value (contains both the option and the question)
+    answer_data = json.loads(action.get("value", "{}"))
+    answer_option = answer_data.get("option", "")
+    question_text = answer_data.get("question", "")
+
+    logger.info(f"Build answer received: session={session_id}, answer={answer_option}")
+
+    try:
+        # Retrieve session
+        session_service = BuildSessionService()
+        session = session_service.get_session(session_id, user_id)
+
+        if not session:
+            slack.post_message(
+                channel_id,
+                text="❌ Session expired or not found. Please start over with the Build This button."
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Update conversation history with the answer
+        if session.conversation_history and session.conversation_history[-1].get("answer") is None:
+            session.conversation_history[-1]["answer"] = answer_option
+
+        # Acknowledge answer
+        slack.post_message(
+            channel_id,
+            text=f"✓ Recorded: *{answer_option}*\n\n_Analyzing your answer..._"
+        )
+
+        # Build context for AI with conversation history
+        conversation_summary = "\n".join([
+            f"Q: {turn['question']}\nA: {turn.get('answer', 'pending')}"
+            for turn in session.conversation_history
+        ])
+
+        # Reconstruct environment summary from session
+        scan_result = AWSEnvironmentScan(**session.environment_scan)
+        environment_summary = scan_result.to_context_summary()
+
+        context = f"""You are CARL's infrastructure build assistant with deep AWS architecture expertise.
+
+USER'S ORIGINAL REQUEST:
+{session.requirement}
+
+{environment_summary}
+
+CONVERSATION SO FAR:
+{conversation_summary}
+
+YOUR TASK:
+Based on the user's answers, decide what to do next:
+1. If you need more information → ask another question
+2. If you have everything needed → output READY with build plan
+
+AWS ARCHITECTURE KNOWLEDGE:
+- Web apps need: VPC, subnets (public + private), load balancer, compute, database
+- SQL Server options: RDS SQL Server (managed), SQL Server on EC2
+- Redundancy: Multi-AZ, multiple subnets, load balancer, Auto Scaling
+
+OUTPUT FORMAT:
+If more info needed:
+Question: <specific question>
+Options: <2-4 specific options>
+
+If ready to build:
+READY: <detailed build plan>
+"""
+
+        # Ask AI what's next
+        build_planner = Agent(
+            tools=[],
+            instructions=context
+        )
+
+        next_response = build_planner.execute("Based on the conversation so far, what do you need next?")
+
+        logger.info(f"AI next step response: {next_response}")
+
+        # Parse AI response
+        if "READY:" in next_response:
+            # AI is ready to build
+            ready_text = next_response.split('READY:')[1].strip()
+
+            session_service.update_session_status(session_id, user_id, "ready_to_build")
+
+            slack.post_message(
+                channel_id,
+                text=f"✅ *I have everything needed!*\n\n{ready_text}\n\n🏗️ Generating Terraform code..."
+            )
+
+            # TODO: Call infrastructure generation
+            slack.post_message(channel_id, text="🚧 _Code generation coming soon!_")
+
+        elif "Question:" in next_response:
+            # AI has another question
+            lines = next_response.strip().split('\n')
+            question_text = None
+            options = []
+
+            for line in lines:
+                if line.startswith("Question:"):
+                    question_text = line.replace("Question:", "").strip()
+                elif line.startswith("Options:"):
+                    options_str = line.replace("Options:", "").strip()
+                    options = [opt.strip() for opt in options_str.split(',')]
+
+            if question_text and options:
+                # Add new question to conversation history
+                session.conversation_history.append({
+                    "question": question_text,
+                    "answer": None,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                session_service.table.put_item(Item=session.to_dynamodb_item())
+
+                # Show next question with buttons
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{question_text}*"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "block_id": f"build_question_{session_id}_{len(session.conversation_history)}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": option[:75]},
+                                "value": json.dumps({"option": option, "question": question_text}),
+                                "action_id": f"build_answer_{session_id}_{i}"
+                            }
+                            for i, option in enumerate(options[:5])
+                        ]
+                    }
+                ]
+
+                slack.post_message(channel_id, blocks=blocks)
+            else:
+                slack.post_message(
+                    channel_id,
+                    text=f"🤔 Next step:\n\n{next_response}"
+                )
+        else:
+            # Unexpected response
+            slack.post_message(
+                channel_id,
+                text=f"🤔 Analyzing:\n\n{next_response}"
+            )
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.exception(f"Error in build answer handler: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Error processing answer: {str(e)}"
         )
         return {"statusCode": 200, "body": ""}
 
@@ -4705,6 +4897,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_estimate_option_button(payload, action)
             elif action_id.startswith("architecture_build_"):
                 return handle_architecture_build_button(payload, action)
+            elif action_id.startswith("build_answer_"):
+                return handle_build_answer_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
 
