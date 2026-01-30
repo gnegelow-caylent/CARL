@@ -1999,14 +1999,14 @@ def handle_ask_command_fallback(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Fallback ask command without Advisory Agent - AI-driven intelligent scanning.
+    Fallback ask command without Advisory Agent - Comprehensive AWS scanning.
 
-    Uses AgentCore with scanning tools to intelligently decide what AWS resources
-    to scan based on the question. This replaces static keyword matching with
-    AI-driven scanning decisions.
+    Uses AWSEnvironmentScanner to perform deep AWS environment scan, providing
+    full context about VPCs, databases, compute, security services, etc.
+    AI uses this comprehensive data to answer questions intelligently.
 
-    NEW: Integrates with LearningService for continuous learning.
-    NEW: Routes architecture questions to architecture agent.
+    Integrates with LearningService for continuous learning.
+    Routes architecture questions to architecture agent.
     """
     import os
     import json
@@ -2031,7 +2031,7 @@ def handle_ask_command_fallback(
         return handle_architecture_question(slack, channel_id, user_id, question)
 
     # Continue with compliance/scanning agent
-    logger.info("Processing as compliance question with intelligent scanning")
+    logger.info("Processing as compliance question with comprehensive AWS scanning")
 
     # Track for learning
     scan_start_time = time.time()
@@ -2040,15 +2040,21 @@ def handle_ask_command_fallback(
 
     context = ""
 
-    # Use agent-based intelligent scanning
+    # Use comprehensive AWS environment scanner
     try:
-        # Initialize evidence collector
-        evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
-        evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
-        collector = EvidenceCollector(
-            evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
-        )
+        # Perform comprehensive AWS environment scan
+        from services.aws_environment_scanner import AWSEnvironmentScanner
+
+        logger.info("🔍 Performing comprehensive AWS environment scan...")
+        slack.post_message(channel_id, text="🔍 Scanning your AWS environment to answer your question...")
+
+        scanner = AWSEnvironmentScanner(region="us-east-1")
+        scan_result = scanner.scan()
+        environment_summary = scan_result.to_context_summary()
+
+        logger.info(f"✅ Scan complete: {len(scan_result.networking.vpcs)} VPCs, "
+                   f"{len(scan_result.databases.rds_instances)} RDS, "
+                   f"{len(scan_result.compute.ec2_instances)} EC2")
 
         # Initialize learning service
         scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
@@ -2060,128 +2066,30 @@ def handle_ask_command_fallback(
         )
 
         # Get learned context to make agent smarter
-        learned_context = learning_service.get_learned_context(question)
+        learned_context = learning_service.get_learned_context(question, interaction_type="ask")
 
-        # Create scanning tools for the agent
-        scanning_tools = create_scanning_tools(collector)
-
-        # Create scanning agent with tools + learned context
-        base_instructions = """You are CARL's intelligent AWS compliance scanner.
-
-Your job: Scan AWS resources to answer compliance and security questions.
-
-Available scanning tools:
-- scan_iam: IAM users, roles, policies, MFA, password policies
-- scan_s3: S3 buckets, encryption, public access, versioning
-- scan_vpc: VPCs, security groups, flow logs, network configuration
-- scan_cloudtrail: CloudTrail audit logging configuration
-- scan_security_hub: Security Hub findings and enabled standards
-- scan_all: Comprehensive scan of all resources
-
-Instructions:
-1. Analyze the question to determine which AWS resources are relevant
-2. Call the appropriate scanning tools to gather current state
-3. Return the scan results with resource details
-4. Focus on security, compliance, and configuration
-
-Examples:
-- "Do I have MFA enabled?" → scan_iam
-- "Are my S3 buckets encrypted?" → scan_s3
-- "How is my VPC configured?" → scan_vpc
-- "Show me all security issues" → scan_security_hub or scan_all
-"""
+        # Build comprehensive context
+        context = environment_summary
 
         # Add learned context if available
         if learned_context:
-            base_instructions += learned_context
+            context += f"\n\n{learned_context}"
 
-        scanning_agent = Agent(
-            tools=scanning_tools,
-            instructions=base_instructions
-        )
+        # Track scans performed
+        scans_performed = ["comprehensive_aws_scan"]
 
-        # Let the agent decide what to scan
-        logger.info("🤖 Agent analyzing question to determine what to scan")
-        scan_results_raw = scanning_agent.execute(
-            f"Analyze this question and scan relevant AWS resources: {question}"
-        )
-
-        logger.info(f"Agent scan results: {scan_results_raw[:500]}...")  # Log first 500 chars
-
-        # Parse scan results and build context
-        try:
-            # The agent returns a text response, extract JSON from it
-            # Look for JSON blocks in the response
-            scan_data = []
-            for line in scan_results_raw.split('\n'):
-                if line.strip().startswith('{') and line.strip().endswith('}'):
-                    try:
-                        scan_data.append(json.loads(line.strip()))
-                    except:
-                        pass
-
-            if scan_data:
-                context += "\n*Live AWS Environment Scan Results:*\n\n"
-                for result in scan_data:
-                    if result.get('success'):
-                        resource_type = result.get('resource_type', 'Unknown')
-                        summary = result.get('summary', 'No summary')
-                        details = result.get('details', {})
-
-                        # Track which scans were performed (for learning)
-                        scans_performed.append(f"scan_{resource_type.lower()}")
-
-                        context += f"*{resource_type} Scan:*\n"
-                        context += f"• {summary}\n"
-
-                        # Add relevant details
-                        if resource_type == "IAM" and details:
-                            if details.get('users_without_mfa'):
-                                context += f"• Users without MFA: {', '.join(details['users_without_mfa'][:5])}\n"
-                            if not details.get('password_policy_configured'):
-                                context += f"• Password policy NOT configured\n"
-
-                        elif resource_type == "S3" and details:
-                            if details.get('unencrypted_buckets'):
-                                context += f"• Unencrypted buckets: {', '.join(details['unencrypted_buckets'][:5])}\n"
-                            if details.get('public_access_issues'):
-                                context += f"• Buckets with public access issues: {len(details['public_access_issues'])}\n"
-
-                        elif resource_type == "VPC" and details:
-                            if details.get('vpcs_without_flow_logs'):
-                                context += f"• VPCs without flow logs: {', '.join(details['vpcs_without_flow_logs'])}\n"
-                            if details.get('risky_security_groups'):
-                                context += f"• Risky security groups: {len(details['risky_security_groups'])}\n"
-
-                        elif resource_type == "CloudTrail" and details:
-                            if details.get('trails_not_logging'):
-                                context += f"• Trails not logging: {', '.join(details['trails_not_logging'])}\n"
-
-                        elif resource_type == "SecurityHub" and details:
-                            findings = details.get('findings_by_severity', {})
-                            if findings:
-                                context += f"• Findings: {sum(findings.values())} total\n"
-
-                        elif resource_type == "ALL" and details:
-                            context += f"• IAM: {details.get('iam', 0)} items\n"
-                            context += f"• S3: {details.get('s3', 0)} items\n"
-                            context += f"• VPC: {details.get('vpc', 0)} items\n"
-                            context += f"• CloudTrail: {details.get('cloudtrail', 0)} items\n"
-                            context += f"• Security Hub: {details.get('security_hub', 0)} items\n"
-
-                        context += "\n"
-            else:
-                # Fallback: include raw agent response as context
-                context += f"\n*Scan Results:*\n{scan_results_raw}\n\n"
-
-        except Exception as parse_error:
-            logger.warning(f"Could not parse scan results JSON: {parse_error}")
-            # Use raw response as context
-            context += f"\n*Scan Results:*\n{scan_results_raw}\n\n"
+        # Track resources found
+        for vpc in scan_result.networking.vpcs:
+            resources_found.append({"type": "vpc", "id": vpc.vpc_id})
+        for db in scan_result.databases.rds_instances:
+            resources_found.append({"type": "rds", "id": db['identifier']})
+        for instance in scan_result.compute.ec2_instances:
+            resources_found.append({"type": "ec2", "id": instance['instance_id']})
 
     except Exception as e:
-        logger.error(f"Agent-based scanning failed: {e}", exc_info=True)
+        logger.error(f"Comprehensive AWS scanning failed: {e}", exc_info=True)
         context += f"\nNote: Environment scan encountered an error: {str(e)}\n\n"
+        slack.post_message(channel_id, text=f"⚠️ Environment scan encountered an error, proceeding with available information...")
 
     # Generate AI response using scan data
     # Note: No stored findings lookup - /carl ask is scan-first
