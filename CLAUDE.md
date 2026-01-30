@@ -269,6 +269,116 @@ questions = question_agent.execute(
 
 **Cost Consideration:** AI calls cost money (~$0.0001-0.001 per call), but the maintainability and flexibility are worth it. Bad code costs more in engineering time.
 
+### Cost-Conscious Architecture for CARL
+
+**CRITICAL: Every AWS resource and API call must have justified ROI. Keep CARL operational costs under $200/month.**
+
+Before adding any infrastructure or service, ask: "What's the monthly cost and is it worth it?"
+
+**Cost Justification Framework:**
+
+1. **Calculate Monthly Cost**
+   - API calls: Number of calls × cost per call
+   - DynamoDB: Estimated reads/writes × pricing
+   - Lambda: Invocations × duration × memory
+   - S3: Storage + requests + data transfer
+
+2. **Justify the ROI**
+   - Does it save engineering time? (time = money)
+   - Does it improve user experience significantly?
+   - Is there a cheaper alternative that works?
+   - Can we use free tier or pay-per-request?
+
+3. **Compare Alternatives**
+   - Always evaluate 2-3 options with costs
+   - Choose cheapest option that meets requirements
+   - Don't over-engineer for hypothetical scale
+
+**Examples of Good Cost Decisions:**
+
+✅ **DynamoDB on-demand** (~$1-5/month)
+- Pay per request, scales to zero
+- No idle capacity costs
+- Perfect for CARL's sporadic usage
+
+✅ **Lambda** (~$0-10/month)
+- Serverless, pay per invocation
+- Free tier covers most usage
+- No always-on costs
+
+✅ **Pricing cache** (~$0.50/month)
+- Saves 1000s of Price List API calls ($0.0001 each)
+- ROI: Saves $10/month, costs $0.50 = 20x return
+
+✅ **Sonnet for condensing** (~$0.03/month)
+- Only 30 verbose responses/month
+- Prevents complex regex maintenance
+- Acceptable cost for reliability
+
+✅ **EventBridge scheduling** (~$0/month)
+- Free for first 14 million events
+- No custom cron infrastructure needed
+
+**Examples of Bad Cost Decisions:**
+
+❌ **EC2 for occasional tasks** (~$50/month)
+- Runs 24/7 even when idle
+- Lambda would cost $0.10/month for same workload
+- 500x more expensive
+
+❌ **Provisioned DynamoDB** (~$25/month minimum)
+- Pay for capacity even when unused
+- On-demand is cheaper for sporadic access
+- 5-10x more expensive
+
+❌ **Using Opus for simple tasks** (~$0.015 per call)
+- Sonnet costs $0.003 per call (5x cheaper)
+- Haiku costs $0.0001 per call (150x cheaper)
+- Only use Opus when quality absolutely requires it
+
+❌ **Real-time AWS Price List API calls** (~$10-50/month)
+- Calling on every recommendation
+- Caching reduces to $0.50/month
+- 20-100x more expensive
+
+❌ **NAT Gateway for Lambda** (~$33/month)
+- VPC endpoints cost $7.50/month
+- Direct public internet costs $0/month
+- 4-100x more expensive (use case dependent)
+
+**Cost Optimization Checklist:**
+
+Before deploying any new feature:
+- [ ] Calculated monthly cost estimate
+- [ ] Compared 2-3 alternatives with costs
+- [ ] Chose cheapest option that meets requirements
+- [ ] Documented cost justification
+- [ ] Using serverless/pay-per-request when possible
+- [ ] Using free tier or on-demand pricing
+- [ ] Total CARL costs still under $200/month
+
+**Current CARL Cost Breakdown (Target):**
+
+| Service | Monthly Cost | Justification |
+|---------|-------------|---------------|
+| Lambda (API) | $0-5 | Free tier + low invocations |
+| DynamoDB | $1-10 | On-demand, sporadic usage |
+| S3 (evidence/reports) | $1-5 | Minimal storage |
+| Bedrock API | $20-50 | Core AI functionality |
+| CloudWatch Logs | $0-5 | Minimal logging |
+| EventBridge | $0 | Free tier |
+| Secrets Manager | $1-2 | Required for security |
+| **Total** | **$25-75/month** | Well under $200 target |
+
+**When Higher Costs Are Justified:**
+
+1. **Core functionality** - Bedrock API ($20-50/month) enables all AI features
+2. **Security requirements** - Secrets Manager ($1/month) required for SOC 2
+3. **Reliability improvements** - Small cost to prevent outages (monitoring)
+4. **Engineering time savings** - $1/month service that saves 1 hour = worth it
+
+**The Test:** "If this feature costs $X/month, does it save or generate >$X in value?"
+
 ## AI-Driven Decision Making & Hallucination Prevention 🤖
 
 **CRITICAL: CARL uses AI extensively for intelligent decision-making. These guardrails prevent hallucinations while maintaining self-deterministic behavior.**
@@ -1075,6 +1185,14 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
    - ❌ Don't hardcode keyword matching for every possible question
    - ✅ Use AI to intelligently ask relevant questions based on context
    - ❌ Don't create static forms with predetermined questions
+9. **Cost-Conscious Architecture**: CARL's own infrastructure must be cost-effective. Every AWS service, API call, and resource must have justified ROI. Examples:
+   - ✅ Use Sonnet for condensing (~$0.03/month) - acceptable for reliability
+   - ❌ Don't use expensive models when cheaper ones work (Opus for simple tasks)
+   - ✅ DynamoDB on-demand pricing (pay per request) - scales to zero
+   - ❌ Don't provision resources that sit idle (EC2 for occasional tasks)
+   - ✅ Cache pricing data to reduce API calls
+   - ❌ Don't call AWS Price List API on every request
+   - Target: Keep CARL operational costs under $200/month
 
 ## Current Capabilities (All Built)
 
