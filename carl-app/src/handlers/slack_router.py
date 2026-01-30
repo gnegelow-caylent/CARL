@@ -3760,15 +3760,25 @@ def handle_build_config_submission(payload: dict) -> dict:
     # Validate inputs
     errors = {}
 
-    # Validate CIDR if creating new VPC
-    if vpc_selection == "create_new":
-        if not vpc_cidr:
-            errors["vpc_cidr"] = "CIDR required when creating new VPC"
+    # Validate VPC input based on selection
+    vpc_id = None
+    cidr = None
+
+    if not vpc_cidr or not vpc_cidr.strip():
+        errors["vpc_cidr"] = "VPC ID or CIDR is required"
+    elif vpc_selection == "create_new":
+        # Validate as CIDR
+        try:
+            ipaddress.ip_network(vpc_cidr.strip())
+            cidr = vpc_cidr.strip()
+        except ValueError:
+            errors["vpc_cidr"] = "Invalid CIDR format (e.g., 10.0.0.0/16)"
+    elif vpc_selection == "existing":
+        # Validate as VPC ID
+        if re.match(r'^vpc-[a-f0-9]{8,17}$', vpc_cidr.strip()):
+            vpc_id = vpc_cidr.strip()
         else:
-            try:
-                ipaddress.ip_network(vpc_cidr)
-            except ValueError:
-                errors["vpc_cidr"] = "Invalid CIDR format (e.g., 10.0.0.0/16)"
+            errors["vpc_cidr"] = "Invalid VPC ID format (must be vpc-xxxxxxxx)"
 
     # Validate prefix
     if not re.match(r'^[a-z][a-z0-9-]*$', prefix):
@@ -3791,18 +3801,19 @@ def handle_build_config_submission(payload: dict) -> dict:
 
     # Generate Terraform configuration
     terraform_config = {
-        "vpc_id": vpc_selection if vpc_selection != "create_new" else None,
-        "vpc_cidr": vpc_cidr if vpc_selection == "create_new" else None,
+        "vpc_id": vpc_id,
+        "vpc_cidr": cidr,
         "prefix": prefix,
         "environment": environment,
         "use_transit_gateway": use_tgw == "yes"
     }
 
     # Post success message
+    vpc_display = f"Create New ({cidr})" if cidr else f"Use Existing ({vpc_id})"
     slack.post_message(
         channel_id,
         text=f"✅ *Configuration Validated!*\n\n"
-             f"• VPC: {'Create New (' + vpc_cidr + ')' if vpc_selection == 'create_new' else vpc_selection}\n"
+             f"• VPC: {vpc_display}\n"
              f"• Prefix: `{prefix}`\n"
              f"• Environment: {environment}\n"
              f"• Transit Gateway: {'Yes' if use_tgw == 'yes' else 'No'}\n\n"
@@ -4853,57 +4864,39 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
         else:
             requirement = f"{rec_session.requirement} - Option {option_number}"
 
-        slack.post_message(channel_id, text=f"✅ Building *Option {option_number}*\n\n🔍 Scanning your AWS environment to find existing resources...")
-
-        # Scan AWS environment to populate modal with existing resources
-        from services.aws_environment_scanner import AWSEnvironmentScanner
+        # Open modal immediately (must be within 3 seconds to avoid trigger_id expiration)
+        # Skip AWS environment scan - user will input VPC ID or CIDR directly
 
         try:
-            scanner = AWSEnvironmentScanner(region="us-east-1")
-            scan_result = scanner.scan()
-
-            # Build modal with existing resources as options
             modal_blocks = []
 
-            # VPC Selection
-            vpc_options = []
-            for vpc in scan_result.networking.vpcs:
-                vpc_name = vpc.name or vpc.vpc_id
-                vpc_options.append({
-                    "text": {"type": "plain_text", "text": f"{vpc_name} ({vpc.cidr})"},
-                    "value": vpc.vpc_id
-                })
-
-            # Add "create new" option
-            vpc_options.append({
-                "text": {"type": "plain_text", "text": "➕ Create New VPC"},
-                "value": "create_new"
-            })
-
+            # VPC Configuration - simplified to avoid scan delay
             modal_blocks.append({
                 "type": "input",
                 "block_id": "vpc_selection",
-                "label": {"type": "plain_text", "text": "VPC"},
+                "label": {"type": "plain_text", "text": "VPC Configuration"},
                 "element": {
                     "type": "static_select",
                     "action_id": "vpc_select",
-                    "placeholder": {"type": "plain_text", "text": "Choose VPC..."},
-                    "options": vpc_options[:99]  # Slack limit
+                    "initial_option": {"text": {"type": "plain_text", "text": "Create New VPC"}, "value": "create_new"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Use Existing VPC"}, "value": "existing"},
+                        {"text": {"type": "plain_text", "text": "Create New VPC"}, "value": "create_new"}
+                    ]
                 }
             })
 
-            # New VPC CIDR (shown if create new selected)
+            # VPC ID or CIDR
             modal_blocks.append({
                 "type": "input",
                 "block_id": "vpc_cidr",
-                "optional": True,
-                "label": {"type": "plain_text", "text": "New VPC CIDR (if creating new)"},
+                "label": {"type": "plain_text", "text": "VPC ID or CIDR Block"},
                 "element": {
                     "type": "plain_text_input",
                     "action_id": "vpc_cidr_input",
-                    "placeholder": {"type": "plain_text", "text": "10.0.0.0/16"}
+                    "placeholder": {"type": "plain_text", "text": "vpc-abc123 OR 10.0.0.0/16"}
                 },
-                "hint": {"type": "plain_text", "text": "Only needed if creating new VPC. E.g., 10.0.0.0/16 = 65,536 IPs"}
+                "hint": {"type": "plain_text", "text": "Enter VPC ID (vpc-xxx) if using existing, or CIDR (10.0.0.0/16) if creating new"}
             })
 
             # Resource name prefix
@@ -4959,9 +4952,11 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
                 })
 
             # Create modal view
+            import json as json_module
             modal_view = {
                 "type": "modal",
                 "callback_id": f"build_config_submit:{session_id}:{option_number}",
+                "private_metadata": json_module.dumps({"channel_id": channel_id}),
                 "title": {"type": "plain_text", "text": "Configuration"},
                 "submit": {"type": "plain_text", "text": "Generate"},
                 "close": {"type": "plain_text", "text": "Cancel"},
