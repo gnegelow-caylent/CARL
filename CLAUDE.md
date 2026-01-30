@@ -73,6 +73,19 @@ An AI-powered AWS compliance bot that:
    - ✅ Reading repository contents
    - Note: GitHub Actions workflows may deploy to AWS, but that's user-controlled
 
+4. **Terraform Validation (Special Rules)**
+   - ✅ `terraform validate -backend=false` (validates syntax without backend)
+   - ✅ `terraform fmt` (format code)
+   - ⚠️ **CRITICAL**: If validation creates ANY state files, you MUST clean them up:
+     ```bash
+     # After terraform validate
+     rm -f .terraform.lock.hcl
+     rm -rf .terraform/
+     rm -f terraform.tfstate*
+     ```
+   - State files can contain sensitive data - never leave them in the working directory
+   - Always clean up before committing or moving to next task
+
 ### 🟡 Ask First (Requires Confirmation)
 
 1. **Potentially Destructive Operations**
