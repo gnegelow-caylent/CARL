@@ -15,9 +15,9 @@ from services.pricing_tool import get_aws_pricing
 from services.pricing_prefetch_service import PricingPrefetchService
 from services.cost_estimator import CostEstimator
 from knowledge.architecture_patterns import get_all_patterns
-from knowledge.vpc_patterns import VPC_PATTERNS
-from knowledge.security_tooling_patterns import SECURITY_PATTERNS
-from knowledge.identity_patterns import IDENTITY_PATTERNS
+from knowledge.vpc_patterns import get_vpc_patterns
+from knowledge.security_tooling_patterns import get_security_tooling_patterns
+from knowledge.identity_patterns import get_identity_patterns
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -100,9 +100,9 @@ def create_architecture_tools() -> list[Tool]:
 
             patterns_map = {
                 "networking": get_all_patterns(),
-                "vpc": VPC_PATTERNS,
-                "security": SECURITY_PATTERNS,
-                "identity": IDENTITY_PATTERNS,
+                "vpc": get_vpc_patterns(),
+                "security": get_security_tooling_patterns(),
+                "identity": get_identity_patterns(),
             }
 
             if category in patterns_map:
