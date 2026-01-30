@@ -4082,7 +4082,7 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
 
         # TODO: Integrate with intelligent foundation builder that uses the requirement context
         # For now, route to foundation builder
-        return handle_foundation_command(slack, channel_id, user_id, "start", trigger_id=trigger_id)
+        return handle_foundation_command(slack, channel_id, user_id, "start")
 
     elif button_value.startswith("build:"):
         # Legacy blueprint-based build
