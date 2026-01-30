@@ -3733,9 +3733,7 @@ def handle_build_config_submission(payload: dict) -> dict:
     import re
     import json as json_lib
 
-    from services.slack_service import SlackService
-
-    slack = SlackService()
+    slack = get_slack_service()
     user_id = payload["user"]["id"]
 
     # Parse callback_id: build_config_submit:{session_id}:{option_number}
