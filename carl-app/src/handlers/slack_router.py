@@ -4141,7 +4141,7 @@ Return ONLY the five files separated by markers, no extra text:
 
     response = bedrock.invoke_model(
         prompt=prompt,
-        max_tokens=4096
+        max_tokens=16000  # Increased for complex infrastructure (static websites, APIs, etc.)
     )
 
     # Parse response into separate files
