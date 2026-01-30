@@ -128,6 +128,255 @@ Before executing any command, check:
 - [ ] Is this a local read or git commit? → Proceed
 - [ ] Is this `terraform plan` or validation? → Proceed
 
+## AI-Driven Decision Making & Hallucination Prevention 🤖
+
+**CRITICAL: CARL uses AI extensively for intelligent decision-making. These guardrails prevent hallucinations while maintaining self-deterministic behavior.**
+
+### Core Principle: Intelligence with Boundaries
+
+CARL cannot hardcode every scenario (there are infinite variations), but AI must operate within validated constraints:
+- ✅ **AI decides WHAT to do** (scan VPC for database question, recommend t3.medium for cost question)
+- ✅ **Validation ensures it's CORRECT** (CIDR format validated, instance types checked against AWS catalog)
+- ❌ **AI never invents data** (never make up AWS resource IDs, prices, or parameter values)
+
+### When to Use AI-Driven vs Hardcoded
+
+**Use AI-Driven Approach When:**
+1. **Infinite variations exist** - Questions can be phrased 1000 ways ("database connectivity" vs "how's my DB configured")
+2. **Context matters** - Same input needs different action based on environment
+3. **Patterns are learnable** - User behavior shows what works over time
+4. **Flexibility is valuable** - New AWS services should work without code changes
+
+**Use Hardcoded/Static Approach When:**
+1. **AWS has strict rules** - CIDR format, S3 bucket naming, region codes (these never change)
+2. **Security boundaries** - IAM permissions, encryption requirements, compliance controls
+3. **Cost constraints** - Hard limits on spending, approval thresholds
+4. **Data integrity** - Primary keys, unique constraints, required fields
+
+**Example:**
+```python
+# ✅ GOOD: AI decides intent, validation checks correctness
+user_input = "My database network setup"
+intent = ai_classify(user_input)  # AI: "database" + "network" = scan VPC + security groups
+scans = perform_scans(intent)     # Validated: these scan functions exist and are safe
+
+# ❌ BAD: AI generates values that should be validated
+cidr = ai_generate("suggest CIDR for production VPC")  # AI might say "10.0.0.0/8" (too large!)
+# ✅ GOOD: AI suggests, validation enforces rules
+cidr_suggestion = ai_generate("suggest CIDR for production VPC")  # "10.0.0.0/16"
+is_valid, error = validate_cidr(cidr_suggestion)  # Check: octets 0-255, mask 0-32, size appropriate
+if not is_valid:
+    use_default_cidr("10.0.0.0/16")  # Fallback to known-good value
+```
+
+### Validation Requirements for AI Outputs
+
+**Every AI decision must have validation:**
+
+1. **Type Validation**
+   - CIDR blocks: Regex + octet range + mask range validation
+   - S3 bucket names: Length (3-63), character rules, no consecutive dots
+   - Resource names: Length limits, allowed characters
+   - AWS regions: Match against official region list
+   - Instance types: Match against AWS instance catalog
+
+2. **Business Logic Validation**
+   - Cost estimates: Cross-check against AWS Price List API (never make up prices)
+   - Resource dependencies: VPC required before subnets, etc.
+   - Compliance requirements: SOC 2 controls mapped to actual AWS services
+
+3. **Safety Validation**
+   - No destructive operations without explicit confirmation
+   - No modification of production resources
+   - No exposure of secrets or credentials
+
+**Implementation Pattern:**
+```python
+# Pattern-based fallback for unknown blueprints (intelligent defaults)
+def get_required_parameters(blueprint_name: str):
+    # Exact match first (hardcoded known blueprints)
+    if blueprint_name in KNOWN_BLUEPRINTS:
+        return KNOWN_BLUEPRINTS[blueprint_name]
+
+    # AI-driven pattern detection for unknown blueprints
+    parameters = []
+    if "vpc" in blueprint_name.lower():
+        parameters.extend([cidr_param, name_param])  # Known requirements for VPC-like resources
+
+    # Always validate AI-suggested parameters
+    for param in parameters:
+        if not param.has_validation():
+            raise ValueError(f"Parameter {param.name} lacks validation - cannot use AI suggestion safely")
+
+    return parameters
+```
+
+### Input Sanitization & Boundaries
+
+**User inputs must be sanitized before AI processing:**
+
+1. **String Inputs**
+   - Max length: 500 characters for questions, 100 for parameters
+   - Strip HTML/SQL injection attempts
+   - Normalize whitespace
+   - No executable code patterns
+
+2. **Numeric Inputs**
+   - Range validation (instance count: 1-100, not 1000000)
+   - Type checking (integers where expected)
+   - Reasonable defaults when validation fails
+
+3. **AWS Resource References**
+   - Validate format (vpc-xxxxxxxx, sg-xxxxxxxx)
+   - Verify existence before operations
+   - Never accept user input as direct AWS API parameters without validation
+
+### Fallback Strategies
+
+**When AI confidence is low or validation fails:**
+
+1. **Use Known-Good Defaults**
+   ```python
+   if not validate_cidr(ai_suggestion):
+       return "10.0.0.0/16"  # AWS-recommended default VPC CIDR
+   ```
+
+2. **Ask User for Clarification**
+   ```python
+   if confidence < 0.7:
+       slack.post_message("Did you mean: scan VPC? Please confirm.")
+   ```
+
+3. **Provide Multiple Options**
+   ```python
+   # Instead of picking one, show user choices
+   options = [
+       "Option 1: t3.medium ($30/month) - Good for dev",
+       "Option 2: t3.large ($60/month) - Good for prod"
+   ]
+   slack.post_message("Which option?", options)
+   ```
+
+4. **Graceful Degradation**
+   ```python
+   # If intelligent parameter detection fails, fall back to simple approach
+   try:
+       params = intelligent_parameter_detection(blueprint)
+   except ValidationError:
+       params = get_basic_parameters()  # Name, environment only
+   ```
+
+### When to Ask for Human Confirmation
+
+**Automatically ask user before:**
+
+1. **High-Impact Decisions**
+   - Selecting instance types for production (cost > $100/month)
+   - Choosing encryption keys (security implications)
+   - Multi-region deployments (complexity + cost)
+
+2. **Ambiguous Intent**
+   - Question matches multiple scan types equally
+   - Parameter could have multiple valid interpretations
+   - AI classification confidence < 70%
+
+3. **First-Time Patterns**
+   - User asks question type CARL hasn't seen before
+   - Blueprint requested isn't in known library
+   - Configuration outside learned patterns
+
+**Don't Ask (Auto-Proceed) When:**
+- Confidence > 85% and validated
+- User has confirmed this pattern before (learned)
+- Read-only operation (scanning, querying)
+- Using known-good defaults
+
+### AI Hallucination Red Flags
+
+**Detect and prevent these common AI hallucination patterns:**
+
+1. **Made-Up AWS Resource IDs**
+   ```python
+   # ❌ AI says: "Your VPC vpc-12345abc has..."
+   # ✅ Validate: Does vpc-12345abc exist in DynamoDB/scan results?
+   if resource_id not in actual_scanned_resources:
+       log_warning("AI hallucinated resource ID")
+       return "I don't have information about that resource. Run /carl evidence collect first."
+   ```
+
+2. **Invented Pricing**
+   ```python
+   # ❌ AI estimates: "t3.medium costs about $40/month"
+   # ✅ Validate: Check AWS Price List API
+   actual_price = get_aws_pricing("ec2", instance_type="t3.medium")
+   if abs(ai_price - actual_price) > actual_price * 0.1:  # >10% difference
+       return actual_price  # Use real price, not AI estimate
+   ```
+
+3. **Fake AWS Services/Features**
+   ```python
+   # ❌ AI recommends: "Use AWS SecureVault for encryption"
+   # ✅ Validate: Is this a real AWS service?
+   if service_name not in KNOWN_AWS_SERVICES:
+       log_warning("AI suggested non-existent service")
+       return "That service doesn't exist. Did you mean AWS Secrets Manager or KMS?"
+   ```
+
+4. **Incorrect Parameter Values**
+   ```python
+   # ❌ AI suggests: CIDR "10.0.0.0/8" for single VPC (16 million IPs!)
+   # ✅ Validate: Is this reasonable for stated use case?
+   if cidr_size > 65536 and use_case != "multi-region-mega-vpc":
+       return ValidationError("CIDR too large - did you mean /16 or /20?")
+   ```
+
+### Confidence Thresholds
+
+**Use these thresholds for AI decision-making:**
+
+- **> 90%**: Auto-proceed (high confidence, validated)
+- **70-90%**: Proceed with logging (monitor for user feedback)
+- **50-70%**: Ask user to confirm or choose from options
+- **< 50%**: Always ask user, provide context for decision
+
+**Example:**
+```python
+classification = classify_question(user_question)
+
+if classification.confidence > 0.9 and validate(classification.result):
+    # High confidence + validated = proceed
+    perform_action(classification.result)
+elif classification.confidence > 0.7:
+    # Medium confidence = proceed but log for learning
+    perform_action(classification.result)
+    log_for_feedback(question, action, confidence)
+else:
+    # Low confidence = ask user
+    slack.post_message(f"I'm {classification.confidence:.0%} confident you want to: {classification.result}. Is that correct?")
+```
+
+### Testing AI-Driven Features
+
+**When testing intelligent features:**
+
+1. **Test with garbage inputs** - Random strings, SQL injection, extreme values
+2. **Test with ambiguous inputs** - Questions that could mean multiple things
+3. **Test with invalid inputs** - Malformed CIDRs, fake resource IDs, non-existent regions
+4. **Verify validation catches issues** - Don't rely on AI being perfect
+5. **Check fallback behavior** - What happens when validation fails?
+
+### Summary Checklist
+
+Before deploying any AI-driven feature:
+- [ ] AI decision has validation (type, format, business logic)
+- [ ] Invalid inputs trigger fallback or user confirmation
+- [ ] No made-up AWS resource IDs, prices, or service names
+- [ ] Confidence thresholds implemented (auto-proceed vs ask)
+- [ ] Tested with garbage/ambiguous/invalid inputs
+- [ ] Hallucination red flags are detected and logged
+- [ ] User can override AI decisions
+- [ ] Learned patterns have feedback loop (👍 👎 buttons)
+
 ## Latest Updates (Current Session)
 
 ### Phase 2 Deployment & Bug Fixes 🐛 (January 29, 2026 - Evening)

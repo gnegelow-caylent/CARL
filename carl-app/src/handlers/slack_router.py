@@ -2796,31 +2796,46 @@ Examples:
 def handle_build_command(
     slack: SlackService, channel_id: str, user_id: str, blueprint_name: str, config: dict = None, trigger_id: str = None
 ) -> dict:
-    """Handle /carl build command - generate and upload to GitHub."""
+    """
+    Handle /carl build command - generate and upload to GitHub.
+
+    NEW: Uses intelligent parameter detection instead of hardcoded pattern matching.
+    """
     if not blueprint_name:
         return handle_blueprints_command(slack, channel_id, user_id)
 
-    # Check if this is a VPC-related blueprint that needs CIDR input
-    # Show modal for any blueprint with "vpc" in the name
-    needs_cidr = "vpc" in blueprint_name.lower()
+    # Use intelligent parameter detection (replaces hardcoded "vpc" and "s3" checks)
+    from services.blueprint_parameter_detector import BlueprintParameterDetector
 
-    # If VPC blueprint and no config provided, ask for CIDR via modal
-    if needs_cidr and config is None and trigger_id:
-        return show_vpc_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
+    detector = BlueprintParameterDetector()
+    required_params = detector.get_required_parameters(blueprint_name)
 
-    # Check if this is an S3 blueprint that needs bucket name input
-    needs_bucket_name = "s3" in blueprint_name.lower()
+    # If no config provided and parameters are required, ask for them
+    if config is None and required_params and trigger_id:
+        logger.info(f"Blueprint {blueprint_name} requires {len(required_params)} parameters")
+        return show_blueprint_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name, required_params)
 
-    # If S3 blueprint and no config provided, ask for bucket name via modal
-    if needs_bucket_name and config is None and trigger_id:
-        return show_s3_config_modal(slack, trigger_id, channel_id, user_id, blueprint_name)
+    # If config provided, validate it
+    if config:
+        is_valid, errors = detector.validate_parameters(blueprint_name, config)
+        if not is_valid:
+            error_msg = "Invalid parameters:\n" + "\n".join([f"• {err}" for err in errors])
+            slack.post_message(channel_id, text=f"❌ {error_msg}")
+            return {"statusCode": 400, "body": "Invalid parameters"}
 
     builder = get_infrastructure_builder()
 
     try:
-        # Use provided config or defaults
+        # Use provided config or build from parameter defaults
         if config is None:
-            config = {"name": "main", "environment": "prod"}
+            # Build default config from required parameters
+            config = {}
+            for param in required_params:
+                if param.default:
+                    config[param.name] = param.default
+            # Fallback if no parameters defined
+            if not config:
+                config = {"name": "main", "environment": "prod"}
 
         result = builder.generate(blueprint_name.strip(), config)
 
@@ -2885,6 +2900,104 @@ def handle_build_command(
         slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
 
     return {"statusCode": 200, "body": ""}
+
+
+def show_blueprint_config_modal(
+    slack: SlackService,
+    trigger_id: str,
+    channel_id: str,
+    user_id: str,
+    blueprint_name: str,
+    required_params: list
+) -> dict:
+    """
+    Show modal to collect blueprint parameters (intelligent, not hardcoded).
+
+    Dynamically builds modal based on required_params list.
+    """
+    import json as json_lib
+    from services.blueprint_parameter_detector import ParameterType
+
+    # Build blocks dynamically based on required parameters
+    blocks = []
+
+    for param in required_params:
+        # Create input block based on parameter type
+        if param.type == ParameterType.ENVIRONMENT:
+            # Environment dropdown
+            element = {
+                "type": "static_select",
+                "action_id": f"param_{param.name}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": param.description
+                },
+                "initial_option": {
+                    "text": {"type": "plain_text", "text": param.default or "Production"},
+                    "value": param.default or "prod"
+                },
+                "options": [
+                    {"text": {"type": "plain_text", "text": "Development"}, "value": "dev"},
+                    {"text": {"type": "plain_text", "text": "Staging"}, "value": "staging"},
+                    {"text": {"type": "plain_text", "text": "Production"}, "value": "prod"},
+                ]
+            }
+        else:
+            # Text input for everything else
+            element = {
+                "type": "plain_text_input",
+                "action_id": f"param_{param.name}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": param.description
+                },
+            }
+            if param.default:
+                element["initial_value"] = param.default
+
+        blocks.append({
+            "type": "input",
+            "block_id": f"block_{param.name}",
+            "element": element,
+            "label": {
+                "type": "plain_text",
+                "text": param.name.replace("_", " ").title()
+            },
+            "hint": {
+                "type": "plain_text",
+                "text": param.description
+            },
+            "optional": not param.required
+        })
+
+    modal = {
+        "type": "modal",
+        "callback_id": "blueprint_config_modal",
+        "private_metadata": json_lib.dumps({
+            "channel_id": channel_id,
+            "blueprint_name": blueprint_name
+        }),
+        "title": {
+            "type": "plain_text",
+            "text": f"{blueprint_name.split('/')[-1].title()} Config"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Generate Code"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": blocks
+    }
+
+    try:
+        slack.client.views_open(trigger_id=trigger_id, view=modal)
+        return {"statusCode": 200, "body": ""}
+    except Exception as e:
+        logger.error(f"Failed to show blueprint config modal: {e}")
+        return {"statusCode": 500, "body": str(e)}
 
 
 def show_vpc_config_modal(slack: SlackService, trigger_id: str, channel_id: str, user_id: str, blueprint_name: str) -> dict:
@@ -3353,6 +3466,70 @@ def handle_accept_risk_modal_submission(payload: dict) -> dict:
 
     # Close modal
     return {"statusCode": 200, "body": ""}
+
+
+def handle_blueprint_config_submission(payload: dict) -> dict:
+    """
+    Handle blueprint config modal submission (intelligent parameter collection).
+
+    Extracts all parameters dynamically and validates them before building.
+    """
+    slack = get_slack_service()
+    view = payload.get("view", {})
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    channel_id = private_metadata.get("channel_id")
+    blueprint_name = private_metadata.get("blueprint_name")
+
+    # Extract all parameter values from modal
+    values = view.get("state", {}).get("values", {})
+    config = {}
+
+    for block_id, block_values in values.items():
+        # Block ID format: block_{param_name}
+        if block_id.startswith("block_"):
+            param_name = block_id.replace("block_", "")
+
+            # Find the value in the block (could be text input or select)
+            for action_id, action_value in block_values.items():
+                if action_id.startswith("param_"):
+                    # Get value based on type
+                    if "selected_option" in action_value:
+                        # Dropdown selection
+                        config[param_name] = action_value["selected_option"]["value"]
+                    elif "value" in action_value:
+                        # Text input
+                        config[param_name] = action_value["value"]
+
+    logger.info(f"Blueprint config collected: {config}")
+
+    # Validate parameters
+    from services.blueprint_parameter_detector import BlueprintParameterDetector
+
+    detector = BlueprintParameterDetector()
+    is_valid, errors = detector.validate_parameters(blueprint_name, config)
+
+    if not is_valid:
+        # Return validation errors to modal
+        error_msg = "Validation failed:\n" + "\n".join([f"• {err}" for err in errors])
+        return {
+            "response_action": "errors",
+            "errors": {
+                f"block_{list(config.keys())[0]}": error_msg[:150]  # Show first error
+            }
+        }
+
+    # Parameters valid - proceed with build
+    user_id = payload.get("user", {}).get("id")
+
+    # Call handle_build_command with validated config
+    return handle_build_command(
+        slack=slack,
+        channel_id=channel_id,
+        user_id=user_id,
+        blueprint_name=blueprint_name,
+        config=config,
+        trigger_id=None  # Already in modal submission, no trigger_id needed
+    )
 
 
 def handle_vpc_config_submission(payload: dict) -> dict:
@@ -3897,7 +4074,9 @@ def handle_interaction(payload: dict) -> dict:
 
     if action_type == "view_submission":
         callback_id = payload.get("view", {}).get("callback_id", "")
-        if callback_id == "vpc_config_modal":
+        if callback_id == "blueprint_config_modal":
+            return handle_blueprint_config_submission(payload)
+        elif callback_id == "vpc_config_modal":
             return handle_vpc_config_submission(payload)
         elif callback_id == "s3_config_modal":
             return handle_s3_config_submission(payload)
