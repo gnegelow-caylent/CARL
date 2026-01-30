@@ -181,6 +181,94 @@ Before creating any new tool, service, or function:
 
 **If unsure, ask the user:** "I see we have [existing_tool] that does X. Should I extend it or create something new?"
 
+### Dynamic Processing Over Static Rules
+
+**CRITICAL: This is AI - use it! Leverage dynamic, intelligent processing over brittle static rules.**
+
+Before building static rules or regex patterns, ask: "Can AI solve this better?"
+
+**Dynamic Processing (Preferred):**
+- ✅ AI agent condenses verbose responses based on content understanding
+- ✅ AI detects user intent and chooses appropriate scans
+- ✅ AI asks contextually relevant questions during infrastructure builds
+- ✅ AI validates and suggests corrections intelligently
+- ✅ AI adapts to new patterns without code changes
+
+**Static Rules (Use Sparingly):**
+- ✅ AWS service names (finite list that rarely changes)
+- ✅ Security policies (compliance requirements, IAM restrictions)
+- ✅ Data validation (CIDR format, region codes - strict formats)
+- ✅ Cost limits (hard budget constraints)
+
+**Real Examples:**
+
+**❌ BAD: Static Approach**
+```python
+# 50+ regex patterns to fix formatting
+response = re.sub(r'****text****', r'***text***', response)
+response = re.sub(r'*** — ***', r' — ', response)
+response = re.sub(r'* **', '**', response)
+# ... 47 more patterns ...
+```
+
+**✅ GOOD: Dynamic Approach**
+```python
+# AI fixes formatting intelligently
+if has_formatting_issues(response):
+    response = formatting_agent.execute(f"Fix markdown: {response}")
+```
+
+**❌ BAD: Static Keyword Matching**
+```python
+if "database" in question or "rds" in question or "db" in question:
+    scan_database()
+if "network" in question or "vpc" in question or "subnet" in question:
+    scan_network()
+# ... 50 more if statements ...
+```
+
+**✅ GOOD: Dynamic Intent Detection**
+```python
+# AI understands intent and decides what to scan
+scan_results = intelligent_scanner_agent.execute(question)
+```
+
+**❌ BAD: Static Form Questions**
+```python
+# Always ask these 10 questions regardless of context
+questions = [
+    "What CIDR range?",
+    "Which region?",
+    "How many AZs?",
+    # ... always the same ...
+]
+```
+
+**✅ GOOD: Context-Aware Questions**
+```python
+# AI asks relevant questions based on what user requested
+questions = question_agent.execute(
+    f"User wants: {requirement}. What do we need to know?"
+)
+```
+
+**When Static Rules Are OK:**
+1. **AWS API constraints** - Region codes must match AWS list
+2. **Security policies** - SOC 2 controls are fixed
+3. **Simple normalization** - Converting 3+ asterisks to 3 is fine
+4. **Performance-critical paths** - Regex for CIDR validation is faster than AI
+
+**When to Use Dynamic AI:**
+1. **Content understanding** - Detecting verbosity, sentiment, quality
+2. **Intent detection** - Understanding what user wants
+3. **Contextual decisions** - What to ask, what to scan, what to recommend
+4. **Adaptive behavior** - Handling new patterns without code changes
+5. **Complex validation** - "Is this architecture reasonable?" vs "Is this a valid CIDR?"
+
+**The Test:** If you're writing your 5th regex pattern or 10th if-statement for the same problem, stop and use AI instead.
+
+**Cost Consideration:** AI calls cost money (~$0.0001-0.001 per call), but the maintainability and flexibility are worth it. Bad code costs more in engineering time.
+
 ## AI-Driven Decision Making & Hallucination Prevention 🤖
 
 **CRITICAL: CARL uses AI extensively for intelligent decision-making. These guardrails prevent hallucinations while maintaining self-deterministic behavior.**
@@ -980,6 +1068,13 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
    - Consolidate similar Slack commands under one interface
    - Extend `agent_core.py` capabilities rather than building parallel agent systems
    - Leverage AWS services instead of reimplementing functionality (e.g., use EventBridge, not custom schedulers)
+8. **Dynamic Processing Over Static Rules**: This is AI - leverage that advantage. Use intelligent agents to solve problems dynamically rather than building brittle static rules. Examples:
+   - ✅ Use AI agent to condense verbose responses (adapts to content)
+   - ❌ Don't write 50+ regex rules to fix formatting issues
+   - ✅ Use AI to detect intent and choose appropriate scans
+   - ❌ Don't hardcode keyword matching for every possible question
+   - ✅ Use AI to intelligently ask relevant questions based on context
+   - ❌ Don't create static forms with predetermined questions
 
 ## Current Capabilities (All Built)
 
