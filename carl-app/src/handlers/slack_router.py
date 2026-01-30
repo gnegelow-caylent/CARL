@@ -3745,6 +3745,24 @@ def handle_build_config_submission(payload: dict) -> dict:
     session_id = parts[1]
     option_number = parts[2]
 
+    # Get the session to retrieve the original requirement
+    from services.build_session_service import BuildSessionService
+    session_service = BuildSessionService()
+    session = session_service.get_session(session_id, user_id)
+
+    # Extract what the user originally asked for
+    requirement = ""
+    option_text = ""
+    if session:
+        requirement = session.requirement
+        recommendation = session.environment_scan.get("recommendation", "")
+        # Extract the specific option text
+        import re
+        pattern = rf'OPTION\s+{option_number}:.*?(?=OPTION\s+\d+:|My Recommendation:|$)'
+        option_match = re.search(pattern, recommendation, re.IGNORECASE | re.DOTALL)
+        if option_match:
+            option_text = option_match.group(0).strip()
+
     # Extract form values
     values = payload["view"]["state"]["values"]
 
@@ -3803,7 +3821,9 @@ def handle_build_config_submission(payload: dict) -> dict:
         "vpc_cidr": cidr,
         "prefix": prefix,
         "environment": environment,
-        "use_transit_gateway": use_tgw == "yes"
+        "use_transit_gateway": use_tgw == "yes",
+        "requirement": requirement,
+        "option_text": option_text
     }
 
     # Post success message
@@ -3818,13 +3838,21 @@ def handle_build_config_submission(payload: dict) -> dict:
              f"🏗️ Generating Terraform code..."
     )
 
-    # Generate Terraform code
-    terraform_code = _generate_terraform_from_config(terraform_config)
+    # Generate Terraform code using AI
+    try:
+        terraform_code = _generate_terraform_with_ai(terraform_config)
+    except Exception as e:
+        logger.exception(f"Error generating Terraform: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to generate Terraform code: {str(e)}\n\nPlease try again or contact support."
+        )
+        return {"statusCode": 200, "body": ""}
 
     # Post Terraform code to Slack
     slack.post_message(
         channel_id,
-        text=f"✅ *Terraform Code Generated!*\n\n```hcl\n{terraform_code}\n```\n\n"
+        text=f"✅ *Terraform Code Generated!*\n\n```hcl\n{terraform_code[:2500]}```\n\n"
              "📋 *Next Steps:*\n"
              "• Review the generated code\n"
              "• Save to a `.tf` file in your Terraform workspace\n"
@@ -3835,13 +3863,78 @@ def handle_build_config_submission(payload: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
+def _generate_terraform_with_ai(config: dict) -> str:
+    """Use AI to generate appropriate Terraform based on user's requirement."""
+    from services.bedrock_service import BedrockService
+
+    bedrock = BedrockService()
+
+    # Build context for AI
+    requirement = config.get("requirement", "infrastructure setup")
+    option_text = config.get("option_text", "")
+    vpc_info = f"VPC ID: {config['vpc_id']}" if config.get('vpc_id') else f"VPC CIDR: {config['vpc_cidr']}"
+
+    prompt = f"""Generate complete, production-ready Terraform code for the following AWS infrastructure requirement.
+
+**USER'S REQUIREMENT:**
+{requirement}
+
+**SELECTED OPTION:**
+{option_text}
+
+**CONFIGURATION:**
+- {vpc_info}
+- Resource Prefix: {config['prefix']}
+- Environment: {config['environment']}
+- Transit Gateway: {'Yes' if config.get('use_transit_gateway') else 'No'}
+
+**INSTRUCTIONS:**
+1. Generate ONLY the Terraform HCL code - no explanations
+2. Include terraform {{}} block with required_providers
+3. Use data sources for existing resources (VPC ID provided)
+4. Create new resources as needed based on the requirement
+5. Include proper tags (Name, Environment, ManagedBy = "CARL")
+6. Add TODO comments where user input is needed (IPs, ASNs, etc.)
+7. Include outputs for all major resources
+8. Follow AWS best practices
+
+**CRITICAL:** Generate the COMPLETE infrastructure needed for the requirement, not just a VPC.
+For example:
+- If VPN mentioned: Include VPN Gateway, Customer Gateway, VPN Connection
+- If Direct Connect: Include DX Gateway, Virtual Interface
+- If database: Include RDS instance with proper security groups
+- If web app: Include ALB, target groups, security groups
+
+Return ONLY the Terraform code, nothing else."""
+
+    terraform_code = bedrock.invoke_model(
+        prompt=prompt,
+        max_tokens=4096
+    )
+
+    return terraform_code
+
+
 def _generate_terraform_from_config(config: dict) -> str:
-    """Generate Terraform HCL code from validated configuration."""
+    """DEPRECATED: Generate Terraform HCL code from validated configuration.
+
+    Use _generate_terraform_with_ai instead for intelligent generation.
+    """
     terraform_lines = []
+
+    # Detect what type of infrastructure to generate based on requirement
+    requirement = config.get("requirement", "").lower()
+    option_text = config.get("option_text", "").lower()
+    combined_text = f"{requirement} {option_text}"
+
+    # Detect resource types needed
+    needs_vpn = any(kw in combined_text for kw in ['vpn', 'site-to-site', 'ipsec'])
+    needs_direct_connect = any(kw in combined_text for kw in ['direct connect', 'dx', 'dedicated connection'])
+    needs_transit_gateway = config.get("use_transit_gateway", False)
 
     # Header
     terraform_lines.append("# Infrastructure Configuration")
-    terraform_lines.append("# Generated by CARL\n")
+    terraform_lines.append(f"# Generated by CARL for: {config.get('requirement', 'infrastructure')}\n")
     terraform_lines.append("terraform {")
     terraform_lines.append("  required_version = \">= 1.0\"")
     terraform_lines.append("  required_providers {")
@@ -3875,8 +3968,72 @@ def _generate_terraform_from_config(config: dict) -> str:
         terraform_lines.append("}\n")
         vpc_ref = "aws_vpc.main.id"
 
+    # VPN Gateway and Site-to-Site VPN (if requested)
+    if needs_vpn:
+        terraform_lines.append("# VPN Gateway")
+        terraform_lines.append("resource \"aws_vpn_gateway\" \"main\" {")
+        terraform_lines.append(f"  vpc_id          = {vpc_ref}")
+        terraform_lines.append("  amazon_side_asn = 64512\n")
+        terraform_lines.append("  tags = {")
+        terraform_lines.append(f"    Name        = \"{config['prefix']}-vgw\"")
+        terraform_lines.append(f"    Environment = \"{config['environment']}\"")
+        terraform_lines.append("    ManagedBy   = \"CARL\"")
+        terraform_lines.append("  }")
+        terraform_lines.append("}\n")
+
+        terraform_lines.append("# Customer Gateway")
+        terraform_lines.append("# TODO: Replace with your on-premises public IP address")
+        terraform_lines.append("resource \"aws_customer_gateway\" \"main\" {")
+        terraform_lines.append("  bgp_asn    = 65000")
+        terraform_lines.append("  ip_address = \"203.0.113.1\"  # REPLACE with your public IP")
+        terraform_lines.append("  type       = \"ipsec.1\"\n")
+        terraform_lines.append("  tags = {")
+        terraform_lines.append(f"    Name        = \"{config['prefix']}-cgw\"")
+        terraform_lines.append(f"    Environment = \"{config['environment']}\"")
+        terraform_lines.append("    ManagedBy   = \"CARL\"")
+        terraform_lines.append("  }")
+        terraform_lines.append("}\n")
+
+        terraform_lines.append("# Site-to-Site VPN Connection")
+        terraform_lines.append("resource \"aws_vpn_connection\" \"main\" {")
+        terraform_lines.append("  vpn_gateway_id      = aws_vpn_gateway.main.id")
+        terraform_lines.append("  customer_gateway_id = aws_customer_gateway.main.id")
+        terraform_lines.append("  type                = \"ipsec.1\"")
+        terraform_lines.append("  static_routes_only  = false  # Use BGP for dynamic routing\n")
+        terraform_lines.append("  tags = {")
+        terraform_lines.append(f"    Name        = \"{config['prefix']}-vpn\"")
+        terraform_lines.append(f"    Environment = \"{config['environment']}\"")
+        terraform_lines.append("    ManagedBy   = \"CARL\"")
+        terraform_lines.append("  }")
+        terraform_lines.append("}\n")
+
+    # Direct Connect (if requested)
+    if needs_direct_connect:
+        terraform_lines.append("# Direct Connect Virtual Interface")
+        terraform_lines.append("# NOTE: Direct Connect connection must be ordered through AWS Console")
+        terraform_lines.append("# This creates the Virtual Interface once connection is active")
+        terraform_lines.append("resource \"aws_dx_gateway\" \"main\" {")
+        terraform_lines.append(f"  name            = \"{config['prefix']}-dxgw\"")
+        terraform_lines.append("  amazon_side_asn = \"64512\"\n")
+        terraform_lines.append("  tags = {")
+        terraform_lines.append(f"    Name        = \"{config['prefix']}-dxgw\"")
+        terraform_lines.append(f"    Environment = \"{config['environment']}\"")
+        terraform_lines.append("    ManagedBy   = \"CARL\"")
+        terraform_lines.append("  }")
+        terraform_lines.append("}\n")
+
+        terraform_lines.append("# TODO: Create private VIF after DX connection is active")
+        terraform_lines.append("# resource \"aws_dx_private_virtual_interface\" \"main\" {")
+        terraform_lines.append(f"#   connection_id    = \"dxcon-xxxxxxxx\"  # REPLACE with your DX connection ID")
+        terraform_lines.append(f"#   name             = \"{config['prefix']}-vif\"")
+        terraform_lines.append("#   vlan             = 1000")
+        terraform_lines.append("#   address_family   = \"ipv4\"")
+        terraform_lines.append("#   bgp_asn          = 65000")
+        terraform_lines.append("#   dx_gateway_id    = aws_dx_gateway.main.id")
+        terraform_lines.append("# }\n")
+
     # Transit Gateway (if requested)
-    if config.get("use_transit_gateway"):
+    if needs_transit_gateway:
         terraform_lines.append("# Transit Gateway for inter-VPC connectivity")
         terraform_lines.append("resource \"aws_ec2_transit_gateway\" \"main\" {")
         terraform_lines.append("  description                     = \"Transit Gateway for multi-VPC connectivity\"")
