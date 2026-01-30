@@ -801,8 +801,8 @@ resource "aws_lambda_function" "carl" {
     variables = {
       ENVIRONMENT = var.environment
 
-      # Lambda self-reference for async invocation
-      AWS_LAMBDA_FUNCTION_NAME = "${local.name_prefix}-api"
+      # Note: AWS_LAMBDA_FUNCTION_NAME is automatically provided by AWS Lambda runtime
+      # No need to set it manually - Python code can read it with os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
 
       # Config table
       CONFIG_TABLE = aws_dynamodb_table.config.name
