@@ -4771,6 +4771,20 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
                 for opt in options
             ])
 
+            # Build button elements with conditional style
+            button_elements = []
+            for idx, opt in enumerate(options[:5]):  # Max 5 options
+                button = {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": f"Option {opt['number']}"},
+                    "value": f"build_option:{session_id}:{opt['number']}",
+                    "action_id": f"build_chosen_option_{opt['number']}"
+                }
+                # Only add style for first button
+                if idx == 0:
+                    button["style"] = "primary"
+                button_elements.append(button)
+
             blocks = [
                 {
                     "type": "section",
@@ -4782,16 +4796,7 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
                 {
                     "type": "actions",
                     "block_id": f"choose_option_{session_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": f"Option {opt['number']}"},
-                            "value": f"build_option:{session_id}:{opt['number']}",
-                            "action_id": f"build_chosen_option_{opt['number']}",
-                            "style": "primary" if idx == 0 else None
-                        }
-                        for idx, opt in enumerate(options[:5])  # Max 5 options
-                    ]
+                    "elements": button_elements
                 }
             ]
 
