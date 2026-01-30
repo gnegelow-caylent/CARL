@@ -849,6 +849,47 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         return handle_intelligent_build(slack, channel_id, user_id, requirement, trigger_id)
 
+    if event.get("action") == "generate_terraform_async":
+        logger.info("Processing async Terraform generation")
+        slack = get_slack_service()
+        terraform_config = event.get("terraform_config", {})
+        channel_id = terraform_config.get("channel_id")
+
+        # Post initial message
+        vpc_display = f"Create New ({terraform_config.get('vpc_cidr')})" if terraform_config.get('vpc_cidr') else f"Use Existing ({terraform_config.get('vpc_id')})"
+        slack.post_message(
+            channel_id,
+            text=f"✅ *Configuration Validated!*\n\n"
+                 f"• VPC: {vpc_display}\n"
+                 f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                 f"• Environment: {terraform_config.get('environment')}\n"
+                 f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
+                 f"🏗️ Generating Terraform code..."
+        )
+
+        # Generate Terraform using AI
+        try:
+            terraform_code = _generate_terraform_with_ai(terraform_config)
+
+            # Post generated code
+            slack.post_message(
+                channel_id,
+                text=f"✅ *Terraform Code Generated!*\n\n```hcl\n{terraform_code[:2500]}```\n\n"
+                     "📋 *Next Steps:*\n"
+                     "• Review the generated code\n"
+                     "• Save to a `.tf` file in your Terraform workspace\n"
+                     "• Run `terraform init` and `terraform plan`\n"
+                     "• Apply with `terraform apply` when ready"
+            )
+        except Exception as e:
+            logger.exception(f"Error generating Terraform: {e}")
+            slack.post_message(
+                channel_id,
+                text=f"❌ Failed to generate Terraform code: {str(e)}\n\nPlease try again or contact support."
+            )
+
+        return {"statusCode": 200, "body": ""}
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -3823,43 +3864,34 @@ def handle_build_config_submission(payload: dict) -> dict:
         "environment": environment,
         "use_transit_gateway": use_tgw == "yes",
         "requirement": requirement,
-        "option_text": option_text
+        "option_text": option_text,
+        "channel_id": channel_id,
+        "user_id": user_id
     }
 
-    # Post success message
-    vpc_display = f"Create New ({cidr})" if cidr else f"Use Existing ({vpc_id})"
-    slack.post_message(
-        channel_id,
-        text=f"✅ *Configuration Validated!*\n\n"
-             f"• VPC: {vpc_display}\n"
-             f"• Prefix: `{prefix}`\n"
-             f"• Environment: {environment}\n"
-             f"• Transit Gateway: {'Yes' if use_tgw == 'yes' else 'No'}\n\n"
-             f"🏗️ Generating Terraform code..."
-    )
-
-    # Generate Terraform code using AI
+    # Invoke async Lambda to generate Terraform (avoids 3-second modal timeout)
+    import boto3
+    import os
     try:
-        terraform_code = _generate_terraform_with_ai(terraform_config)
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async
+            Payload=json_lib.dumps({
+                'action': 'generate_terraform_async',
+                'terraform_config': terraform_config
+            })
+        )
+        logger.info("Invoked async Terraform generation")
     except Exception as e:
-        logger.exception(f"Error generating Terraform: {e}")
+        logger.error(f"Failed to invoke async generation: {e}")
+        # Fallback: notify user of error
         slack.post_message(
             channel_id,
-            text=f"❌ Failed to generate Terraform code: {str(e)}\n\nPlease try again or contact support."
+            text=f"❌ Failed to start Terraform generation: {str(e)}"
         )
-        return {"statusCode": 200, "body": ""}
 
-    # Post Terraform code to Slack
-    slack.post_message(
-        channel_id,
-        text=f"✅ *Terraform Code Generated!*\n\n```hcl\n{terraform_code[:2500]}```\n\n"
-             "📋 *Next Steps:*\n"
-             "• Review the generated code\n"
-             "• Save to a `.tf` file in your Terraform workspace\n"
-             "• Run `terraform init` and `terraform plan`\n"
-             "• Apply with `terraform apply` when ready"
-    )
-
+    # Return 200 immediately to close modal (must be within 3 seconds)
     return {"statusCode": 200, "body": ""}
 
 
