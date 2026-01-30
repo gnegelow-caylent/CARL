@@ -801,6 +801,9 @@ resource "aws_lambda_function" "carl" {
     variables = {
       ENVIRONMENT = var.environment
 
+      # Lambda self-reference for async invocation
+      AWS_LAMBDA_FUNCTION_NAME = "${local.name_prefix}-api"
+
       # Config table
       CONFIG_TABLE = aws_dynamodb_table.config.name
 
@@ -832,6 +835,13 @@ resource "aws_lambda_function" "carl" {
       GITHUB_INFRA_TOKEN_SECRET = "/carl/${var.environment}/github-infra-token"
       GITHUB_INFRA_OWNER        = var.github_infra_owner
       GITHUB_INFRA_REPO         = var.github_infra_repo
+
+      # Pricing cache table (for fast architecture recommendations)
+      PRICING_CACHE_TABLE = var.enable_foundation ? module.foundation[0].pricing_cache_table_name : "${local.name_prefix}-pricing-cache"
+
+      # Continuous learning tables
+      SCAN_HISTORY_TABLE   = var.enable_foundation ? module.foundation[0].scan_history_table_name : "${local.name_prefix}-scan-history"
+      RESOURCE_GRAPH_TABLE = var.enable_foundation ? module.foundation[0].resource_graph_table_name : "${local.name_prefix}-resource-graph"
 
       # Feature flags (all disabled initially)
       FEATURE_MONITORING_ENABLED = "false"

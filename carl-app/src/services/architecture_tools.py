@@ -33,6 +33,42 @@ def _get_pricing_cache():
         _pricing_cache = PricingPrefetchService(pricing_cache_table=pricing_cache_table)
     return _pricing_cache
 
+# Static fallback pricing for common services (updated Jan 2026)
+# Used when cache is unavailable to prevent slow API calls
+STATIC_PRICING = {
+    "ec2": {
+        "t3.micro": {"price_per_hour": "0.0104", "price_per_month": "7.59"},
+        "t3.small": {"price_per_hour": "0.0208", "price_per_month": "15.18"},
+        "t3.medium": {"price_per_hour": "0.0416", "price_per_month": "30.37"},
+        "t3.large": {"price_per_hour": "0.0832", "price_per_month": "60.74"},
+        "t3.xlarge": {"price_per_hour": "0.1664", "price_per_month": "121.47"},
+        "m5.large": {"price_per_hour": "0.096", "price_per_month": "70.08"},
+        "m5.xlarge": {"price_per_hour": "0.192", "price_per_month": "140.16"},
+        "c5.large": {"price_per_hour": "0.085", "price_per_month": "62.05"},
+        "c5.xlarge": {"price_per_hour": "0.17", "price_per_month": "124.10"},
+        "r5.large": {"price_per_hour": "0.126", "price_per_month": "91.98"},
+    },
+    "rds": {
+        "db.t3.micro": {"price_per_hour": "0.017", "price_per_month": "12.41"},
+        "db.t3.small": {"price_per_hour": "0.034", "price_per_month": "24.82"},
+        "db.t3.medium": {"price_per_hour": "0.068", "price_per_month": "49.64"},
+        "db.m5.large": {"price_per_hour": "0.192", "price_per_month": "140.16"},
+    },
+    "lambda": {
+        "execution": {"price_per_gb_second": "0.0000166667", "price_per_million_requests": "0.20"},
+    },
+    "s3": {
+        "storage": {"price_per_gb_month": "0.023"},
+        "requests": {"put_per_1000": "0.005", "get_per_1000": "0.0004"},
+    },
+    "dynamodb": {
+        "on-demand": {"write_per_million": "1.25", "read_per_million": "0.25", "storage_per_gb": "0.25"},
+    },
+    "ecs": {
+        "fargate": {"vcpu_per_hour": "0.04048", "gb_memory_per_hour": "0.004445"},
+    },
+}
+
 
 def create_architecture_tools() -> list[Tool]:
     """
@@ -142,10 +178,32 @@ def create_architecture_tools() -> list[Tool]:
                             "source": "cache"
                         }
                 except Exception as cache_error:
-                    logger.warning(f"Cache lookup failed, falling back to API: {cache_error}")
+                    logger.warning(f"Cache lookup failed: {cache_error}")
 
-            # Fallback to API if not cached
-            logger.info(f"Cache miss, querying AWS Price List API: {service_name}")
+            # Try static fallback pricing (fast, no API call)
+            static_price = None
+            if service_name in STATIC_PRICING:
+                if service_name == "ec2" and "instance_type" in kwargs:
+                    instance_type = kwargs["instance_type"]
+                    static_price = STATIC_PRICING["ec2"].get(instance_type)
+                elif service_name == "rds" and "instance_class" in kwargs:
+                    instance_class = kwargs["instance_class"]
+                    static_price = STATIC_PRICING["rds"].get(instance_class)
+                elif service_name in ["lambda", "s3", "dynamodb", "ecs"]:
+                    static_price = STATIC_PRICING[service_name]
+
+            if static_price:
+                logger.info(f"✓ Using static pricing fallback: {cache_key or service_name}")
+                return {
+                    "success": True,
+                    "service": service_name,
+                    "pricing": static_price,
+                    "source": "static",
+                    "note": "Approximate pricing (us-east-1). Deploy pricing cache for real-time data."
+                }
+
+            # Last resort: API call (slow, should rarely happen)
+            logger.warning(f"No cached or static pricing, calling API (slow): {service_name}")
             result = get_aws_pricing(service_name=service_name, **kwargs)
             return {
                 "success": True,
