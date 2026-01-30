@@ -2183,8 +2183,8 @@ def handle_help_command(
 *Compliance Commands:*
 - `/carl status` - View compliance posture summary
 - `/carl findings list [severity]` - List recent findings with interactive buttons
-- `/carl findings accept <id> "<justification>"` - Accept risk with documented justification
-- `/carl findings ignore <id>` - Ignore a finding (won't create ticket)
+- `/carl findings accept <id> '<justification>'` - Accept risk with documented justification
+- `/carl findings ignore <id>` - Ignore a finding (will not create ticket)
 - `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings
 - `/carl ask <question>` - Ask compliance questions
 
