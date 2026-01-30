@@ -19,8 +19,9 @@ class CodeUploader:
         channel_id: str,
         user_id: str,
         blueprint_name: str,
-        terraform_code: str,
-        metadata: dict[str, Any]
+        terraform_files: dict = None,
+        terraform_code: str = None,  # Deprecated - for backwards compatibility
+        metadata: dict[str, Any] = None
     ) -> dict:
         """
         Complete upload flow:
@@ -31,8 +32,19 @@ class CodeUploader:
         5. Post code to thread
         6. Upload file to Slack
 
+        Args:
+            terraform_files: Dict with keys: variables, main, outputs, tfvars_example, readme
+            terraform_code: (Deprecated) Single main.tf content - for backwards compatibility
+
         Returns dict with GitHub and Slack info.
         """
+        if metadata is None:
+            metadata = {}
+
+        # Handle backwards compatibility
+        if terraform_files is None and terraform_code is not None:
+            terraform_files = {'main': terraform_code}
+
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         blueprint_short = blueprint_name.replace("/", "-")
 
@@ -49,11 +61,24 @@ class CodeUploader:
 
         # 2. Prepare files (no timestamp in path - overwrites previous version)
         deployment_path = f"deployments/users/{user_id}/{blueprint_short}"
-        files = {
-            f"{deployment_path}/main.tf": terraform_code,
-            f"{deployment_path}/backend.tf": self._generate_backend_config(deployment_path),
-            f"{deployment_path}/metadata.json": json.dumps(metadata, indent=2)
-        }
+        files = {}
+
+        # Add Terraform files
+        if 'variables' in terraform_files:
+            files[f"{deployment_path}/variables.tf"] = terraform_files['variables']
+        if 'main' in terraform_files:
+            files[f"{deployment_path}/main.tf"] = terraform_files['main']
+        if 'outputs' in terraform_files:
+            files[f"{deployment_path}/outputs.tf"] = terraform_files['outputs']
+        if 'tfvars_example' in terraform_files:
+            files[f"{deployment_path}/terraform.tfvars.example"] = terraform_files['tfvars_example']
+        if 'readme' in terraform_files:
+            files[f"{deployment_path}/README.md"] = terraform_files['readme']
+
+        # Add standard files
+        files[f"{deployment_path}/backend.tf"] = self._generate_backend_config(deployment_path)
+        files[f"{deployment_path}/.gitignore"] = self._generate_gitignore()
+        files[f"{deployment_path}/metadata.json"] = json.dumps(metadata, indent=2)
 
         # 3. Commit files
         action = "Update" if branch_existed else "Add"
@@ -74,18 +99,21 @@ class CodeUploader:
 
         # 6. Post code to thread (adaptive: full for small, summary for large)
         thread_ts = summary_msg.get("ts")
-        self._post_code_to_thread(channel_id, thread_ts, terraform_code, blueprint_name, metadata)
+        main_tf_code = terraform_files.get('main', '')
+        self._post_code_to_thread(channel_id, thread_ts, main_tf_code, blueprint_name, metadata, terraform_files)
 
-        # 7. Upload file (optional - if this fails, we still succeed)
+        # 7. Upload files to Slack (optional - if this fails, we still succeed)
         try:
             action_text = "Updated" if branch_existed else "Created"
-            self.slack.upload_file(
-                channels=[channel_id],
-                content=terraform_code,
-                filename=f"{blueprint_short}_{timestamp}.tf",
-                title=f"Terraform: {blueprint_name} ({action_text})",
-                initial_comment=f"{action_text} code for PR #{pr['number']}: {pr['html_url']}"
-            )
+            # Upload main.tf as primary file
+            if main_tf_code:
+                self.slack.upload_file(
+                    channels=[channel_id],
+                    content=main_tf_code,
+                    filename=f"{blueprint_short}_{timestamp}_main.tf",
+                    title=f"Terraform main.tf: {blueprint_name} ({action_text})",
+                    initial_comment=f"{action_text} code for PR #{pr['number']}: {pr['html_url']}\n\n📁 Complete module includes: variables.tf, main.tf, outputs.tf, README.md"
+                )
         except Exception as e:
             # Log error but don't fail the whole operation
             # Code is still in GitHub PR and Slack thread
@@ -111,6 +139,37 @@ class CodeUploader:
     dynamodb_table = "carl-tfstate-locks"
   }}
 }}
+"""
+
+    def _generate_gitignore(self) -> str:
+        """Generate .gitignore for Terraform."""
+        return """# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which are likely to contain sensitive data
+*.tfvars
+*.tfvars.json
+
+# Ignore override files as they are usually used to override resources locally
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+# Ignore lock file (should be committed, but excluding for generated code)
+.terraform.lock.hcl
 """
 
     def _format_commit_message(self, user_id: str, blueprint: str, metadata: dict, action: str = "Add", timestamp: str = None) -> str:
@@ -205,18 +264,42 @@ Co-Authored-By: CARL Bot <noreply@carl.ai>
             }
         ]
 
-    def _post_code_to_thread(self, channel: str, thread_ts: str, code: str, blueprint: str, metadata: dict):
+    def _post_code_to_thread(self, channel: str, thread_ts: str, code: str, blueprint: str, metadata: dict, terraform_files: dict = None):
         """Post code to thread - adaptive based on size."""
         code_length = len(code)
         small_code_threshold = 3000  # Slack block limit is ~3000 chars
 
-        if code_length <= small_code_threshold:
-            # Small code: Show full code
+        # Show file structure
+        if terraform_files:
+            file_list = []
+            if 'variables' in terraform_files:
+                file_list.append(f"📝 `variables.tf` ({len(terraform_files['variables'])} chars)")
+            if 'main' in terraform_files:
+                file_list.append(f"📄 `main.tf` ({len(terraform_files['main'])} chars)")
+            if 'outputs' in terraform_files:
+                file_list.append(f"📤 `outputs.tf` ({len(terraform_files['outputs'])} chars)")
+            if 'tfvars_example' in terraform_files:
+                file_list.append(f"⚙️ `terraform.tfvars.example`")
+            if 'readme' in terraform_files:
+                file_list.append(f"📖 `README.md`")
+
+            file_structure = "\n".join(file_list)
+
             self.slack.post_message(
                 channel,
                 thread_ts=thread_ts,
                 blocks=[
-                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📄 Complete Terraform Code*\n({code_length} chars)"}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📁 Generated Files:*\n{file_structure}\n\n_View complete module in GitHub PR_"}}
+                ]
+            )
+
+        if code_length <= small_code_threshold:
+            # Small code: Show full main.tf
+            self.slack.post_message(
+                channel,
+                thread_ts=thread_ts,
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📄 main.tf Preview*\n({code_length} chars)"}},
                     {"type": "section", "text": {"type": "mrkdwn", "text": f"```terraform\n{code}\n```"}}
                 ]
             )
@@ -227,7 +310,7 @@ Co-Authored-By: CARL Bot <noreply@carl.ai>
                 channel,
                 thread_ts=thread_ts,
                 blocks=[
-                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📊 Code Summary*\n(Full code: {code_length} chars - see file attachment or GitHub)"}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📊 Code Summary*\n(Full code: {code_length} chars - see GitHub PR)"}},
                     {"type": "section", "text": {"type": "mrkdwn", "text": summary}}
                 ]
             )

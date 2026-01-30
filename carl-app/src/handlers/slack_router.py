@@ -872,7 +872,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         # Generate Terraform using AI
         try:
-            terraform_code = _generate_terraform_with_ai(terraform_config)
+            terraform_files = _generate_terraform_with_ai(terraform_config)
 
             # Create blueprint name from requirement
             requirement = terraform_config.get('requirement', 'infrastructure')
@@ -899,7 +899,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 channel_id=channel_id,
                 user_id=user_id,
                 blueprint_name=blueprint_name,
-                terraform_code=terraform_code,
+                terraform_files=terraform_files,
                 metadata=metadata
             )
 
@@ -3919,8 +3919,11 @@ def handle_build_config_submission(payload: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
-def _generate_terraform_with_ai(config: dict) -> str:
-    """Use AI to generate appropriate Terraform based on user's requirement."""
+def _generate_terraform_with_ai(config: dict) -> dict:
+    """Use AI to generate appropriate Terraform based on user's requirement.
+
+    Returns dict with keys: 'variables', 'main', 'outputs' for separate files.
+    """
     from services.bedrock_service import BedrockService
 
     bedrock = BedrockService()
@@ -3930,7 +3933,7 @@ def _generate_terraform_with_ai(config: dict) -> str:
     option_text = config.get("option_text", "")
     vpc_info = f"VPC ID: {config['vpc_id']}" if config.get('vpc_id') else f"VPC CIDR: {config['vpc_cidr']}"
 
-    prompt = f"""Generate complete, production-ready Terraform code for the following AWS infrastructure requirement.
+    prompt = f"""Generate complete, production-ready Terraform code following ALL best practices for the following AWS infrastructure requirement.
 
 **USER'S REQUIREMENT:**
 {requirement}
@@ -3944,31 +3947,143 @@ def _generate_terraform_with_ai(config: dict) -> str:
 - Environment: {config['environment']}
 - Transit Gateway: {'Yes' if config.get('use_transit_gateway') else 'No'}
 
-**INSTRUCTIONS:**
-1. Generate ONLY the Terraform HCL code - no explanations
-2. Include terraform {{}} block with required_providers
-3. Use data sources for existing resources (VPC ID provided)
-4. Create new resources as needed based on the requirement
-5. Include proper tags (Name, Environment, ManagedBy = "CARL")
-6. Add TODO comments where user input is needed (IPs, ASNs, etc.)
-7. Include outputs for all major resources
-8. Follow AWS best practices
+**TERRAFORM BEST PRACTICES (MUST FOLLOW ALL):**
+
+1. **File Structure:**
+   - **variables.tf**: All input variables with descriptions, types, defaults, and validation rules
+   - **main.tf**: Terraform block, provider config, locals, data sources, and resources
+   - **outputs.tf**: All outputs with descriptions for created resources
+   - **terraform.tfvars.example**: Example values for all variables
+   - **README.md**: Documentation with usage instructions and requirements
+
+2. **Variable Standards:**
+   - Every variable must have: description, type, and default (or validation)
+   - Use validation blocks for variables with constraints (CIDR, instance types, etc.)
+   - Group related variables with comments
+   - Use snake_case naming
+
+3. **Resource Standards:**
+   - Consistent naming: use locals for name prefixes
+   - All resources must have tags: Name, Environment, ManagedBy, Project
+   - Use data sources for existing resources (VPC ID provided)
+   - Add lifecycle blocks where appropriate (prevent_destroy, ignore_changes)
+   - Include descriptive comments above complex resources
+
+4. **Output Standards:**
+   - Every major resource should have outputs (IDs, ARNs, DNS names)
+   - Include descriptions for all outputs
+   - Export sensitive data as sensitive = true
+
+5. **Code Quality:**
+   - Terraform 1.5+ compatible syntax
+   - Provider version constraints (~> 5.0 for AWS)
+   - Use terraform formatting conventions
+   - Add TODO comments only where user input is REQUIRED
+   - Group related resources with comment headers
+
+6. **Documentation (README.md):**
+   - Brief description of what this deploys
+   - Prerequisites (existing VPC, permissions, etc.)
+   - Usage instructions with terraform init/plan/apply
+   - List of resources created
+   - Inputs table and Outputs table
 
 **CRITICAL:** Generate the COMPLETE infrastructure needed for the requirement, not just a VPC.
-For example:
-- If VPN mentioned: Include VPN Gateway, Customer Gateway, VPN Connection
-- If Direct Connect: Include DX Gateway, Virtual Interface
-- If database: Include RDS instance with proper security groups
-- If web app: Include ALB, target groups, security groups
+Examples:
+- VPN: VPN Gateway, Customer Gateway, VPN Connection, routing
+- Direct Connect: DX Gateway, Virtual Interface, BGP configuration
+- Database: RDS instance, subnet group, security groups, parameter group
+- Web app: ALB, target groups, security groups, auto-scaling
 
-Return ONLY the Terraform code, nothing else."""
+**OUTPUT FORMAT:**
+Return ONLY the five files separated by markers, no extra text:
 
-    terraform_code = bedrock.invoke_model(
+### variables.tf ###
+<variables.tf content>
+
+### main.tf ###
+<main.tf content>
+
+### outputs.tf ###
+<outputs.tf content>
+
+### terraform.tfvars.example ###
+<terraform.tfvars.example content>
+
+### README.md ###
+<README.md content>"""
+
+    response = bedrock.invoke_model(
         prompt=prompt,
         max_tokens=4096
     )
 
-    return terraform_code
+    # Parse response into separate files
+    files = _parse_terraform_files(response)
+
+    return files
+
+
+def _parse_terraform_files(response: str) -> dict:
+    """Parse AI response into separate Terraform files.
+
+    Expected format:
+    ### variables.tf ###
+    <content>
+
+    ### main.tf ###
+    <content>
+
+    ### outputs.tf ###
+    <content>
+
+    ### terraform.tfvars.example ###
+    <content>
+
+    ### README.md ###
+    <content>
+    """
+    import re
+
+    files = {}
+
+    # Extract variables.tf
+    variables_match = re.search(r'### variables\.tf ###\s*(.*?)\s*(?=### |$)', response, re.DOTALL)
+    if variables_match:
+        files['variables'] = variables_match.group(1).strip()
+    else:
+        files['variables'] = "# No variables defined\n"
+
+    # Extract main.tf
+    main_match = re.search(r'### main\.tf ###\s*(.*?)\s*(?=### |$)', response, re.DOTALL)
+    if main_match:
+        files['main'] = main_match.group(1).strip()
+    else:
+        # Fallback: If no markers, assume entire response is main.tf
+        files['main'] = response.strip()
+
+    # Extract outputs.tf
+    outputs_match = re.search(r'### outputs\.tf ###\s*(.*?)\s*(?=### |$)', response, re.DOTALL)
+    if outputs_match:
+        files['outputs'] = outputs_match.group(1).strip()
+    else:
+        files['outputs'] = "# No outputs defined\n"
+
+    # Extract terraform.tfvars.example
+    tfvars_match = re.search(r'### terraform\.tfvars\.example ###\s*(.*?)\s*(?=### |$)', response, re.DOTALL)
+    if tfvars_match:
+        files['tfvars_example'] = tfvars_match.group(1).strip()
+    else:
+        files['tfvars_example'] = "# Copy this file to terraform.tfvars and customize\n"
+
+    # Extract README.md
+    readme_match = re.search(r'### README\.md ###\s*(.*?)$', response, re.DOTALL)
+    if readme_match:
+        files['readme'] = readme_match.group(1).strip()
+    else:
+        files['readme'] = f"# Terraform Infrastructure\n\nGenerated by CARL Infrastructure Builder\n"
+
+    return files
 
 
 def _generate_terraform_from_config(config: dict) -> str:
