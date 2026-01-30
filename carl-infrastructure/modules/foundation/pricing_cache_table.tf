@@ -6,7 +6,7 @@
 # Refreshed monthly (1st of each month at 3am UTC) by pricing_prefetch Lambda
 
 resource "aws_dynamodb_table" "pricing_cache" {
-  name         = "${var.project}-${var.environment}-pricing-cache"
+  name         = "${var.project_name}-${var.environment}-pricing-cache"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "service_resource"
   range_key    = "region"
@@ -41,7 +41,7 @@ resource "aws_dynamodb_table" "pricing_cache" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-pricing-cache"
+    Name        = "${var.project_name}-${var.environment}-pricing-cache"
     Environment = var.environment
     ManagedBy   = "terraform"
     Purpose     = "Cache AWS pricing data for fast agent responses"

@@ -5,15 +5,15 @@
 
 # Lambda function for pricing prefetch
 resource "aws_lambda_function" "pricing_prefetch" {
-  function_name = "${var.project}-${var.environment}-pricing-prefetch"
+  function_name = "${var.project_name}-${var.environment}-pricing-prefetch"
   role          = aws_iam_role.pricing_prefetch_role.arn
   handler       = "handlers.pricing_prefetch.handler"
   runtime       = "python3.11"
   timeout       = 600  # 10 minutes (prefetch is slow but runs infrequently)
   memory_size   = 512  # More memory for faster execution
 
-  filename         = var.lambda_zip_path
-  source_code_hash = filebase64sha256(var.lambda_zip_path)
+  filename         = var.lambda_package_path
+  source_code_hash = filebase64sha256(var.lambda_package_path)
 
   environment {
     variables = {
@@ -23,7 +23,7 @@ resource "aws_lambda_function" "pricing_prefetch" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-pricing-prefetch"
+    Name        = "${var.project_name}-${var.environment}-pricing-prefetch"
     Environment = var.environment
     ManagedBy   = "terraform"
   }
@@ -31,7 +31,7 @@ resource "aws_lambda_function" "pricing_prefetch" {
 
 # IAM role for pricing prefetch Lambda
 resource "aws_iam_role" "pricing_prefetch_role" {
-  name = "${var.project}-${var.environment}-pricing-prefetch-role"
+  name = "${var.project_name}-${var.environment}-pricing-prefetch-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -47,7 +47,7 @@ resource "aws_iam_role" "pricing_prefetch_role" {
   })
 
   tags = {
-    Name        = "${var.project}-${var.environment}-pricing-prefetch-role"
+    Name        = "${var.project_name}-${var.environment}-pricing-prefetch-role"
     Environment = var.environment
   }
 }
@@ -60,7 +60,7 @@ resource "aws_iam_role_policy_attachment" "pricing_prefetch_basic" {
 
 # Policy for DynamoDB access (write to pricing cache)
 resource "aws_iam_role_policy" "pricing_prefetch_dynamodb" {
-  name = "${var.project}-${var.environment}-pricing-prefetch-dynamodb"
+  name = "${var.project_name}-${var.environment}-pricing-prefetch-dynamodb"
   role = aws_iam_role.pricing_prefetch_role.id
 
   policy = jsonencode({
@@ -86,7 +86,7 @@ resource "aws_iam_role_policy" "pricing_prefetch_dynamodb" {
 
 # Policy for AWS Pricing API access
 resource "aws_iam_role_policy" "pricing_prefetch_api" {
-  name = "${var.project}-${var.environment}-pricing-prefetch-api"
+  name = "${var.project_name}-${var.environment}-pricing-prefetch-api"
   role = aws_iam_role.pricing_prefetch_role.id
 
   policy = jsonencode({
@@ -107,7 +107,7 @@ resource "aws_iam_role_policy" "pricing_prefetch_api" {
 
 # Policy for CloudWatch metrics
 resource "aws_iam_role_policy" "pricing_prefetch_cloudwatch" {
-  name = "${var.project}-${var.environment}-pricing-prefetch-cloudwatch"
+  name = "${var.project_name}-${var.environment}-pricing-prefetch-cloudwatch"
   role = aws_iam_role.pricing_prefetch_role.id
 
   policy = jsonencode({
@@ -126,12 +126,12 @@ resource "aws_iam_role_policy" "pricing_prefetch_cloudwatch" {
 
 # EventBridge rule - Monthly execution on 1st at 3am UTC
 resource "aws_cloudwatch_event_rule" "pricing_prefetch_schedule" {
-  name                = "${var.project}-${var.environment}-pricing-prefetch-schedule"
+  name                = "${var.project_name}-${var.environment}-pricing-prefetch-schedule"
   description         = "Trigger pricing prefetch on 1st of month at 3am UTC"
   schedule_expression = "cron(0 3 1 * ? *)"  # 1st of month at 3am UTC
 
   tags = {
-    Name        = "${var.project}-${var.environment}-pricing-prefetch-schedule"
+    Name        = "${var.project_name}-${var.environment}-pricing-prefetch-schedule"
     Environment = var.environment
   }
 }
@@ -158,7 +158,7 @@ resource "aws_cloudwatch_log_group" "pricing_prefetch" {
   retention_in_days = 30
 
   tags = {
-    Name        = "${var.project}-${var.environment}-pricing-prefetch-logs"
+    Name        = "${var.project_name}-${var.environment}-pricing-prefetch-logs"
     Environment = var.environment
   }
 }
