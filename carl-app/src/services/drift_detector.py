@@ -347,9 +347,24 @@ class DriftDetector:
             # Check content for specific issues
             if isinstance(content, dict):
                 # S3 bucket not encrypted
+                # Skip if evidence collection failed (encryption set to "ERROR" or None due to permissions)
                 if category == 's3' and content.get('encryption') is None:
-                    has_issue = True
-                    description = f"S3 bucket {content.get('bucket_name', 'unknown')} has no encryption configured"
+                    # Only flag as issue if we have OTHER evidence that suggests the bucket exists
+                    # If public_access_block, versioning, and logging are all None/"ERROR", likely permission issue
+                    other_evidence = any([
+                        content.get('public_access_block') not in [None, "ERROR"],
+                        content.get('versioning') not in [None, "ERROR", "Disabled"],
+                        content.get('logging') not in [None, "ERROR"]
+                    ])
+
+                    # Only create drift if we have other evidence (meaning permissions work)
+                    if other_evidence:
+                        has_issue = True
+                        description = f"S3 bucket {content.get('bucket_name', 'unknown')} has no encryption configured"
+                    else:
+                        # All fields are None/ERROR - likely permission issue, skip
+                        logger.debug(f"Skipping S3 bucket {content.get('bucket_name')} - insufficient permissions to verify configuration")
+                        return None
 
                 # RDS publicly accessible
                 elif category == 'rds' and content.get('publicly_accessible'):
