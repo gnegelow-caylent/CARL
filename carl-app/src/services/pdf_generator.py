@@ -208,6 +208,10 @@ class PDFReportGenerator:
         score_chart = self.generate_compliance_score_chart(compliance_score)
         findings_chart = self.generate_findings_chart(findings_by_severity)
 
+        # Format summary with paragraph breaks
+        raw_summary = report_data.get('executive_summary') or report_data.get('summary', 'This report provides a comprehensive assessment of compliance controls.')
+        formatted_summary = self._format_summary_with_paragraphs(raw_summary)
+
         # Build HTML
         html = f"""
 <!DOCTYPE html>
@@ -419,7 +423,7 @@ class PDFReportGenerator:
     <h1>{('Executive Summary' if report_data.get('is_executive') else 'Summary')}</h1>
 
     <div class="executive-summary">
-        <p><strong>Overview:</strong> {report_data.get('executive_summary') or report_data.get('summary', 'This report provides a comprehensive assessment of compliance controls.')}</p>
+        <p>{formatted_summary}</p>
     </div>
 
     <div class="chart-container">
@@ -570,6 +574,93 @@ class PDFReportGenerator:
                 """)
 
         return '\n'.join(sections)
+
+    def _format_summary_with_paragraphs(self, summary: str) -> str:
+        """
+        Format a long summary text with paragraph breaks for better readability.
+
+        Detects natural topic transitions and adds paragraph breaks:
+        - Before sentences starting with "The most critical..."
+        - Before sentences starting with "Two/Three/Multiple medium-severity..."
+        - Before sentences starting with "The organization has..."
+        - Before sentences starting with "Primary remediation..."
+
+        Args:
+            summary: Raw summary text (potentially one long paragraph)
+
+        Returns:
+            HTML-formatted summary with <p> tags
+        """
+        if not summary or len(summary.strip()) < 100:
+            return summary
+
+        # Keywords that indicate a new paragraph should start
+        paragraph_starters = [
+            'The most critical',
+            'Two medium-severity',
+            'Three medium-severity',
+            'Multiple medium-severity',
+            'The organization has',
+            'Primary remediation',
+            'Secondary remediation',
+            'Immediate actions',
+            'Long-term recommendations',
+            'In addition',
+            'Furthermore',
+            'However',
+            'Notably',
+        ]
+
+        # Split into sentences (basic sentence splitting)
+        sentences = []
+        current = ""
+        for char in summary:
+            current += char
+            if char in '.!?' and len(current.strip()) > 20:
+                sentences.append(current.strip())
+                current = ""
+        if current.strip():
+            sentences.append(current.strip())
+
+        # Group sentences into paragraphs
+        paragraphs = []
+        current_paragraph = []
+
+        for sentence in sentences:
+            # Check if this sentence starts a new topic
+            starts_new_paragraph = any(
+                sentence.startswith(starter) for starter in paragraph_starters
+            )
+
+            if starts_new_paragraph and current_paragraph:
+                # Save current paragraph and start new one
+                paragraphs.append(' '.join(current_paragraph))
+                current_paragraph = [sentence]
+            else:
+                current_paragraph.append(sentence)
+
+        # Add final paragraph
+        if current_paragraph:
+            paragraphs.append(' '.join(current_paragraph))
+
+        # If we only got one paragraph, try splitting by length
+        if len(paragraphs) == 1 and len(summary) > 500:
+            # Split into roughly equal chunks at sentence boundaries
+            words = summary.split()
+            chunk_size = len(words) // 3  # Aim for 3 paragraphs
+            paragraphs = []
+            current = []
+
+            for i, word in enumerate(words):
+                current.append(word)
+                if len(current) >= chunk_size and word.endswith('.'):
+                    paragraphs.append(' '.join(current))
+                    current = []
+            if current:
+                paragraphs.append(' '.join(current))
+
+        # Format as HTML paragraphs
+        return '</p><p>'.join(paragraphs)
 
     def generate_pdf(self, report_data: dict) -> bytes:
         """
