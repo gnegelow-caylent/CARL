@@ -38,25 +38,15 @@ class FindingsService:
     def get_finding(self, finding_id: str, account_id: str | None = None) -> dict | None:
         """Get a finding by ID."""
         try:
-            # If we don't have account_id, we need to scan (less efficient)
-            if account_id:
-                # Use Query instead of GetItem since we have composite keys (pk + sk)
-                # We know the pk but not the exact sk (which includes timestamp)
-                response = self.table.query(
-                    KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
-                    Limit=1
-                )
-                items = response.get("Items", [])
-                item = items[0] if items else None
-            else:
-                # Query by finding_id across accounts
-                response = self.table.scan(
-                    FilterExpression="finding_id = :fid",
-                    ExpressionAttributeValues={":fid": finding_id},
-                    Limit=1,
-                )
-                items = response.get("Items", [])
-                item = items[0] if items else None
+            # Table has composite key: finding_id (hash) + timestamp (range)
+            # We know finding_id but not exact timestamp, so query to get latest
+            response = self.table.query(
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Sort descending by timestamp
+                Limit=1
+            )
+            items = response.get("Items", [])
+            item = items[0] if items else None
 
             if item:
                 finding_dict = Finding.from_dynamodb_item(item).to_dict()
@@ -227,10 +217,11 @@ class FindingsService:
             if not updates:
                 return True
 
-            # First, query to get the existing item and its sk
-            # (Table has composite keys: pk + sk)
+            # First, query to get the existing item and its timestamp
+            # (Table has composite keys: finding_id + timestamp)
             response = self.table.query(
-                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Get latest
                 Limit=1
             )
             items = response.get("Items", [])
@@ -239,15 +230,14 @@ class FindingsService:
                 return False
 
             item = items[0]
-            pk = item["pk"]
-            sk = item["sk"]
+            timestamp = item["timestamp"]
 
             # Build update expression
             update_expr_parts = []
             expr_values = {}
             expr_names = {}
 
-            # Always update timestamp
+            # Always update updated_at field
             updates["updated_at"] = datetime.utcnow().isoformat()
 
             for key, value in updates.items():
@@ -260,9 +250,9 @@ class FindingsService:
 
             update_expr = "SET " + ", ".join(update_expr_parts)
 
-            # Update using both pk and sk
+            # Update using finding_id + timestamp (actual table keys)
             self.table.update_item(
-                Key={"pk": pk, "sk": sk},
+                Key={"finding_id": finding_id, "timestamp": timestamp},
                 UpdateExpression=update_expr,
                 ExpressionAttributeValues=expr_values,
                 ExpressionAttributeNames=expr_names,
@@ -284,9 +274,10 @@ class FindingsService:
     ) -> bool:
         """Update the status of a finding."""
         try:
-            # First, query to get the existing item and its sk
+            # First, query to get the existing item and its timestamp
             response = self.table.query(
-                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Get latest
                 Limit=1
             )
             items = response.get("Items", [])
@@ -295,8 +286,7 @@ class FindingsService:
                 return False
 
             item = items[0]
-            pk = item["pk"]
-            sk = item["sk"]
+            timestamp = item["timestamp"]
 
             update_expr = "SET #status = :status, updated_at = :updated"
             expr_values: dict[str, Any] = {
@@ -309,9 +299,9 @@ class FindingsService:
                 update_expr += ", remediation_id = :rid"
                 expr_values[":rid"] = remediation_id
 
-            # Update using both pk and sk
+            # Update using finding_id + timestamp
             self.table.update_item(
-                Key={"pk": pk, "sk": sk},
+                Key={"finding_id": finding_id, "timestamp": timestamp},
                 UpdateExpression=update_expr,
                 ExpressionAttributeValues=expr_values,
                 ExpressionAttributeNames=expr_names,
@@ -333,9 +323,10 @@ class FindingsService:
     ) -> bool:
         """Suppress a finding."""
         try:
-            # First, query to get the existing item and its sk
+            # First, query to get the existing item and its timestamp
             response = self.table.query(
-                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Get latest
                 Limit=1
             )
             items = response.get("Items", [])
@@ -344,12 +335,11 @@ class FindingsService:
                 return False
 
             item = items[0]
-            pk = item["pk"]
-            sk = item["sk"]
+            timestamp = item["timestamp"]
 
-            # Update using both pk and sk
+            # Update using finding_id + timestamp
             self.table.update_item(
-                Key={"pk": pk, "sk": sk},
+                Key={"finding_id": finding_id, "timestamp": timestamp},
                 UpdateExpression=(
                     "SET #status = :status, updated_at = :updated, "
                     "suppression_reason = :reason, suppressed_by = :by"
@@ -390,9 +380,10 @@ class FindingsService:
             True if successful, False otherwise
         """
         try:
-            # First, query to get the existing item and its sk
+            # First, query to get the existing item and its timestamp
             response = self.table.query(
-                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Get latest
                 Limit=1
             )
             items = response.get("Items", [])
@@ -401,12 +392,11 @@ class FindingsService:
                 return False
 
             item = items[0]
-            pk = item["pk"]
-            sk = item["sk"]
+            timestamp = item["timestamp"]
 
             # Update to ACCEPTED_RISK status
             self.table.update_item(
-                Key={"pk": pk, "sk": sk},
+                Key={"finding_id": finding_id, "timestamp": timestamp},
                 UpdateExpression=(
                     "SET #status = :status, updated_at = :updated, "
                     "risk_justification = :justification, risk_accepted_by = :by, "
@@ -449,9 +439,10 @@ class FindingsService:
             True if successful, False otherwise
         """
         try:
-            # First, query to get the existing item and its sk
+            # First, query to get the existing item and its timestamp
             response = self.table.query(
-                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{account_id}#FINDING#{finding_id}"),
+                KeyConditionExpression=Key("finding_id").eq(finding_id),
+                ScanIndexForward=False,  # Get latest
                 Limit=1
             )
             items = response.get("Items", [])
@@ -460,12 +451,11 @@ class FindingsService:
                 return False
 
             item = items[0]
-            pk = item["pk"]
-            sk = item["sk"]
+            timestamp = item["timestamp"]
 
             # Update to IGNORED status
             self.table.update_item(
-                Key={"pk": pk, "sk": sk},
+                Key={"finding_id": finding_id, "timestamp": timestamp},
                 UpdateExpression=(
                     "SET #status = :status, updated_at = :updated, "
                     "ignored_reason = :reason, ignored_by = :by, "
