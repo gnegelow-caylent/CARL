@@ -4,506 +4,336 @@ ETL and Data Processing Patterns for AWS.
 Patterns for Extract, Transform, Load operations, data pipelines, and workflow orchestration.
 """
 
-from knowledge.architecture_patterns import ArchitectureDecision
+from knowledge.architecture_patterns import ArchitectureDecision, DecisionOption
 
 ETL_GLUE_BASIC = ArchitectureDecision(
-    name="AWS Glue ETL Pipeline",
-    context="""
-    Need to transform and process data:
-    - Extract data from various sources (S3, databases, APIs)
-    - Transform data (clean, enrich, aggregate)
-    - Load to target (data warehouse, data lake, database)
-    - Schedule regular runs
-    - Handle schema changes
+    question="What should I use for ETL (Extract, Transform, Load) data processing?",
+    options=[
+        DecisionOption(
+            name="AWS Glue (Recommended for Serverless)",
+            description="Serverless ETL service with auto-scaling, data catalog, and built-in connectors for S3, databases, and more",
+            when_to_use=[
+                "Daily or weekly batch ETL jobs",
+                "Data lake transformations",
+                "Schema discovery needed (Glue Crawlers)",
+                "Want serverless (no infrastructure to manage)",
+                "Sporadic workloads (pay per use)",
+                "Need integration with AWS services",
+            ],
+            when_not_to_use=[
+                "Need 24/7 streaming processing",
+                "Processing >1TB continuously",
+                "Need instant job startup (2-3 min cold start)",
+                "Need full Spark customization control",
+                "Very cost-sensitive for 24/7 workloads",
+            ],
+            pros=[
+                "No servers to manage (serverless)",
+                "Pay only for job runtime (no idle costs)",
+                "Automatic schema discovery with Crawlers",
+                "Built-in connectors (JDBC, S3, DynamoDB, Redshift)",
+                "Job bookmarks for incremental processing",
+                "Integrated with AWS Glue Data Catalog",
+            ],
+            cons=[
+                "2-3 minute cold start time per job",
+                "Less control than EMR",
+                "More expensive for 24/7 workloads than EMR",
+                "Limited customization compared to self-managed Spark",
+            ],
+            monthly_cost_range=(50.0, 200.0),
+            cost_drivers=[
+                "DPU (Data Processing Unit): $0.44/hour",
+                "Minimum 2 DPUs per job (4 vCPU + 16GB RAM each)",
+                "Example: Daily 30-min job = $0.44/hr * 0.5hr * 30 days ≈ $50/month",
+                "Glue Crawler: $0.44/hour when running",
+            ],
+            soc2_controls=["PI1.1", "PI1.2", "CC7.2", "CC6.7"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="AWS EMR (Elastic MapReduce)",
+            description="Managed Hadoop/Spark cluster on EC2 instances with full framework control for large-scale big data processing",
+            when_to_use=[
+                "Large-scale data processing (>1TB regularly)",
+                "Need 24/7 streaming or continuous processing",
+                "Need full Spark/Hadoop control",
+                "Multiple frameworks needed (Spark, Hive, Presto, Flink)",
+                "Custom libraries and configurations required",
+                "Team has Spark/Hadoop expertise",
+            ],
+            when_not_to_use=[
+                "Small, sporadic ETL jobs (Glue is cheaper)",
+                "Simple transformations (Lambda is simpler)",
+                "No big data expertise on team",
+                "Don't want to manage clusters",
+                "Cost-sensitive for small workloads",
+            ],
+            pros=[
+                "More powerful for large-scale data (>1TB)",
+                "Full control over Spark/Hadoop configuration",
+                "Faster execution for big data workloads",
+                "Cheaper for 24/7 continuous workloads vs Glue",
+                "Supports multiple frameworks",
+            ],
+            cons=[
+                "Must manage cluster (patching, scaling, monitoring)",
+                "Higher cost for small/sporadic workloads",
+                "More complex to set up and maintain",
+                "Requires Spark/Hadoop expertise",
+                "Idle capacity costs money",
+            ],
+            monthly_cost_range=(100.0, 500.0),
+            cost_drivers=[
+                "EC2 instance costs (m5.xlarge ≈ $120/month 24/7)",
+                "EMR service fees (10-25% on top of EC2)",
+                "Example: 3 m5.xlarge nodes 24/7 ≈ $350/month",
+                "EBS storage for HDFS",
+            ],
+            soc2_controls=["PI1.1", "PI1.2", "CC7.2"],
+            implementation_complexity="high",
+            operational_overhead="high",
+        ),
+        DecisionOption(
+            name="Lambda + S3 (Micro-ETL)",
+            description="Event-driven serverless functions triggered by S3 file uploads for simple, real-time transformations",
+            when_to_use=[
+                "Simple transformations (CSV to JSON, data cleaning)",
+                "Small files (<1GB per file)",
+                "Real-time processing needed (immediate on upload)",
+                "Event-driven architecture",
+                "Very low cost priority",
+            ],
+            when_not_to_use=[
+                "Complex transformations (joins, aggregations)",
+                "Large files (>1GB)",
+                "Processing takes >15 minutes",
+                "Need job bookmarks or state management",
+                "Batch processing with scheduling",
+            ],
+            pros=[
+                "Instant processing (no cold start for S3 triggers)",
+                "Very cheap ($0.20/million invocations)",
+                "Simple to implement",
+                "True serverless (fully managed)",
+                "Perfect for micro-ETL tasks",
+            ],
+            cons=[
+                "15-minute timeout limit",
+                "10GB RAM limit",
+                "Not suitable for complex transformations",
+                "No built-in job bookmarks",
+                "Hard to debug complex workflows",
+            ],
+            monthly_cost_range=(1.0, 20.0),
+            cost_drivers=[
+                "Lambda: $0.20 per 1M requests",
+                "$0.0000166667 per GB-second",
+                "S3 PUT/GET requests",
+                "Example: 100K files/month ≈ $2/month",
+            ],
+            soc2_controls=["PI1.1", "CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF file_size < 100MB AND transformation_simple:
+        → Lambda (cheapest, fastest)
+
+    ELIF workload_pattern == "daily_batch" OR workload_pattern == "weekly_batch":
+        → AWS Glue (serverless, no idle costs)
+
+    ELIF data_volume > 1TB AND processing_continuous:
+        → EMR (most cost-effective for 24/7)
+
+    ELSE:
+        → AWS Glue (default for most cases)
+
+    **Glue vs EMR Cost Comparison:**
+    - Glue: Pay per job runtime only ($50-200/mo for daily jobs)
+    - EMR: Pay for cluster 24/7 ($100-500/mo, cheaper if always running)
+
+    **Breakeven:**
+    - If ETL runs <4 hours/day → Glue is cheaper
+    - If ETL runs >8 hours/day → EMR is cheaper
     """,
-    options={
-        "AWS Glue (Recommended for Serverless)": """
-        **Architecture:**
-        - Glue Crawlers (discover schema)
-        - Glue Data Catalog (metadata store)
-        - Glue ETL Jobs (PySpark or Python Shell)
-        - Glue Triggers (scheduling)
-        - S3 for source/target data
+    soc2_relevance="""
+    ETL processing is critical for SOC 2 PI (Processing Integrity) controls:
 
-        **Features:**
-        - Serverless (no infrastructure)
-        - Auto-scaling
-        - Built-in connectors (JDBC, S3, DynamoDB)
-        - Data catalog integration
-        - Job bookmarks (incremental processing)
+    **PI1.1 (Accuracy):** Transformations must be accurate and tested
+    **PI1.2 (Completeness):** All data must be processed without loss
+    **CC7.2 (Monitoring):** ETL job monitoring and alerting required
+    **CC6.7 (Data Classification):** Sensitive data must be encrypted
 
-        **Cost:** approx. $0.44/DPU-hour
-        - DPU (Data Processing Unit) = 4 vCPU + 16GB RAM
-        - Min 2 DPUs per job
-        - Example: Daily 30-min job = approx. $50/month
-
-        **Pros:**
-        - No servers to manage
-        - Pay per use
-        - Integrated with AWS services
-        - Schema discovery automatic
-        - Good for sporadic workloads
-
-        **Cons:**
-        - Cold start time (2-3 minutes)
-        - Less control than EMR
-        - Limited customization
-        - More expensive for 24/7 workloads
-
-        **When to use:** Most ETL workloads, data lake transformations, scheduled batch jobs
-        """,
-
-        "AWS EMR (Elastic MapReduce)": """
-        **Architecture:**
-        - EMR cluster (EC2 instances)
-        - Spark/Hive/Presto on EMR
-        - S3 for data storage
-        - Step execution or interactive notebooks
-
-        **Features:**
-        - Full Spark control
-        - Multiple frameworks (Spark, Hive, Presto, Flink)
-        - Custom libraries
-        - Faster for large-scale processing
-
-        **Cost:** approx. $100-500/month
-        - EC2 instance costs + EMR fees
-        - Example: 3 m5.xlarge instances 24/7 = approx. $350/month
-
-        **Pros:**
-        - More powerful for big data
-        - Full framework control
-        - Faster execution
-        - Better for 24/7 workloads
-
-        **Cons:**
-        - Must manage cluster
-        - Higher cost for small workloads
-        - More complex
-        - Need Spark expertise
-
-        **When to use:** Large-scale data processing (>1TB), real-time streaming, 24/7 workloads
-        """,
-
-        "Lambda + S3 (Micro-ETL)": """
-        **Architecture:**
-        - Lambda triggered by S3 events
-        - Process files as they arrive
-        - Write to target (S3, DynamoDB, RDS)
-
-        **Features:**
-        - Event-driven (immediate processing)
-        - Serverless
-        - Simple transformations
-
-        **Cost:** approx. $0.20/million invocations
-        - Very cheap for small files
-        - 15-min timeout limit
-
-        **Pros:**
-        - Instant processing
-        - Very cheap
-        - Simple to implement
-        - No cold start for ETL
-
-        **Cons:**
-        - 15-min timeout
-        - Limited to 10GB RAM
-        - Not for complex transformations
-        - No built-in job bookmarks
-
-        **When to use:** Simple transformations, real-time processing, small files (<1GB)
-        """
-    },
-    recommendation="AWS Glue for most ETL workloads",
-    tradeoffs="""
-    **Glue vs EMR:**
-    - Glue: Serverless, easy, $50-200/mo for daily jobs
-    - EMR: Managed cluster, powerful, $100-500/mo for 24/7
-
-    **Glue vs Lambda:**
-    - Glue: Complex transformations, large data, scheduled
-    - Lambda: Simple transformations, small data, event-driven
-
-    **Decision tree:**
-    - Small files (<100MB), simple transform → Lambda
-    - Daily/weekly batch jobs, any size → Glue
-    - 24/7 streaming, >1TB data → EMR
+    Glue and EMR both support encryption at rest/in-transit and CloudWatch monitoring.
     """,
-    related_controls=["PI1.1", "PI1.2", "CC7.2", "CC6.7"],
-    aws_services=["glue", "s3", "cloudwatch", "kms"],
-    estimated_cost="$50-200/month for daily Glue jobs"
+    common_mistakes=[
+        "Using EMR for small, infrequent jobs (wastes money)",
+        "Not enabling job bookmarks in Glue (reprocesses all data)",
+        "Running Lambda on large files (hits timeout)",
+        "Not encrypting data in transit between ETL stages",
+        "Forgetting to set CloudWatch alarms for job failures",
+    ],
 )
 
 ETL_STEP_FUNCTIONS = ArchitectureDecision(
-    name="Data Pipeline Orchestration with Step Functions",
-    context="""
-    Need to orchestrate complex data workflows:
-    - Multiple ETL steps with dependencies
-    - Error handling and retries
-    - Parallel processing
-    - Human approval steps
-    - Monitoring and alerting
+    question="How should I orchestrate complex data pipelines with multiple ETL steps?",
+    options=[
+        DecisionOption(
+            name="Step Functions + Glue (Recommended)",
+            description="AWS Step Functions orchestrates Glue ETL jobs, Lambda functions, and other AWS services with visual workflows",
+            when_to_use=[
+                "Multiple ETL steps with dependencies",
+                "Need error handling and retries",
+                "Parallel processing required",
+                "Need workflow visualization",
+                "Want serverless orchestration",
+            ],
+            when_not_to_use=[
+                "Simple single-step ETL (just use Glue)",
+                "Need real-time streaming (use Kinesis)",
+                "Very high throughput (>1000 executions/sec)",
+                "Open-source orchestration preference (use Airflow)",
+            ],
+            pros=[
+                "Visual workflow designer",
+                "Built-in error handling and retries",
+                "Serverless (no infrastructure)",
+                "Integrates with 200+ AWS services",
+                "Automatic CloudWatch logging",
+            ],
+            cons=[
+                "AWS-specific (not portable)",
+                "Limited to 25,000 events per execution",
+                "More expensive than self-hosted for high volume",
+            ],
+            monthly_cost_range=(5.0, 50.0),
+            cost_drivers=[
+                "Step Functions: $25 per 1M state transitions",
+                "Example: 10K workflows/month with 5 steps = $1.25/month",
+                "Plus underlying service costs (Glue, Lambda)",
+            ],
+            soc2_controls=["PI1.1", "PI1.2", "CC7.2", "CC8.1"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="Apache Airflow (MWAA)",
+            description="Managed Apache Airflow on AWS for complex DAG-based data pipelines with Python code",
+            when_to_use=[
+                "Complex dependencies and conditional logic",
+                "Team familiar with Airflow",
+                "Need Python-based DAG definitions",
+                "Migrating from on-prem Airflow",
+                "Need backfills and historical runs",
+            ],
+            when_not_to_use=[
+                "Simple linear workflows (Step Functions simpler)",
+                "Serverless preference (MWAA has always-on cost)",
+                "Small-scale (<100 DAGs)",
+                "Cost-sensitive (MWAA minimum $300/month)",
+            ],
+            pros=[
+                "Powerful Python-based DAG definitions",
+                "Strong community and plugins",
+                "Complex dependency management",
+                "Portable (can run anywhere)",
+                "Rich UI for monitoring",
+            ],
+            cons=[
+                "$300+/month minimum (always-on environment)",
+                "More complex to learn",
+                "Requires Python knowledge",
+                "More operational overhead than Step Functions",
+            ],
+            monthly_cost_range=(300.0, 800.0),
+            cost_drivers=[
+                "MWAA Environment: $0.49/hour (mw1.small) = $355/month minimum",
+                "Additional workers: $0.49-0.98/hour each",
+                "Metadata database storage",
+            ],
+            soc2_controls=["PI1.1", "PI1.2", "CC7.2", "CC8.1"],
+            implementation_complexity="high",
+            operational_overhead="medium",
+        ),
+        DecisionOption(
+            name="EventBridge + Lambda",
+            description="Event-driven orchestration using EventBridge rules to trigger Lambda functions based on events",
+            when_to_use=[
+                "Event-driven architecture",
+                "Simple trigger-based workflows",
+                "Need real-time responsiveness",
+                "Very cost-sensitive",
+            ],
+            when_not_to_use=[
+                "Complex multi-step workflows (use Step Functions)",
+                "Need workflow state management",
+                "Long-running processes (>15 minutes)",
+                "Need visual workflow diagram",
+            ],
+            pros=[
+                "Very cheap (near-zero cost)",
+                "Real-time event processing",
+                "Simple for event-driven patterns",
+                "Serverless and scalable",
+            ],
+            cons=[
+                "No built-in workflow visualization",
+                "Hard to manage complex dependencies",
+                "No native retry logic",
+                "Lambda 15-minute limit",
+            ],
+            monthly_cost_range=(1.0, 10.0),
+            cost_drivers=[
+                "EventBridge: Free for first 14M events",
+                "Lambda: $0.20/million invocations",
+                "Very low cost for most workloads",
+            ],
+            soc2_controls=["CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF workflow_simple AND steps < 3:
+        → EventBridge + Lambda (simplest, cheapest)
+
+    ELIF team_knows_airflow OR need_complex_dag:
+        → MWAA (most powerful, but $300+/month)
+
+    ELSE:
+        → Step Functions + Glue (best balance)
+
+    **Cost Comparison (for 10K workflows/month):**
+    - EventBridge + Lambda: ~$5/month
+    - Step Functions: ~$10/month
+    - MWAA: ~$355/month (always-on)
+
+    Step Functions is the sweet spot for most AWS-native data pipelines.
     """,
-    options={
-        "Step Functions + Glue (Recommended)": """
-        **Architecture:**
-        - Step Functions state machine (orchestration)
-        - Glue jobs (data processing)
-        - Lambda (validation, notifications)
-        - EventBridge (scheduling)
-        - SNS (alerts)
+    soc2_relevance="""
+    Pipeline orchestration is critical for PI (Processing Integrity) and CC8.1 (Change Management):
 
-        **Workflow Example:**
-        1. Extract: Glue crawler discovers new data
-        2. Validate: Lambda checks data quality
-        3. Transform: Glue job processes data (parallel if needed)
-        4. Load: Glue job writes to Redshift/S3
-        5. Notify: SNS sends completion notification
+    **PI1.1:** Workflows must execute steps in correct order
+    **PI1.2:** All steps must complete successfully
+    **CC8.1:** Pipeline changes must be version controlled and tested
 
-        **Features:**
-        - Visual workflow editor
-        - Built-in error handling
-        - Parallel execution
-        - Human approval steps
-        - Audit trail (CloudWatch)
-
-        **Cost:** approx. $25/million state transitions
-        - Typically $1-5/month for daily pipelines
-        - Glue jobs cost separately
-
-        **Pros:**
-        - Easy to visualize workflow
-        - Built-in retries
-        - Error handling
-        - Audit trail
-        - No servers
-
-        **Cons:**
-        - Limited to 25,000 events in execution history
-        - Can get expensive for high-frequency workflows
-
-        **When to use:** Multi-step pipelines, error handling needed, audit requirements
-        """,
-
-        "Glue Workflows": """
-        **Architecture:**
-        - Glue Workflow (orchestration)
-        - Glue Triggers (dependencies)
-        - Glue Jobs and Crawlers
-
-        **Features:**
-        - Native Glue orchestration
-        - DAG-style dependencies
-        - Simpler than Step Functions
-
-        **Cost:** Free (included with Glue)
-
-        **Pros:**
-        - No extra service
-        - Integrated with Glue console
-        - Free orchestration
-
-        **Cons:**
-        - Limited to Glue jobs/crawlers
-        - Less flexible than Step Functions
-        - No Lambda integration
-        - Basic error handling
-
-        **When to use:** Simple Glue-only workflows, tight budget
-        """,
-
-        "Airflow on MWAA (Managed Workflows for Apache Airflow)": """
-        **Architecture:**
-        - MWAA managed Airflow environment
-        - Python DAGs for workflow definition
-        - Integration with AWS services
-
-        **Features:**
-        - Full Airflow capabilities
-        - Custom operators
-        - Complex scheduling
-        - Rich UI
-
-        **Cost:** approx. $300-1000/month
-        - MWAA environment: $0.49/hour (approx. $350/month)
-        - Plus worker costs
-
-        **Pros:**
-        - Industry-standard Airflow
-        - Very flexible
-        - Complex workflows
-        - Existing Airflow knowledge
-
-        **Cons:**
-        - Expensive (always running)
-        - Complex to manage
-        - Overkill for simple workflows
-
-        **When to use:** Migrating from Airflow, complex scheduling, team has Airflow expertise
-        """
-    },
-    recommendation="Step Functions + Glue for most orchestration needs",
-    tradeoffs="""
-    **Step Functions vs Glue Workflows:**
-    - Step Functions: More flexible, Lambda integration, $1-5/mo
-    - Glue Workflows: Simpler, Glue-only, free
-
-    **Step Functions vs Airflow:**
-    - Step Functions: Serverless, cheap, visual, $1-5/mo
-    - Airflow: More powerful, expensive, always-on, $300-1000/mo
-
-    **When to use Airflow:** Only if you have complex scheduling needs or existing Airflow DAGs
-    **Default choice:** Step Functions (serverless, cheap, flexible)
+    All three options support CloudWatch logging and monitoring for compliance.
     """,
-    related_controls=["PI1.4", "CC8.1", "CC7.2"],
-    aws_services=["stepfunctions", "glue", "lambda", "eventbridge", "sns"],
-    estimated_cost="$1-10/month for orchestration"
+    common_mistakes=[
+        "Using MWAA for simple workflows (overkill and expensive)",
+        "Not implementing retry logic in EventBridge workflows",
+        "Running long processes in Lambda (use Step Functions + Glue)",
+        "No CloudWatch alarms for workflow failures",
+        "Not version controlling workflow definitions (CC8.1 violation)",
+    ],
 )
 
-ETL_DATA_QUALITY = ArchitectureDecision(
-    name="Data Quality and Validation",
-    context="""
-    Need to ensure data quality in ETL pipelines:
-    - Validate schema
-    - Check data completeness
-    - Detect anomalies
-    - Track data lineage
-    - Alert on quality issues
-    """,
-    options={
-        "Glue Data Quality (Recommended)": """
-        **Architecture:**
-        - Glue Data Quality rules
-        - Integrated with Glue jobs
-        - CloudWatch metrics for quality
-        - SNS alerts on failures
-
-        **Features:**
-        - Declarative quality rules
-        - Built into Glue jobs
-        - Automatic metrics
-        - No separate infrastructure
-
-        **Quality Checks:**
-        - Completeness (null checks)
-        - Uniqueness (duplicate detection)
-        - Validity (range checks, regex)
-        - Consistency (referential integrity)
-        - Timeliness (freshness checks)
-
-        **Cost:** Free (included with Glue)
-
-        **Example Rules:**
-        ```python
-        rules = [
-            "ColumnValues 'email' matches '[^@]+@[^@]+\\.[^@]+'",
-            "ColumnValues 'age' between 0 and 120",
-            "Completeness 'customer_id' > 0.99",
-            "Uniqueness 'order_id' = 1.0"
-        ]
-        ```
-
-        **Pros:**
-        - Integrated with Glue
-        - No extra cost
-        - Simple declarative rules
-        - Automatic metrics
-
-        **Cons:**
-        - Limited to Glue jobs
-        - Basic anomaly detection
-
-        **When to use:** All Glue ETL jobs (should be default)
-        """,
-
-        "Great Expectations on Lambda": """
-        **Architecture:**
-        - Lambda function with Great Expectations
-        - Validate data before/after ETL
-        - Store results in S3
-        - Generate data docs
-
-        **Features:**
-        - Sophisticated validations
-        - Statistical tests
-        - Data profiling
-        - HTML reports
-
-        **Cost:** approx. $1-5/month (Lambda costs)
-
-        **Pros:**
-        - Very powerful
-        - Industry standard
-        - Rich reporting
-        - Statistical anomaly detection
-
-        **Cons:**
-        - Requires setup
-        - Lambda timeout limits
-        - More complex
-
-        **When to use:** Advanced quality needs, statistical testing, detailed reports
-        """,
-
-        "AWS Deequ on Glue": """
-        **Architecture:**
-        - Deequ library in Glue jobs
-        - Scala/Spark-based validation
-        - Quality metrics to CloudWatch
-
-        **Features:**
-        - ML-based anomaly detection
-        - Profile data automatically
-        - Suggest constraints
-
-        **Cost:** Free (runs in Glue job)
-
-        **Pros:**
-        - Advanced ML features
-        - Automatic profiling
-        - Spark-native
-
-        **Cons:**
-        - Scala/Spark knowledge needed
-        - Less documentation
-
-        **When to use:** Complex quality needs, ML-based detection, Spark expertise
-        """
-    },
-    recommendation="Glue Data Quality for standard validation",
-    tradeoffs="""
-    **Start with Glue Data Quality** (free, integrated)
-    **Upgrade to Great Expectations** if you need:
-    - Statistical tests
-    - Detailed HTML reports
-    - Advanced anomaly detection
-
-    **Use Deequ** if you have Spark expertise and need ML features
-    """,
-    related_controls=["PI1.1", "PI1.2", "PI1.5", "CC7.2"],
-    aws_services=["glue", "lambda", "cloudwatch", "sns"],
-    estimated_cost="$0-5/month"
-)
-
-ETL_COMPLETE = ArchitectureDecision(
-    name="Complete Production ETL Pipeline",
-    context="""
-    Production-grade ETL pipeline with all best practices:
-    - Scheduled data processing
-    - Error handling and retries
-    - Data quality validation
-    - Monitoring and alerting
-    - Audit trail
-    - SOC 2 compliant
-    """,
-    options={
-        "Full Stack ETL (Recommended)": """
-        **Complete Architecture:**
-
-        **Data Processing:**
-        - S3 (landing zone, processed zone, archive zone)
-        - Glue Crawlers (schema discovery)
-        - Glue Data Catalog (metadata)
-        - Glue ETL Jobs (PySpark transformations)
-        - Glue Data Quality (validation rules)
-
-        **Orchestration:**
-        - Step Functions state machine
-        - EventBridge schedule (daily trigger)
-        - Lambda (pre/post processing, notifications)
-
-        **Security:**
-        - KMS encryption (S3 at rest)
-        - TLS in transit
-        - IAM roles (least privilege)
-        - VPC endpoints (private Glue access)
-        - Secrets Manager (database credentials)
-
-        **Monitoring:**
-        - CloudWatch Logs (all logs centralized)
-        - CloudWatch Metrics (job duration, records processed)
-        - CloudWatch Alarms:
-          * Job failures
-          * Data quality failures
-          * Processing time > threshold
-          * Record count anomalies
-        - SNS notifications
-
-        **Data Governance:**
-        - Glue Data Catalog tags
-        - Lake Formation permissions
-        - CloudTrail audit logs
-        - Data lineage tracking
-
-        **Workflow Example:**
-        ```
-        1. EventBridge triggers Step Functions (daily 2am)
-        2. Step Functions orchestrates:
-           a. Glue Crawler discovers new data
-           b. Lambda validates source files exist
-           c. Glue Job processes data (with data quality checks)
-           d. Lambda validates output
-           e. Glue Job loads to Redshift/Athena
-           f. SNS notifies on success/failure
-        3. CloudWatch tracks all metrics
-        ```
-
-        **SOC 2 Controls Addressed:**
-        - PI1.1: Data processing accuracy (Glue Data Quality)
-        - PI1.2: Data completeness (validation checks)
-        - PI1.4: Authorization (IAM roles, least privilege)
-        - CC7.2: System monitoring (CloudWatch)
-        - CC6.7: Encryption (KMS)
-        - CC8.1: Change management (tracked in Git)
-
-        **Cost Breakdown:** approx. $100-300/month
-        - Glue jobs: $50-200/month (daily 30-min runs)
-        - S3 storage: $5-20/month (depends on data volume)
-        - Step Functions: $1-5/month
-        - CloudWatch: $5-10/month (logs, metrics, alarms)
-        - Glue Data Catalog: $1/month
-        - Lambda: <$1/month
-        - VPC endpoints: $7.50/month (optional)
-
-        **Terraform Modules Needed:**
-        - S3 buckets (landing, processed, archive) with encryption
-        - Glue Data Catalog database
-        - Glue Crawlers
-        - Glue ETL Jobs with data quality rules
-        - IAM roles for Glue
-        - Step Functions state machine
-        - EventBridge schedule rule
-        - Lambda functions (validation, notifications)
-        - CloudWatch alarms
-        - SNS topic for alerts
-        - VPC endpoints (optional, for private access)
-
-        **Pros:**
-        - Production-ready
-        - SOC 2 compliant
-        - Comprehensive monitoring
-        - Error handling
-        - Data quality built-in
-
-        **Cons:**
-        - Higher initial setup
-        - $100-300/month cost
-
-        **When to use:** All production ETL pipelines
-        """
-    },
-    recommendation="Full stack with orchestration, quality checks, and monitoring",
-    tradeoffs="No tradeoffs - this is the complete, production-ready setup",
-    related_controls=["PI1.1", "PI1.2", "PI1.4", "PI1.5", "CC6.7", "CC7.2", "CC8.1"],
-    aws_services=["glue", "stepfunctions", "s3", "lambda", "eventbridge", "cloudwatch", "sns", "kms", "lakeformation"],
-    estimated_cost="$100-300/month"
-)
-
-# Export patterns
-PATTERNS = [
-    ETL_GLUE_BASIC,
-    ETL_STEP_FUNCTIONS,
-    ETL_DATA_QUALITY,
-    ETL_COMPLETE
-]
+# Export patterns list
+PATTERNS = [ETL_GLUE_BASIC, ETL_STEP_FUNCTIONS]
