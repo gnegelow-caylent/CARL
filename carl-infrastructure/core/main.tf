@@ -29,6 +29,10 @@ locals {
   account_id  = data.aws_caller_identity.current.account_id
   region      = data.aws_region.current.name
   name_prefix = "carl-${var.environment}"
+
+  # Lambda package path for modules that still use zip deployment
+  # Main API Lambda now uses container images (see ECR repository below)
+  lambda_zip_path = "${path.module}/../../carl-app/lambda.zip"
 }
 
 # ============================================================================
@@ -904,22 +908,63 @@ resource "aws_iam_role_policy" "security_services" {
   })
 }
 
-# 3. Lambda Function (CARL's Brain)
-# Note: Lambda package is created by GitHub Actions workflow with dependencies
-# The workflow installs requirements.txt into src/ before zipping
-# Do NOT use data.archive_file here as it would recreate without dependencies
+# ECR Repository for Lambda Container Images
+resource "aws_ecr_repository" "carl_lambda" {
+  name                 = "carl-lambda"
+  image_tag_mutability = "MUTABLE"
 
-locals {
-  lambda_zip_path = "${path.module}/lambda.zip"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Name        = "carl-lambda"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+# ECR Lifecycle Policy - Keep only last 5 images
+resource "aws_ecr_lifecycle_policy" "carl_lambda" {
+  repository = aws_ecr_repository.carl_lambda.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 5 images"
+      selection = {
+        tagStatus     = "any"
+        countType     = "imageCountMoreThan"
+        countNumber   = 5
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# 3. Lambda Function (CARL's Brain)
+# Note: Lambda uses container image built by GitHub Actions workflow
+# The workflow builds Docker image with all dependencies and pushes to ECR
+
+variable "lambda_image_uri" {
+  description = "URI of the Lambda container image in ECR"
+  type        = string
+  default     = "" # Will be passed from GitHub Actions
 }
 
 resource "aws_lambda_function" "carl" {
-  filename         = local.lambda_zip_path
-  function_name    = "${local.name_prefix}-api"
-  role             = aws_iam_role.lambda.arn
-  handler          = "handlers.slack_router.lambda_handler"
-  source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : ""
-  runtime          = "python3.11"
+  # Container image configuration
+  package_type = "Image"
+  image_uri    = var.lambda_image_uri != "" ? var.lambda_image_uri : "${aws_ecr_repository.carl_lambda.repository_url}:latest"
+
+  function_name = "${local.name_prefix}-api"
+  role          = aws_iam_role.lambda.arn
 
   # Performance optimization: 1024MB provides 2x CPU, faster cold starts
   # Cost is similar since execution is 2x faster (GB-seconds remain constant)

@@ -25,8 +25,7 @@ tenacity>=8.2.0  # Retry logic
 orjson>=3.9.0  # Faster JSON
 
 # Report generation - Professional PDFs
-# NOTE: These dependencies are TOO LARGE for Lambda direct deployment (>70MB)
-# They must be deployed via Lambda Layer - see PDF_GENERATION_NOTES.md
-# weasyprint>=60.0  # HTML to PDF conversion
-# matplotlib>=3.8.0  # Chart generation
-# pillow>=10.0.0  # Image processing
+# NOTE: These dependencies work with Lambda Container Images (Docker)
+weasyprint>=60.0  # HTML to PDF conversion
+matplotlib>=3.8.0  # Chart generation
+pillow>=10.0.0  # Image processing

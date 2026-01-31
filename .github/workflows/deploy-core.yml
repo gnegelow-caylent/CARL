@@ -215,25 +215,27 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Package Lambda
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Install dependencies into a temporary directory with Lambda-compatible binaries
-          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
-          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          mkdir -p carl-app/package
-          pip install \
-            --platform manylinux2014_x86_64 \
-            --target carl-app/package \
-            --implementation cp \
-            --python-version 3.11 \
-            --only-binary=:all: \
-            --upgrade \
-            -r carl-app/requirements.txt
-          # Copy source code into package
-          cp -r carl-app/src/* carl-app/package/
-          # Package everything including dependencies
-          cd carl-app/package
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
+          # Build Docker image with PDF generation dependencies
+          cd carl-app
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Push both tagged and latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Save image URI for Terraform
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: |
@@ -246,6 +248,7 @@ jobs:
           terraform apply -auto-approve \
             -var="environment=dev" \
             -var="enable_foundation=true" \
+            -var="lambda_image_uri=$IMAGE_URI" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_DEV }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_DEV }}"
 
@@ -296,25 +299,27 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Package Lambda
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Install dependencies into a temporary directory with Lambda-compatible binaries
-          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
-          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          mkdir -p carl-app/package
-          pip install \
-            --platform manylinux2014_x86_64 \
-            --target carl-app/package \
-            --implementation cp \
-            --python-version 3.11 \
-            --only-binary=:all: \
-            --upgrade \
-            -r carl-app/requirements.txt
-          # Copy source code into package
-          cp -r carl-app/src/* carl-app/package/
-          # Package everything including dependencies
-          cd carl-app/package
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
+          # Build Docker image with PDF generation dependencies
+          cd carl-app
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Push both tagged and latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Save image URI for Terraform
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: |
@@ -326,6 +331,7 @@ jobs:
           cd carl-infrastructure/core
           terraform apply -auto-approve \
             -var="environment=qa" \
+            -var="lambda_image_uri=$IMAGE_URI" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_QA }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_QA }}"
 
@@ -355,25 +361,27 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Package Lambda
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Install dependencies into a temporary directory with Lambda-compatible binaries
-          # IMPORTANT: Terraform expects lambda.zip in carl-infrastructure/core/
-          # Do NOT use Terraform's data.archive_file as it recreates without dependencies
-          mkdir -p carl-app/package
-          pip install \
-            --platform manylinux2014_x86_64 \
-            --target carl-app/package \
-            --implementation cp \
-            --python-version 3.11 \
-            --only-binary=:all: \
-            --upgrade \
-            -r carl-app/requirements.txt
-          # Copy source code into package
-          cp -r carl-app/src/* carl-app/package/
-          # Package everything including dependencies
-          cd carl-app/package
-          zip -r ../../carl-infrastructure/core/lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*"
+          # Build Docker image with PDF generation dependencies
+          cd carl-app
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Push both tagged and latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Save image URI for Terraform
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: |
@@ -385,6 +393,7 @@ jobs:
           cd carl-infrastructure/core
           terraform plan \
             -var="environment=prod" \
+            -var="lambda_image_uri=$IMAGE_URI" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_PROD }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_PROD }}" \
             -out=tfplan
