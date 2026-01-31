@@ -566,56 +566,6 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
       {
         Effect = "Allow"
         Action = [
-          "securityhub:EnableSecurityHub",
-          "securityhub:DescribeHub",
-          "securityhub:GetFindings",
-          "securityhub:BatchImportFindings",
-          "securityhub:BatchUpdateFindings"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "config:PutConfigurationRecorder",
-          "config:PutDeliveryChannel",
-          "config:StartConfigurationRecorder",
-          "config:DescribeConfigurationRecorders",
-          "config:DescribeConfigurationRecorderStatus",
-          "config:DescribeDeliveryChannels"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:CreateBucket",
-          "s3:PutBucketPolicy",
-          "s3:PutBucketVersioning",
-          "s3:GetBucketAcl",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          "arn:aws:s3:::aws-config-*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "iam:CreateRole",
-          "iam:GetRole",
-          "iam:AttachRolePolicy",
-          "iam:PassRole",
-          "iam:CreateServiceLinkedRole"
-        ]
-        Resource = [
-          "arn:aws:iam::*:role/AWSConfigRole",
-          "arn:aws:iam::*:role/aws-service-role/config.amazonaws.com/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
           "lambda:InvokeFunction"
         ]
         Resource = [

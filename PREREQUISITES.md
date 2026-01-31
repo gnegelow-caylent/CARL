@@ -39,7 +39,86 @@ If you see model IDs listed, you're good to go!
 
 **Note:** The bootstrap script will verify Bedrock access and provide instructions if needed.
 
-### 3. Terraform
+### 3. AWS Security Hub ⚠️ REQUIRED
+
+- [ ] AWS Security Hub enabled in your deployment region
+- [ ] Security standards enabled (CIS AWS Foundations, AWS Foundational Security Best Practices)
+
+**Why required:** CARL uses Security Hub as its primary source for security findings and compliance checks. Without it, CARL cannot scan your AWS environment.
+
+**How to enable:**
+1. Go to: https://console.aws.amazon.com/securityhub/home
+2. Click "Go to Security Hub"
+3. Click "Enable Security Hub"
+4. Enable standards:
+   - ✅ AWS Foundational Security Best Practices
+   - ✅ CIS AWS Foundations Benchmark
+   - ⚠️  Note: This will start scanning your AWS resources (first scan takes ~30 minutes)
+
+**Verify Security Hub is enabled:**
+```bash
+aws securityhub describe-hub --region us-east-1
+```
+
+**Cost:** Security Hub costs ~$0.0010 per security check per month. Typical account: $5-15/month.
+
+### 4. AWS Config ⚠️ REQUIRED
+
+- [ ] AWS Config enabled in your deployment region
+- [ ] Configuration recorder running
+- [ ] S3 bucket for Config delivery channel created
+
+**Why required:** CARL uses AWS Config to track resource configurations and detect drift over time. Config provides the historical baseline for compliance checks.
+
+**How to enable:**
+1. Go to: https://console.aws.amazon.com/config/home
+2. Click "Get started" or "Settings"
+3. Configuration recorder:
+   - Record all resources in this region: ✅ Yes
+   - Include global resources: ✅ Yes (if in primary region)
+4. Delivery channel:
+   - S3 bucket: Let AWS create one for you (or specify existing)
+   - SNS topic: Optional (not required for CARL)
+5. Click "Next" and "Confirm"
+
+**Verify Config is running:**
+```bash
+aws configservice describe-configuration-recorders --region us-east-1
+aws configservice describe-configuration-recorder-status --region us-east-1
+```
+
+**Cost:** AWS Config costs ~$0.003 per configuration item recorded, plus ~$0.001 per rule evaluation. Typical account: $10-30/month.
+
+### 5. Optional Security Tools
+
+CARL can leverage additional AWS security tools when enabled. These are **NOT required** but provide enhanced security insights when available:
+
+**✅ Currently Supported:**
+- **Amazon GuardDuty** - Threat detection
+  - CARL will scan GuardDuty findings if enabled
+  - Reported findings will include severity and recommendations
+  - Cost: ~$4.45/month for 50GB CloudTrail + VPC Flow Log analysis
+
+- **Amazon Inspector (v2)** - Vulnerability scanning
+  - CARL will scan Inspector findings for EC2, ECR, Lambda vulnerabilities
+  - Reported findings include CVE details and remediation
+  - Cost: ~$0.09 per EC2 instance/month, $0.09 per re-scan
+
+- **Amazon Macie** - Sensitive data discovery
+  - CARL will scan Macie findings if enabled
+  - Reported findings include data classification and location
+  - Cost: ~$1.00/GB for S3 inventory + $0.10/GB for data classification
+
+**CARL's Behavior:**
+- ✅ If enabled: CARL scans findings and reports them
+- ✅ If disabled: CARL notes tool is disabled (informational only, not critical)
+- ❌ CARL will NOT automatically enable these tools (you must enable manually)
+
+**Future Support (Not Yet Implemented):**
+- Amazon Detective - Security investigation
+- IAM Access Analyzer - IAM policy analysis
+
+### 6. Terraform
 - [ ] Terraform >= 1.0 installed
   ```bash
   terraform version  # Should be >= 1.0.0

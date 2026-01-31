@@ -333,6 +333,18 @@ class DriftDetector:
             logger.debug(f"Skipping Config rule (not an actual resource): {title}")
             return None
 
+        # Optional security tools - CARL uses them if enabled, but doesn't require them
+        # These should NOT be flagged as critical if disabled
+        optional_tools = ['guardduty', 'inspector', 'macie', 'detective', 'access analyzer']
+        is_optional_tool_disabled = any(
+            tool in title.lower() and ('not enabled' in title.lower() or 'not enabled' in description.lower())
+            for tool in optional_tools
+        )
+
+        if is_optional_tool_disabled:
+            logger.debug(f"Skipping optional tool not enabled: {title}")
+            return None
+
         # Check for issues in title/description (evidence_collector flags issues)
         issue_indicators = [
             'NOT ENABLED', 'NOT CONFIGURED', 'not enabled', 'not configured',
