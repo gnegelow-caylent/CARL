@@ -630,6 +630,47 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### Removed Dead Agent Code & Standardized on AgentCore 🧹 (January 31, 2026)
+
+**Status: COMPLETE** - All agents now use standardized AgentCore abstraction
+
+**What Changed:**
+1. ✅ **Removed advisory_agent.py** - Dead code using AWS Bedrock Agents service (never configured)
+2. ✅ **Removed compliance_agent.py** - Dead code using AWS Bedrock Agents service (never configured)
+3. ✅ **Simplified `/carl ask` implementation** - Now directly uses AgentCore-based implementation
+4. ✅ **Simplified `/carl compliance assess`** - Removed AWS Bedrock Agent integration attempt
+5. ✅ **Cleaner codebase** - ~1,000 lines of unused code removed
+
+**Why Removed:**
+- Both files used AWS Bedrock Agents managed service (requires AWS console configuration)
+- Environment variables (`ADVISORY_AGENT_ID`, `COMPLIANCE_AGENT_ID`) were never set anywhere
+- Code **always** fell back to AgentCore-based implementations
+- Actual `/carl ask` implementation already uses AgentCore successfully
+- Confusing to have two agent approaches in codebase
+
+**Preserved:**
+- ✅ `ADVISORY_AGENT.md` - Documentation preserved for future reference
+- ✅ AgentCore-based `/carl ask` - Already working perfectly
+- ✅ Tool concepts - Can reference when building future agent handoffs
+
+**Future Agent Development:**
+- All future agents should use **AgentCore** (our standardized abstraction)
+- NOT AWS Bedrock Agents service (different approach, requires console setup)
+- Roadmap mentions agent handoffs (Advisory → Architect) - will use AgentCore when implemented
+
+**Files Deleted:**
+- `carl-app/src/services/advisory_agent.py` (~511 lines)
+- `carl-app/src/services/compliance_agent.py` (~490+ lines)
+
+**Files Modified:**
+- `carl-app/src/handlers/slack_router.py` - Removed fallback logic, simplified implementations
+
+**Impact:**
+- Cleaner codebase, less confusion
+- All agents use consistent AgentCore abstraction
+- Easier to understand and maintain
+- Completes the migration to AgentCore standard
+
 ### Foundation Module KMS Infrastructure 🔐 (January 29-30, 2026)
 
 **Status: COMPLETE** - All manual changes captured in code, resources imported

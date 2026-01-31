@@ -1757,89 +1757,6 @@ def handle_ask_command(
     return {"statusCode": 200, "body": ""}
 
 
-def handle_ask_command_sync(
-    slack: SlackService, channel_id: str, user_id: str, question: str
-) -> dict:
-    """Synchronous version of ask command - uses Advisory Agent."""
-    import os
-    from services.advisory_agent import AdvisoryAgent
-
-    # Check if Advisory Agent is configured
-    advisory_agent_id = os.environ.get("ADVISORY_AGENT_ID")
-
-    if not advisory_agent_id:
-        logger.warning("Advisory Agent not configured, falling back to basic Q&A")
-        return handle_ask_command_fallback(slack, channel_id, user_id, question)
-
-    logger.info(f"Invoking Advisory Agent for question: {question[:100]}...")
-
-    try:
-        # Initialize Advisory Agent
-        agent = AdvisoryAgent(agent_id=advisory_agent_id)
-
-        # Invoke the agent
-        result = agent.ask_question(
-            question=question,
-            session_id=f"slack-{user_id}-{channel_id}",
-            enable_trace=False
-        )
-
-        if not result.get('success'):
-            error_msg = result.get('error', 'Unknown error')
-            slack.post_message(
-                channel_id,
-                text=f"❌ Advisory Agent encountered an error: {error_msg}"
-            )
-            return {"statusCode": 200, "body": ""}
-
-        # Get the agent's response
-        response_text = result.get('response', 'No response from agent.')
-        actions_taken = result.get('actions', [])
-
-        # Format and post response
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "💬 CARL Advisory Agent"
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": response_text
-                }
-            }
-        ]
-
-        # Show actions taken if any
-        if actions_taken:
-            actions_text = "\n".join([f"• {action.get('action', 'Unknown action')}" for action in actions_taken[:3]])
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"🔍 Agent actions: {len(actions_taken)} steps\n{actions_text}"
-                    }
-                ]
-            })
-
-        slack.post_message(channel_id, blocks=blocks)
-
-        return {"statusCode": 200, "body": ""}
-
-    except Exception as e:
-        logger.exception(f"Advisory Agent failed: {e}")
-        slack.post_message(
-            channel_id,
-            text=f"❌ Advisory Agent failed: {str(e)}\n\nFalling back to basic Q&A..."
-        )
-        return handle_ask_command_fallback(slack, channel_id, user_id, question)
-
-
 def classify_question_type(question: str) -> str:
     """
     Classify a question as 'compliance' (scan existing) or 'architecture' (design new).
@@ -2023,11 +1940,11 @@ def _evidence_to_context_summary(evidence_results: dict) -> str:
     return summary
 
 
-def handle_ask_command_fallback(
+def handle_ask_command_sync(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Fallback ask command - Comprehensive AWS scanning for compliance questions.
+    Synchronous version of ask command - uses AgentCore for intelligent scanning.
     """
     import os
     import json
@@ -8373,165 +8290,10 @@ def handle_compliance_assess(
 def handle_compliance_assess_sync(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Synchronous version - does the actual compliance assessment work."""
-    import time
-
-    start_time = time.time()
-    interaction_id = None
-
-    try:
-        from services.compliance_agent import ComplianceAgent
-        from services.learning_service import LearningService
-        import os
-
-        # Get agent ID and alias ID from environment (will be configured via CDK/CloudFormation)
-        agent_id = os.environ.get("COMPLIANCE_AGENT_ID")
-        agent_alias_id = os.environ.get("COMPLIANCE_AGENT_ALIAS_ID", "PROD")
-
-        if not agent_id:
-            # Agent not configured yet - use fallback approach
-            logger.warning("Compliance agent not configured, using fallback")
-            return handle_compliance_assess_fallback(slack, channel_id, user_id)
-
-        # Initialize agent
-        agent = ComplianceAgent(agent_id=agent_id, agent_alias_id=agent_alias_id)
-
-        # Run assessment
-        result = agent.assess_compliance(
-            framework="soc2",
-            auto_create_tickets=True
-        )
-
-        # Calculate duration
-        duration_ms = int((time.time() - start_time) * 1000)
-
-        # Post results to Slack
-        coverage = result.get("coverage_percent", 0)
-        gaps_count = len(result.get("gaps", []))
-        epic_url = result.get("jira_epic_url")
-        story_count = result.get("jira_story_count", 0)
-        finding_ids = [f"FND-{i}" for i in range(gaps_count)]  # Simplified - would get actual IDs
-
-        blocks = [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": "📊 SOC 2 Compliance Assessment Complete"}
-            },
-            {
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Coverage:*\n{coverage}%"},
-                    {"type": "mrkdwn", "text": f"*Gaps:*\n{gaps_count}"}
-                ]
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": result.get("executive_summary", "Assessment complete.")
-                }
-            }
-        ]
-
-        if epic_url:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*📋 Jira Epic Created:* <{epic_url}|View Roadmap>\n{story_count} stories created for phased remediation."
-                }
-            })
-
-        slack.post_message(channel_id, blocks=blocks)
-
-        # Log interaction for learning
-        try:
-            scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
-            resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
-
-            learning_service = LearningService(
-                scan_history_table=scan_history_table,
-                resource_graph_table=resource_graph_table
-            )
-
-            interaction_id = learning_service.log_interaction(
-                user_id=user_id,
-                question="SOC 2 compliance assessment",
-                scans_performed=["assess_soc2", "create_epic"],
-                resources_found=finding_ids,
-                scan_duration_ms=duration_ms,
-                interaction_type="compliance",
-                metadata={
-                    "channel_id": channel_id,
-                    "coverage": coverage,
-                    "gaps_count": gaps_count,
-                    "epic_url": epic_url,
-                    "story_count": story_count
-                }
-            )
-
-            logger.info(f"Logged compliance assessment interaction {interaction_id}")
-        except Exception as e:
-            logger.warning(f"Failed to log compliance interaction: {e}")
-
-        # Add feedback buttons
-        if interaction_id:
-            feedback_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Was this assessment helpful?_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"feedback_{interaction_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👍 Yes",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:helpful",
-                            "action_id": "feedback_positive"
-                        },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👎 No",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:not_helpful",
-                            "action_id": "feedback_negative"
-                        }
-                    ]
-                }
-            ]
-
-            slack.post_message(channel_id, blocks=feedback_blocks)
-
-    except Exception as e:
-        logger.error(f"Compliance assessment failed: {e}")
-        slack.post_message(
-            channel_id,
-            text=f"❌ Compliance assessment failed: {str(e)}"
-        )
-
-    return {"statusCode": 200, "body": ""}
-
-
-def handle_compliance_assess_fallback(
-    slack: SlackService, channel_id: str, user_id: str
-) -> dict:
-    """Fallback when Bedrock Agent not configured - use simpler approach."""
+    """Synchronous version - compliance assessment (not yet implemented)."""
     slack.post_message(
         channel_id,
-        text="⚠️ Compliance agent not yet configured.\n\nTo enable autonomous compliance assessment:\n1. Configure AWS Bedrock Agent\n2. Set COMPLIANCE_AGENT_ID environment variable\n3. Deploy updated Lambda\n\nFor now, you can use:\n• `/carl evidence collect` - Manual evidence collection\n• `/carl jira sync` - Create tickets manually"
+        text="⚠️ Autonomous compliance assessment is planned for a future release.\n\nFor now, you can use:\n• `/carl evidence collect` - Collect compliance evidence\n• `/carl jira sync` - Create Jira tickets for findings\n• `/carl drift scan` - Check for infrastructure drift\n• `/carl status` - View compliance posture summary"
     )
     return {"statusCode": 200, "body": ""}
 
