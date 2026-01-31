@@ -892,10 +892,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             soc2_controls = _extract_soc2_controls(terraform_files.get('readme', ''))
             security_practices = _extract_security_practices(terraform_files.get('readme', ''))
 
-            # Prepare metadata
+            # Prepare metadata (clean up formatting)
+            raw_option_text = terraform_config.get('option_text', '')
+            # Convert escaped newlines to actual newlines for proper formatting
+            clean_option_text = raw_option_text.replace('\\n', '\n').strip() if raw_option_text else ''
+
             metadata = {
                 "requirement": requirement,
-                "option_text": terraform_config.get('option_text', ''),
+                "option_text": clean_option_text,
                 "vpc_id": terraform_config.get('vpc_id'),
                 "vpc_cidr": terraform_config.get('vpc_cidr'),
                 "prefix": terraform_config.get('prefix'),
@@ -3987,6 +3991,12 @@ def _generate_terraform_with_ai(config: dict, progress_callback=None) -> dict:
     # Build context for AI
     requirement = config.get("requirement", "infrastructure setup")
     option_text = config.get("option_text", "")
+
+    # Clean up option_text: convert escaped newlines to actual newlines
+    if option_text:
+        option_text = option_text.replace('\\n', '\n')  # Convert escaped newlines
+        option_text = option_text.strip()
+
     vpc_info = f"VPC ID: {config['vpc_id']}" if config.get('vpc_id') else f"VPC CIDR: {config['vpc_cidr']}"
 
     # Common context for all prompts
