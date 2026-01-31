@@ -3073,45 +3073,10 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
             ]
             slack.post_message(channel_id, blocks=action_blocks)
 
-        # Add feedback buttons
-        if interaction_id:
-            feedback_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Was this recommendation helpful?_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"feedback_{interaction_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👍 Yes",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:helpful",
-                            "action_id": "feedback_positive"
-                        },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "👎 No",
-                                "emoji": True
-                            },
-                            "value": f"{interaction_id}:not_helpful",
-                            "action_id": "feedback_negative"
-                        }
-                    ]
-                }
-            ]
-
-            slack.post_message(channel_id, blocks=feedback_blocks)
+        # Note: Feedback buttons removed for architecture recommendations
+        # Architecture questions provide multiple options for users to choose from,
+        # not scan-based answers that benefit from feedback learning.
+        # The learning system tracks interaction data for pattern analysis without requiring explicit feedback.
 
     except Exception as e:
         logger.error(f"Architecture agent failed: {e}", exc_info=True)
