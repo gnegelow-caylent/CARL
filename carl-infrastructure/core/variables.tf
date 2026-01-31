@@ -72,6 +72,12 @@ variable "enable_drift_detection" {
   default     = true
 }
 
+variable "enable_realtime_monitor" {
+  description = "Enable real-time security monitoring with instant Slack alerts"
+  type        = bool
+  default     = true
+}
+
 variable "enable_auto_remediation" {
   description = "Enable automatic remediation of compliance violations"
   type        = bool

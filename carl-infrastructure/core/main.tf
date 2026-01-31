@@ -1148,6 +1148,26 @@ module "foundation" {
   })
 }
 
+# Real-Time Security Monitor Module (Instant security alerts)
+module "realtime_monitor" {
+  source = "../modules/realtime-monitor"
+  count  = var.enable_realtime_monitor ? 1 : 0
+
+  project_name                 = "carl"
+  environment                  = var.environment
+  aws_region                   = var.region
+  lambda_zip_path              = local.lambda_zip_path
+  lambda_layers                = var.enable_foundation ? [module.foundation[0].lambda_layer_arn] : []
+  slack_bot_token_secret_name  = var.enable_foundation ? module.foundation[0].slack_bot_token_secret_name : "carl-slack-bot-token"
+  slack_signing_secret_name    = var.enable_foundation ? module.foundation[0].slack_signing_secret_name : "carl-slack-signing-secret"
+  security_alert_channel       = "#carl-security-alerts"
+  log_retention_days           = 30
+
+  tags = merge(var.tags, {
+    Feature = "realtime_security_monitor"
+  })
+}
+
 # Drift Detection Module (Detect infrastructure drift)
 module "drift_detection" {
   source = "../modules/drift"
