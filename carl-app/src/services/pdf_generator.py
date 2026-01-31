@@ -483,6 +483,7 @@ class PDFReportGenerator:
         sections = []
         is_executive = report_data.get('is_executive', False)
         show_controls = report_data.get('show_controls_table', True)
+        has_recommendations = report_data.get('ai_recommendations', '') and len(report_data.get('ai_recommendations', '').strip()) >= 20
 
         # Controls section (only for full audit report)
         if show_controls and 'controls' in report_data and report_data['controls']:
@@ -511,8 +512,8 @@ class PDFReportGenerator:
             # Add page break only if we had controls section before this
             if show_controls and 'controls' in report_data and report_data['controls']:
                 sections.append('<div class="page-break"></div>')
-            # For executive without controls, still add page break
-            elif is_executive:
+            # For executive: only add page break if we DON'T have recommendations (to avoid double page break)
+            elif is_executive and not has_recommendations:
                 sections.append('<div class="page-break"></div>')
 
             # Title depends on report type

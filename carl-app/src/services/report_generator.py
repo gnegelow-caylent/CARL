@@ -1133,19 +1133,18 @@ requiring attention.
 {json.dumps(findings_details, indent=2)}
 
 **Task:**
-Write a concise 2-3 paragraph executive summary that:
-1. Explains the compliance posture in business terms (not just numbers)
-2. Highlights the key risks or achievements
-3. Provides context on what these numbers mean for the organization
-4. If there are critical/high findings, explain the business impact
-5. If compliance is strong, acknowledge the achievement
+Write a VERY concise executive summary (3-4 sentences maximum) that:
+1. One sentence on overall posture (good/needs work/at risk)
+2. One sentence on key findings and business impact
+3. One sentence on recommended priority action
 
-**Style:**
-- Professional but accessible (not overly technical)
-- Focus on "why this matters" not just "what the data says"
-- 2-3 paragraphs maximum
-- No bullet points - write in narrative form
-- No bold or italic formatting
+**Critical Requirements:**
+- Maximum 3-4 sentences total (executives are busy)
+- Focus on business impact, not technical details
+- Highlight what needs attention NOW
+- No bullet points
+- No bold/italic formatting
+- Be direct and actionable
 
 Generate the executive summary:"""
 
@@ -1198,21 +1197,24 @@ Generate the executive summary:"""
 - {len(coverage['covered'])}/{len(coverage['covered']) + len(coverage['missing'])} controls assessed
 
 **Task:**
-Generate a prioritized list of 3-5 high-level remediation recommendations that:
-1. Group related findings (e.g., "encryption issues" not individual S3 buckets)
-2. Prioritize by business impact and ease of implementation
-3. Include specific, actionable next steps
-4. Estimate effort (Quick Win / Moderate / Complex)
-5. Focus on root causes, not symptoms
+Generate 3-4 CONCISE remediation recommendations that executives can action quickly.
 
-**Format:**
-For each recommendation:
-Priority [number]: [Title]
-Impact: [High/Medium]
-Effort: [Quick Win/Moderate/Complex]
-Action: [Specific steps to take]
+**Format (use exactly this):**
+Priority 1: [One-line title]
+Action: [One sentence with specific step]
+Impact: [High/Medium] | Effort: [Quick Win/Moderate/Complex]
 
-Keep it concise - 3-5 recommendations maximum. No bold or italic formatting.
+Priority 2: [One-line title]
+Action: [One sentence with specific step]
+Impact: [High/Medium] | Effort: [Quick Win/Moderate/Complex]
+
+**Critical Requirements:**
+- Maximum 3-4 recommendations
+- Each recommendation is 2-3 lines total
+- Group related findings (don't list every resource)
+- Focus on quick wins first
+- Be specific and actionable
+- No extra text or explanations
 
 Generate recommendations:"""
 
