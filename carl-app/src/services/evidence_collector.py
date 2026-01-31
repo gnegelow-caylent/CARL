@@ -426,7 +426,7 @@ class EvidenceCollector:
                 evidence = self._store_evidence(
                     evidence_type=EvidenceType.CONFIG_SNAPSHOT,
                     title=f"S3 Bucket Configuration: {bucket_name}",
-                    description="S3 bucket security configuration including encryption, public access, versioning",
+                    description=f"S3 bucket configuration snapshot for {bucket_name}",
                     resource_type="s3_bucket",
                     resource_id=f"arn:aws:s3:::{bucket_name}",
                     content=bucket_evidence,
