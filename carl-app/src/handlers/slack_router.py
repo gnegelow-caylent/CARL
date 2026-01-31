@@ -2191,7 +2191,7 @@ def handle_ask_command_sync(
 def handle_help_command(
     slack: SlackService, channel_id: str, user_id: str
 ) -> dict:
-    """Handle /carl help command."""
+    """Handle /carl help command - returns immediate response for orange Slack formatting."""
     help_text = """
 CARL - Cloud Automated Risk & Compliance Logic
 
@@ -2257,9 +2257,15 @@ Examples:
 - /carl estimate rds multi-az db.r5.large
 """
 
-    slack.post_message(channel_id, text=help_text)
-
-    return {"statusCode": 200, "body": ""}
+    # Return immediate response for orange Slack formatting
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({
+            "response_type": "ephemeral",
+            "text": help_text
+        })
+    }
 
 
 def handle_setup_command(
