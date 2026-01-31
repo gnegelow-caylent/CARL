@@ -37,14 +37,12 @@ resource "aws_lambda_function" "realtime_security_monitor" {
 
   environment {
     variables = {
-      SECURITY_ALERT_CHANNEL = var.security_alert_channel
-      SECURITY_ALERT_TOPIC   = aws_sns_topic.security_alerts.arn
-      SLACK_BOT_TOKEN_SECRET = var.slack_bot_token_secret_name
-      SLACK_SIGNING_SECRET   = var.slack_signing_secret_name
+      SECURITY_ALERT_CHANNEL   = var.security_alert_channel
+      SECURITY_ALERT_TOPIC     = aws_sns_topic.security_alerts.arn
+      SLACK_BOT_TOKEN_SSM_PATH = var.slack_bot_token_ssm_path
+      SLACK_SIGNING_SSM_PATH   = var.slack_signing_secret_ssm_path
     }
   }
-
-  layers = var.lambda_layers
 
   tags = merge(var.tags, {
     Name        = "${var.project_name}-${var.environment}-realtime-security-monitor"
@@ -109,11 +107,11 @@ resource "aws_iam_role_policy" "realtime_monitor" {
       {
         Effect = "Allow"
         Action = [
-          "secretsmanager:GetSecretValue"
+          "ssm:GetParameter"
         ]
         Resource = [
-          "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.slack_bot_token_secret_name}*",
-          "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.slack_signing_secret_name}*"
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.slack_bot_token_ssm_path}",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.slack_signing_secret_ssm_path}"
         ]
       },
       {

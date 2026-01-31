@@ -18,19 +18,13 @@ variable "lambda_zip_path" {
   type        = string
 }
 
-variable "lambda_layers" {
-  description = "List of Lambda layer ARNs"
-  type        = list(string)
-  default     = []
-}
-
-variable "slack_bot_token_secret_name" {
-  description = "Name of Secrets Manager secret containing Slack bot token"
+variable "slack_bot_token_ssm_path" {
+  description = "SSM Parameter Store path for Slack bot token"
   type        = string
 }
 
-variable "slack_signing_secret_name" {
-  description = "Name of Secrets Manager secret containing Slack signing secret"
+variable "slack_signing_secret_ssm_path" {
+  description = "SSM Parameter Store path for Slack signing secret"
   type        = string
 }
 
