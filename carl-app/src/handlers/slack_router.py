@@ -786,6 +786,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("args", "")
         )
 
+    if event.get("action") == "process_drift_jira_sync_async":
+        logger.info("Processing async drift Jira sync")
+        slack = get_slack_service()
+        return handle_drift_jira_sync_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id")
+        )
+
     if event.get("action") == "process_compliance_assess_async":
         logger.info("Processing async compliance assessment")
         slack = get_slack_service()
@@ -2230,6 +2239,7 @@ def handle_help_command(
 - `/carl drift scan` - Run drift detection scan
 - `/carl drift status` - View current drift summary
 - `/carl drift details <drift-id>` - View drift item details
+- `/carl drift jira-sync` - Create Jira tickets for drift items
 
 *Jira Integration:*
 - `/carl jira test` - Test Jira connection and permissions
@@ -7834,10 +7844,14 @@ def handle_drift_command(
             else:
                 slack.post_message(channel_id, text="✓ No drift detected compared to Terraform state.")
 
+        elif subcommand == "jira-sync":
+            # Sync drift items to Jira tickets (async)
+            return handle_drift_jira_sync(slack, channel_id, user_id)
+
         else:
             slack.post_message(
                 channel_id,
-                text="Usage: `/carl drift scan|status|acknowledge <drift-id>|terraform <state-key>`"
+                text="Usage: `/carl drift scan|status|acknowledge <drift-id>|terraform <state-key>|jira-sync`"
             )
 
     except Exception as e:
@@ -8295,6 +8309,183 @@ def handle_jira_sync_sync(
         slack.post_message(
             channel_id,
             text=f"❌ Jira sync failed: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_jira_sync(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Sync drift items to Jira tickets (async wrapper)."""
+    import boto3
+    import json
+    import os
+
+    # Post immediate response
+    slack.post_message(
+        channel_id,
+        text="🔄 Starting Jira sync for drift items... This may take a few minutes."
+    )
+
+    try:
+        # Invoke Lambda asynchronously to avoid timeout
+        lambda_client = boto3.client('lambda')
+        function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+
+        if function_name:
+            try:
+                lambda_client.invoke(
+                    FunctionName=function_name,
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps({
+                        'action': 'process_drift_jira_sync_async',
+                        'channel_id': channel_id,
+                        'user_id': user_id
+                    })
+                )
+                logger.info("Async drift Jira sync invocation successful")
+            except Exception as e:
+                logger.error(f"Failed to invoke async drift Jira sync: {e}")
+                # Fallback to synchronous if async fails
+                return handle_drift_jira_sync_sync(slack, channel_id, user_id)
+        else:
+            # Not running in Lambda, do synchronous
+            return handle_drift_jira_sync_sync(slack, channel_id, user_id)
+
+    except Exception as e:
+        logger.error(f"Error starting drift Jira sync: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Failed to start drift Jira sync: {str(e)}"
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_jira_sync_sync(
+    slack: SlackService, channel_id: str, user_id: str
+) -> dict:
+    """Synchronous version of drift Jira sync - does the actual work."""
+    try:
+        from services.drift_detector import DriftDetector
+        from services.jira_service import JiraService
+        import os
+
+        drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+        detector = DriftDetector(drift_table=drift_table)
+        jira = JiraService()
+
+        # Get drift items that need Jira tickets
+        drift_items = detector.get_drift_items_for_ticketing(limit=50)
+
+        total_items = len(drift_items)
+        synced_count = 0
+        failed_count = 0
+        skipped_count = 0
+        recreated_count = 0
+
+        # Post initial progress
+        if total_items > 0:
+            slack.post_message(
+                channel_id,
+                text=f"📋 Processing {total_items} drift items..."
+            )
+
+        for idx, item in enumerate(drift_items, 1):
+            drift_id = item.get("drift_id")
+
+            # Check if already has Jira ticket ID in DynamoDB
+            existing_ticket_id = item.get("jira_ticket_id")
+
+            if existing_ticket_id:
+                # Verify ticket actually exists in Jira (may have been deleted)
+                try:
+                    jira.get_issue(existing_ticket_id)
+                    # Ticket exists, skip it
+                    skipped_count += 1
+                    continue
+                except Exception as e:
+                    # Ticket doesn't exist in Jira anymore - recreate it
+                    logger.info(f"Jira ticket {existing_ticket_id} not found, will recreate for drift {drift_id}")
+                    # Clear old ticket ID from DynamoDB
+                    detector.update_drift_jira(
+                        drift_id=drift_id,
+                        jira_ticket_id="",
+                        jira_url="",
+                        account_id=item.get("account_id")
+                    )
+                    recreated_count += 1
+                    # Continue to create new ticket below
+
+            # Create Jira ticket
+            try:
+                result = jira.create_drift_ticket(
+                    resource_type=item.get("resource_type", "Unknown"),
+                    resource_id=item.get("resource_id", ""),
+                    drift_type=item.get("drift_type", "modified"),
+                    detected_at=item.get("detected_at", ""),
+                    expected_state={"attribute": item.get("attribute"), "value": str(item.get("expected_value", ""))},
+                    actual_state={"attribute": item.get("attribute"), "value": str(item.get("actual_value", ""))},
+                    drift_details=item.get("description", "")
+                )
+
+                ticket_key = result.get("key")
+                if ticket_key:
+                    # Update drift item with Jira ticket info
+                    jira_url = f"{jira.JIRA_URL}/browse/{ticket_key}"
+                    detector.update_drift_jira(
+                        drift_id=drift_id,
+                        jira_ticket_id=ticket_key,
+                        jira_url=jira_url,
+                        account_id=item.get("account_id")
+                    )
+                    synced_count += 1
+                else:
+                    failed_count += 1
+                    logger.error(f"Failed to create Jira ticket for drift {drift_id}")
+
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to sync drift {drift_id}: {e}")
+
+            # Post progress updates every 5 items or at 25%, 50%, 75% milestones
+            if total_items > 5:
+                if idx % 5 == 0 or idx in [total_items // 4, total_items // 2, total_items * 3 // 4]:
+                    progress_pct = int((idx / total_items) * 100)
+                    slack.post_message(
+                        channel_id,
+                        text=f"⏳ Progress: {idx}/{total_items} ({progress_pct}%) - {synced_count} synced, {skipped_count} skipped"
+                    )
+
+        # Report results
+        result_text = f"✅ *Drift Jira Sync Complete*\n\n"
+        result_text += f"• Synced: {synced_count} new tickets\n"
+        result_text += f"• Skipped: {skipped_count} (tickets already exist)\n"
+
+        if recreated_count > 0:
+            result_text += f"• Recreated: {recreated_count} (tickets were deleted in Jira)\n"
+
+        result_text += f"• Failed: {failed_count}"
+
+        slack.post_message(
+            channel_id,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": result_text
+                    }
+                }
+            ]
+        )
+
+    except Exception as e:
+        logger.error(f"Drift Jira sync failed: {e}")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Drift Jira sync failed: {str(e)}"
         )
 
     return {"statusCode": 200, "body": ""}

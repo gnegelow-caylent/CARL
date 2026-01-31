@@ -23,6 +23,7 @@ from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field, asdict
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from utils.logger import get_logger
@@ -133,6 +134,11 @@ class DriftItem:
     acknowledged_at: str = ""
     remediated: bool = False
     remediated_at: str = ""
+
+    # Jira Integration
+    jira_ticket_id: str = ""
+    jira_url: str = ""
+    jira_created_at: str = ""
 
     def to_dict(self) -> dict:
         """Convert to dict with DynamoDB keys (pk, sk)."""
@@ -979,6 +985,65 @@ class DriftDetector:
         except Exception as e:
             logger.exception(f"Error acknowledging drift {drift_id}")
             return False
+
+    def update_drift_jira(
+        self,
+        drift_id: str,
+        jira_ticket_id: str,
+        jira_url: str,
+        account_id: str = None
+    ) -> bool:
+        """Update drift item with Jira ticket information."""
+        try:
+            if not account_id:
+                account_id = self.account_id
+
+            self.table.update_item(
+                Key={"pk": f"DRIFT#{account_id}", "sk": drift_id},
+                UpdateExpression="SET jira_ticket_id = :ticket_id, jira_url = :url, jira_created_at = :created",
+                ExpressionAttributeValues={
+                    ":ticket_id": jira_ticket_id,
+                    ":url": jira_url,
+                    ":created": datetime.utcnow().isoformat()
+                }
+            )
+            logger.info(f"Updated drift {drift_id} with Jira ticket {jira_ticket_id}")
+            return True
+        except Exception as e:
+            logger.exception(f"Error updating drift {drift_id} with Jira info")
+            return False
+
+    def get_drift_items_for_ticketing(self, limit: int = 50, account_id: str = None) -> list[dict]:
+        """Get drift items that need Jira tickets (excludes acknowledged/remediated)."""
+        try:
+            if not account_id:
+                account_id = self.account_id
+
+            # Query drift items for this account
+            response = self.table.query(
+                KeyConditionExpression=Key("pk").eq(f"DRIFT#{account_id}"),
+                Limit=limit
+            )
+
+            items = response.get("Items", [])
+
+            # Filter for items that need tickets:
+            # - Not acknowledged
+            # - Not remediated
+            # - Security relevant or high/critical severity
+            drift_items = []
+            for item in items:
+                if (not item.get("acknowledged", False) and
+                    not item.get("remediated", False) and
+                    (item.get("is_security_relevant", False) or
+                     item.get("severity", "").lower() in ["critical", "high"])):
+                    drift_items.append(item)
+
+            return drift_items
+
+        except Exception as e:
+            logger.exception("Error getting drift items for ticketing")
+            return []
 
     def mark_remediated(self, drift_id: str, account_id: str = None) -> bool:
         """Mark a drift item as remediated."""
