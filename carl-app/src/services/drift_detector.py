@@ -852,27 +852,8 @@ class DriftDetector:
             logger.info(f"Found drift item: {drift_id}")
 
             item_data = response["Item"]
-            return DriftItem(
-                drift_id=item_data["drift_id"],
-                resource_type=item_data["resource_type"],
-                resource_id=item_data["resource_id"],
-                severity=item_data["severity"],
-                description=item_data["description"],
-                detected_at=item_data["detected_at"],
-                current_value=item_data.get("current_value"),
-                expected_value=item_data.get("expected_value"),
-                is_security_relevant=item_data.get("is_security_relevant", False),
-                remediation_steps=item_data.get("remediation_steps", []),
-                control_ids=item_data.get("control_ids", []),
-                account_id=item_data.get("account_id", account_id),
-                region=item_data.get("region", "us-east-1"),
-                acknowledged=item_data.get("acknowledged", False),
-                acknowledged_by=item_data.get("acknowledged_by"),
-                acknowledged_at=item_data.get("acknowledged_at"),
-                remediated=item_data.get("remediated", False),
-                remediated_at=item_data.get("remediated_at"),
-                notes=item_data.get("notes", "")
-            )
+            # Use from_dict classmethod to properly reconstruct DriftItem
+            return DriftItem.from_dict(item_data)
 
         except Exception as e:
             logger.exception(f"Error getting drift item {drift_id}")
