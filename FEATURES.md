@@ -1,6 +1,6 @@
 # CARL Features - Status Overview
 
-**Last Updated:** January 30, 2026
+**Last Updated:** January 31, 2026
 
 This document provides a clear view of what CARL can do today vs what's planned for the future.
 
@@ -89,8 +89,27 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | **Jira Ticket Sync** | ✅ Live | Auto-sync findings to Jira with duplicate prevention |
 | Evidence Storage (DynamoDB + S3) | ✅ Live | Secure storage with encryption and retention |
 | Evidence Coverage Tracking | ✅ Live | Shows which controls have evidence |
-| Report Generation | ✅ Live | Executive, detailed, and control-specific reports |
+| **AI-Enhanced Report Generation** | ✅ Live | Executive, full audit, and control-specific reports with AI insights |
 | Audit-Ready Export | ✅ Live | PDF/JSON exports for auditors |
+
+### 📄 AI-Enhanced Compliance Reports (NEW - January 31, 2026)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Executive Summary (AI)** | ✅ Live | Concise 3-4 sentence AI-generated summary focused on business impact |
+| **Full Report Summary (AI)** | ✅ Live | Detailed 5-7 sentence summary with technical context for implementers |
+| **Key Insights (AI)** | ✅ Live | AI identifies patterns and systemic issues across findings |
+| **Priority Recommendations (AI)** | ✅ Live | 3-4 AI-generated remediation recommendations with effort estimates |
+| **Professional PDF Generation** | ✅ Live | WeasyPrint + Matplotlib charts, no markdown in Slack messages |
+| **Smart Page Breaks** | ✅ Live | Intelligent pagination prevents blank pages |
+| **Compliance Score Calculation** | ✅ Live | Findings-based scoring (not just coverage %), clear explanation |
+| **Control Name Extraction** | ✅ Live | Meaningful control descriptions (not "COSO Principle 1") |
+| **Status Filtering** | ✅ Live | Only shows OPEN findings (excludes remediated/closed) |
+
+**Report Types:**
+- **Executive Report**: 3-4 pages, concise, business-focused (for C-level)
+- **Full Audit Report**: 8-10 pages, detailed, technical (for security teams)
+- **Control-Specific Report**: Single control deep-dive
 
 ### 🔄 Configuration Management
 
