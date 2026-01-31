@@ -7869,6 +7869,13 @@ def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
     def process_show_fix():
         try:
             logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
+
+            # Post immediate loading message so user knows something is happening
+            slack.post_message(
+                channel,
+                text=f"⏳ Generating remediation guidance...\n_This will take a few seconds._"
+            )
+
             detector = DriftDetector(drift_table=drift_table)
 
             # Get drift item details
