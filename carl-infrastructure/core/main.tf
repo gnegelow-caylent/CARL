@@ -1149,20 +1149,18 @@ module "foundation" {
 }
 
 # Real-Time Security Monitor Module (Instant security alerts)
-# Requires foundation module to be enabled for Slack secrets
 module "realtime_monitor" {
   source = "../modules/realtime-monitor"
-  count  = var.enable_realtime_monitor && var.enable_foundation ? 1 : 0
+  count  = var.enable_realtime_monitor ? 1 : 0
 
-  project_name                = "carl"
-  environment                 = var.environment
-  aws_region                  = var.region
-  lambda_zip_path             = local.lambda_zip_path
-  lambda_layers               = [module.foundation[0].lambda_layer_arn]
-  slack_bot_token_secret_name = module.foundation[0].slack_bot_token_secret_name
-  slack_signing_secret_name   = module.foundation[0].slack_signing_secret_name
-  security_alert_channel      = "#carl-security-alerts"
-  log_retention_days          = 30
+  project_name               = "carl"
+  environment                = var.environment
+  aws_region                 = var.region
+  lambda_zip_path            = local.lambda_zip_path
+  slack_bot_token_ssm_path   = "/${var.environment}/carl/slack/bot-token"
+  slack_signing_secret_ssm_path = "/${var.environment}/carl/slack/signing-secret"
+  security_alert_channel     = "#carl-security-alerts"
+  log_retention_days         = 30
 
   tags = merge(var.tags, {
     Feature = "realtime_security_monitor"

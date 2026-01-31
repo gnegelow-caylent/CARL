@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 from utils.logger import get_logger
 from services.slack_service import SlackService
+from utils.aws_client import get_parameter
 
 logger = get_logger(__name__)
 
