@@ -4,444 +4,545 @@ Serverless Application Patterns for AWS.
 Patterns for API Gateway, Lambda, AppSync, and Amplify serverless applications.
 """
 
-from knowledge.architecture_patterns import ArchitectureDecision
+from knowledge.architecture_patterns import ArchitectureDecision, DecisionOption
 
 SERVERLESS_API_BASIC = ArchitectureDecision(
-    name="API Gateway + Lambda REST API",
-    context="""
-    Need to build a REST API with:
-    - HTTP endpoints (GET, POST, PUT, DELETE)
-    - Authentication and authorization
-    - Request/response transformation
-    - Low operational overhead
-    - Auto-scaling
+    question="What should I use to build a serverless REST API?",
+    options=[
+        DecisionOption(
+            name="API Gateway HTTP API + Lambda (Recommended)",
+            description="Lighter-weight API Gateway with Lambda functions - cheaper and simpler than REST API for most use cases",
+            when_to_use=[
+                "Most new REST APIs and microservices",
+                "Mobile app backends",
+                "Need JWT authentication (built-in)",
+                "Want lowest cost ($1/million requests)",
+                "Simple CORS requirements",
+                "Don't need API keys or caching",
+            ],
+            when_not_to_use=[
+                "Need request validation at API Gateway level",
+                "Need API keys and usage plans",
+                "Need built-in caching",
+                "Need SDK generation",
+                "Complex request/response transformations",
+            ],
+            pros=[
+                "Cheapest option ($1/million vs $3.50/million for REST)",
+                "Simple configuration",
+                "No VPC cold start",
+                "Auto-scales from 0 to millions of requests",
+                "JWT authorizer built-in",
+                "CORS support built-in",
+            ],
+            cons=[
+                "No API keys or usage plans",
+                "No request validation (must validate in Lambda)",
+                "No caching",
+                "Fewer features than REST API",
+            ],
+            monthly_cost_range=(10.0, 50.0),
+            cost_drivers=[
+                "API Gateway HTTP: $1.00 per million requests",
+                "Lambda: $0.20 per million requests (128MB, 100ms)",
+                "Example: 10M requests/month = $12/month",
+            ],
+            soc2_controls=["CC6.1", "CC6.4", "CC7.2", "PI1.4"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="API Gateway REST API + Lambda",
+            description="Full-featured API Gateway with request validation, caching, API keys, and SDK generation",
+            when_to_use=[
+                "Need API keys and usage plans",
+                "Need built-in caching",
+                "Need request/response validation at gateway",
+                "Need SDK generation",
+                "Complex request transformations",
+                "Customer-facing APIs requiring rate limiting",
+            ],
+            when_not_to_use=[
+                "Cost-sensitive (3.5x more expensive than HTTP API)",
+                "Simple REST API without advanced features",
+                "Don't need caching or API keys",
+            ],
+            pros=[
+                "Full API Gateway feature set",
+                "Built-in caching (reduce Lambda invocations)",
+                "Request/response validation",
+                "API keys and usage plans",
+                "SDK generation (JavaScript, iOS, Android)",
+            ],
+            cons=[
+                "3.5x more expensive than HTTP API ($3.50/million)",
+                "More complex configuration",
+                "Steeper learning curve",
+            ],
+            monthly_cost_range=(35.0, 150.0),
+            cost_drivers=[
+                "API Gateway REST: $3.50 per million requests",
+                "Lambda: $0.20 per million requests",
+                "Caching: $0.02/hour per GB (optional)",
+                "Example: 10M requests/month = $37/month",
+            ],
+            soc2_controls=["CC6.1", "CC6.4", "CC7.2", "PI1.4"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="ALB + Lambda",
+            description="Application Load Balancer with Lambda targets - for hybrid architectures mixing Lambda and EC2",
+            when_to_use=[
+                "Hybrid architecture (Lambda + EC2 targets)",
+                "Need fixed IP address (with NLB)",
+                "WebSocket support needed",
+                "Migrating from EC2 to Lambda gradually",
+                "Need path-based routing across services",
+            ],
+            when_not_to_use=[
+                "Pure serverless (API Gateway is better)",
+                "Cost-sensitive (ALB always-on cost)",
+                "Small workloads (<1M requests/month)",
+            ],
+            pros=[
+                "Can mix Lambda and EC2 targets",
+                "Fixed IP possible (with NLB)",
+                "WebSocket support",
+                "Good for gradual migration to serverless",
+            ],
+            cons=[
+                "Always-on cost ($16/month even with no traffic)",
+                "More expensive than API Gateway for low traffic",
+                "Not truly serverless (ALB always running)",
+                "More complex configuration",
+            ],
+            monthly_cost_range=(20.0, 100.0),
+            cost_drivers=[
+                "ALB always-on: $16/month",
+                "LCU (Load Balancer Capacity Units): $0.008/hour",
+                "Lambda: $0.20 per million requests",
+                "Example: Low traffic = $20/month (mostly ALB cost)",
+            ],
+            soc2_controls=["CC6.1", "CC7.2"],
+            implementation_complexity="medium",
+            operational_overhead="medium",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF need_api_keys OR need_caching OR need_sdk_generation:
+        → REST API ($3.50/million, full features)
+
+    ELIF hybrid_architecture (Lambda + EC2) OR need_fixed_ip:
+        → ALB + Lambda ($20-100/month, hybrid-friendly)
+
+    ELSE:
+        → HTTP API ($1/million, best for most cases)
+
+    **Cost Comparison (10M requests/month):**
+    - HTTP API: $12/month (cheapest)
+    - REST API: $37/month (full features)
+    - ALB + Lambda: $20-30/month (hybrid use case)
+
+    **Recommendation:** Start with HTTP API (80% of use cases), upgrade to REST API only if you need caching, API keys, or SDK generation.
     """,
-    options={
-        "API Gateway HTTP API + Lambda (Recommended)": """
-        **Architecture:**
-        - API Gateway HTTP API (cheaper, simpler)
-        - Lambda functions (business logic)
-        - Cognito or Lambda authorizer (auth)
-        - DynamoDB or RDS (data storage)
-        - CloudWatch Logs (logging)
+    soc2_relevance="""
+    Serverless APIs are critical for SOC 2 access controls and monitoring:
 
-        **Features:**
-        - Pay per request
-        - Auto-scaling (0 to millions)
-        - JWT authorizer built-in
-        - CORS support
-        - Custom domains
+    **CC6.1 (Access Controls):** Use Cognito or Lambda authorizers for authentication
+    **CC6.4 (Access Restrictions):** API Gateway throttling and rate limiting
+    **CC7.2 (Monitoring):** CloudWatch Logs for all API requests
+    **PI1.4 (Authorization):** JWT tokens or Lambda authorizers enforce permissions
 
-        **Cost:** approx. $1.00 per million requests
-        - API Gateway HTTP: $1.00/million
-        - Lambda: $0.20/million (assuming 128MB, 100ms)
-        - Total: approx. $1.20/million requests
-
-        **Pros:**
-        - Cheapest option
-        - Simple configuration
-        - Fast (no VPC cold start)
-        - Auto-scales instantly
-
-        **Cons:**
-        - Limited features vs REST API
-        - No API keys
-        - No request validation (must do in Lambda)
-
-        **When to use:** Most new APIs, microservices, mobile backends
-        """,
-
-        "API Gateway REST API + Lambda": """
-        **Architecture:**
-        - API Gateway REST API (full features)
-        - Lambda functions
-        - API keys, usage plans
-        - Request/response models
-        - VPC integration (optional)
-
-        **Features:**
-        - Request validation
-        - API keys and usage plans
-        - Caching
-        - More integration options
-        - SDK generation
-
-        **Cost:** approx. $3.50 per million requests
-        - API Gateway REST: $3.50/million
-        - Lambda: $0.20/million
-        - Total: approx. $3.70/million requests
-
-        **Pros:**
-        - Full API Gateway features
-        - Built-in caching
-        - Request validation
-        - Usage plans
-
-        **Cons:**
-        - 3.5x more expensive than HTTP API
-        - More complex configuration
-
-        **When to use:** Need caching, API keys, request validation, or SDK generation
-        """,
-
-        "ALB + Lambda": """
-        **Architecture:**
-        - Application Load Balancer
-        - Lambda targets
-        - Route53 for DNS
-
-        **Features:**
-        - Path-based routing
-        - Fixed IP (with NLB)
-        - Multi-target groups
-
-        **Cost:** approx. $16/month + $0.008/LCU-hour
-        - ALB always-on cost: approx. $16/month
-        - Plus usage fees
-
-        **Pros:**
-        - Can mix Lambda + EC2 targets
-        - Fixed IP possible
-        - WebSocket support
-
-        **Cons:**
-        - More expensive (always-on ALB)
-        - More complex than API Gateway
-        - Not serverless (ALB always running)
-
-        **When to use:** Hybrid architectures (Lambda + EC2), WebSockets, fixed IP required
-        """
-    },
-    recommendation="API Gateway HTTP API + Lambda",
-    tradeoffs="""
-    **HTTP API vs REST API:**
-    - HTTP API: $1/million, simpler, JWT auth, most use cases
-    - REST API: $3.50/million, full features, caching, API keys
-
-    **API Gateway vs ALB:**
-    - API Gateway: Pay per request, true serverless
-    - ALB: Always-on cost, better for hybrid (Lambda + EC2)
-
-    **Decision:** Start with HTTP API, upgrade to REST if you need caching/API keys
+    All three options support encryption (HTTPS), logging, and authentication.
     """,
-    related_controls=["CC6.1", "CC6.4", "CC7.2", "PI1.4"],
-    aws_services=["apigateway", "lambda", "cognito", "dynamodb", "cloudwatch"],
-    estimated_cost="$1-5/million requests"
+    common_mistakes=[
+        "Using REST API when HTTP API is sufficient (wastes 3.5x money)",
+        "Not setting up CloudWatch alarms for 5xx errors",
+        "Forgetting to enable X-Ray tracing for debugging",
+        "Not using Lambda layers for shared dependencies",
+        "Using ALB for pure serverless (HTTP API is cheaper)",
+    ],
 )
 
 SERVERLESS_API_COMPLETE = ArchitectureDecision(
-    name="Complete Production Serverless API",
-    context="""
-    Production REST API with all best practices:
-    - Authentication and authorization
-    - Rate limiting and throttling
-    - Monitoring and alerting
-    - Error handling
-    - CORS and custom domains
-    - SOC 2 compliant
+    question="How do I build a production-ready serverless API with security and monitoring?",
+    options=[
+        DecisionOption(
+            name="Complete Serverless API Stack (Recommended)",
+            description="Production-ready serverless API with authentication, monitoring, WAF, encryption, and CI/CD",
+            when_to_use=[
+                "Production workloads requiring SOC 2 compliance",
+                "Customer-facing APIs",
+                "Need enterprise security controls",
+                "Want full observability and monitoring",
+                "Team wants low operational overhead",
+            ],
+            when_not_to_use=[
+                "Proof of concept or prototype (overkill)",
+                "Internal tools with no security requirements",
+                "Budget < $50/month",
+            ],
+            pros=[
+                "Production-ready out of the box",
+                "Auto-scales to zero (pay only for usage)",
+                "SOC 2 compliant architecture",
+                "Low operational overhead",
+                "Comprehensive monitoring and alerting",
+                "Enterprise-grade security (WAF, encryption)",
+            ],
+            cons=[
+                "Lambda cold starts (mitigate with provisioned concurrency)",
+                "VPC latency if using RDS (use DynamoDB for best performance)",
+                "More expensive than minimal setup ($50-200/month)",
+            ],
+            monthly_cost_range=(50.0, 200.0),
+            cost_drivers=[
+                "API Gateway: $1-3.50 per million requests",
+                "Lambda: $20-50/month (depends on executions and memory)",
+                "DynamoDB: $10-30/month (depends on reads/writes)",
+                "Cognito: Free up to 50K MAUs",
+                "WAF: $10/month + $1/million requests",
+                "CloudWatch: $5-10/month (logs, metrics, alarms)",
+                "X-Ray: $5/month (tracing)",
+                "ACM: Free (SSL certificates)",
+                "Example: 1M requests/month = $50-100/month",
+            ],
+            soc2_controls=["CC6.1", "CC6.4", "CC6.5", "CC6.7", "CC7.1", "CC7.2", "PI1.4"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Complete Stack Includes:**
+
+    **API Layer:**
+    - API Gateway HTTP or REST API
+    - Custom domain (Route53 + ACM certificate)
+    - WAF with rate limiting and IP blocking
+    - CORS configuration
+    - Lambda authorizer or Cognito
+
+    **Compute:**
+    - Lambda functions (one per route or grouped by domain)
+    - VPC for database access (if using RDS)
+    - Environment variables from Secrets Manager
+    - Lambda layers for shared code
+
+    **Data:**
+    - DynamoDB (serverless, auto-scaling) OR Aurora Serverless v2 (if need SQL)
+    - S3 for file uploads
+    - ElastiCache (optional, for caching)
+
+    **Security:**
+    - Cognito User Pool (authentication)
+    - IAM roles with least privilege
+    - Secrets Manager for credentials and API keys
+    - KMS encryption (DynamoDB, S3)
+    - WAF rules (rate limiting, geo blocking)
+    - HTTPS only
+
+    **Monitoring:**
+    - CloudWatch Logs (centralized)
+    - CloudWatch Metrics (latency, errors, throttles)
+    - X-Ray distributed tracing
+    - CloudWatch Alarms:
+      * 5xx errors > 1%
+      * p99 latency > 1 second
+      * Throttles > 10/minute
+      * Lambda errors > 5%
+    - SNS notifications
+
+    **CI/CD:**
+    - GitHub Actions or CodePipeline
+    - Automated testing
+    - Blue/green deployment (Lambda versions + aliases)
+    - Rollback capability
+
+    **Cost:** $50-200/month for 1M requests (all features included)
     """,
-    options={
-        "Full Stack Serverless API (Recommended)": """
-        **Complete Architecture:**
+    soc2_relevance="""
+    This architecture addresses critical SOC 2 controls:
 
-        **API Layer:**
-        - API Gateway HTTP API (or REST if need caching)
-        - Custom domain (Route53 + ACM certificate)
-        - WAF attached (rate limiting, IP blocking)
-        - CORS configuration
-        - Lambda authorizer or Cognito
+    **CC6.1 (Access Controls):** Cognito authentication + IAM least privilege roles
+    **CC6.4 (Logical Access Restrictions):** WAF rate limiting + IP filtering
+    **CC6.5 (Access Accountability):** CloudWatch Logs track all API calls
+    **CC6.7 (Encryption):** KMS encryption at rest + HTTPS in transit
+    **CC7.1 (Threat Detection):** WAF + CloudWatch alarms for anomalies
+    **CC7.2 (System Monitoring):** CloudWatch + X-Ray comprehensive monitoring
+    **PI1.4 (Authorization):** Cognito + Lambda authorizers enforce permissions
 
-        **Compute:**
-        - Lambda functions (one per route or grouped by domain)
-        - VPC for database access (if RDS)
-        - Environment variables from SSM/Secrets Manager
-        - Lambda layers for shared code
-
-        **Data:**
-        - DynamoDB (serverless, auto-scaling) OR
-        - Aurora Serverless (if need SQL)
-        - S3 for file uploads
-        - ElastiCache (optional, for caching)
-
-        **Security:**
-        - Cognito User Pool (authentication)
-        - IAM roles (least privilege)
-        - Secrets Manager (database credentials, API keys)
-        - KMS encryption (DynamoDB, S3)
-        - WAF rules (rate limiting, geo blocking)
-        - HTTPS only (ACM certificate)
-
-        **Monitoring:**
-        - CloudWatch Logs (centralized)
-        - CloudWatch Metrics (latency, errors, throttles)
-        - X-Ray tracing (distributed tracing)
-        - CloudWatch Alarms:
-          * 5xx errors > 1%
-          * p99 latency > 1 second
-          * Throttles > 10/minute
-          * Lambda errors > 5%
-        - SNS notifications
-
-        **CI/CD:**
-        - GitHub Actions or CodePipeline
-        - Automated testing
-        - Blue/green deployment (Lambda versions + aliases)
-        - Rollback capability
-
-        **SOC 2 Controls Addressed:**
-        - CC6.1: Access controls (Cognito, IAM)
-        - CC6.4: Logical access restrictions (WAF)
-        - CC6.5: Access accountability (CloudWatch logs)
-        - CC6.7: Encryption (KMS, HTTPS)
-        - CC7.1: Threat detection (WAF, CloudWatch)
-        - CC7.2: System monitoring (CloudWatch, X-Ray)
-        - PI1.4: Authorization (Cognito, Lambda authorizer)
-
-        **Cost Breakdown:** approx. $50-200/month (1M requests)
-        - API Gateway: $1-3.50/million requests
-        - Lambda: $20-50/month (depends on executions)
-        - DynamoDB: $10-30/month (depends on reads/writes)
-        - Cognito: Free up to 50K MAUs
-        - WAF: $10/month
-        - CloudWatch: $5-10/month
-        - X-Ray: $5/month
-        - ACM: Free
-
-        **Terraform Modules Needed:**
-        - API Gateway HTTP/REST API
-        - Lambda functions with environment variables
-        - IAM roles for Lambda
-        - DynamoDB tables with encryption
-        - Cognito User Pool
-        - WAF WebACL with rate limiting
-        - Route53 records + ACM certificate
-        - CloudWatch alarms
-        - SNS topics
-        - X-Ray sampling rules
-
-        **Pros:**
-        - Production-ready
-        - Auto-scales to zero
-        - Pay per use
-        - SOC 2 compliant
-        - Low operational overhead
-
-        **Cons:**
-        - Cold starts (mitigate with provisioned concurrency)
-        - VPC latency if using RDS
-
-        **When to use:** Most serverless APIs, microservices, mobile backends
-        """
-    },
-    recommendation="Full stack with auth, monitoring, WAF, and CI/CD",
-    tradeoffs="No tradeoffs - this is the complete, production-ready setup",
-    related_controls=["CC6.1", "CC6.4", "CC6.5", "CC6.7", "CC7.1", "CC7.2", "PI1.4"],
-    aws_services=["apigateway", "lambda", "cognito", "dynamodb", "waf", "cloudwatch", "xray", "secretsmanager", "kms"],
-    estimated_cost="$50-200/month for 1M requests"
+    All components are managed services with built-in compliance features.
+    """,
+    common_mistakes=[
+        "Skipping WAF (critical for rate limiting and DDoS protection)",
+        "Not setting up CloudWatch alarms (no visibility into failures)",
+        "Storing secrets in environment variables instead of Secrets Manager",
+        "Not using X-Ray tracing (hard to debug distributed issues)",
+        "Not implementing blue/green deployments (risky deployments)",
+        "Using provisioned concurrency for all functions (expensive, only use for critical paths)",
+    ],
 )
 
 GRAPHQL_APPSYNC = ArchitectureDecision(
-    name="GraphQL API with AWS AppSync",
-    context="""
-    Need GraphQL API with:
-    - Real-time subscriptions
-    - Flexible queries
-    - Auto-scaling
-    - Offline support (mobile)
-    - Low latency
+    question="What should I use to build a GraphQL API with real-time subscriptions?",
+    options=[
+        DecisionOption(
+            name="AWS AppSync (Recommended for GraphQL)",
+            description="Managed GraphQL service with built-in real-time subscriptions, offline sync, and direct data source integrations",
+            when_to_use=[
+                "Building GraphQL APIs",
+                "Need real-time subscriptions (WebSockets)",
+                "Mobile apps requiring offline sync",
+                "Want managed GraphQL service",
+                "Direct DynamoDB integration needed",
+                "Low DevOps overhead priority",
+            ],
+            when_not_to_use=[
+                "Avoiding vendor lock-in is critical",
+                "Need full control over GraphQL implementation",
+                "Complex business logic better in code than resolvers",
+                "Team not familiar with GraphQL",
+            ],
+            pros=[
+                "Purpose-built for GraphQL (no custom implementation)",
+                "Real-time subscriptions built-in (WebSockets)",
+                "Offline sync SDK for mobile",
+                "Auto-caching reduces database load",
+                "Direct DynamoDB integration (no Lambda needed)",
+                "JavaScript or VTL resolvers",
+            ],
+            cons=[
+                "Vendor lock-in (AppSync-specific)",
+                "VTL learning curve (use JavaScript resolvers instead)",
+                "Less flexible than Lambda for complex logic",
+                "More expensive than API Gateway for non-GraphQL use cases",
+            ],
+            monthly_cost_range=(40.0, 200.0),
+            cost_drivers=[
+                "Query/Mutation: $4.00 per million requests",
+                "Real-time updates: $2.00 per million messages",
+                "Example: 10M queries + 1M real-time = $42/month",
+                "Cheaper than building real-time subscriptions with Lambda",
+            ],
+            soc2_controls=["CC6.1", "CC6.4", "CC7.2"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="API Gateway + Lambda + GraphQL Library",
+            description="Self-managed GraphQL using API Gateway, Lambda, and libraries like Apollo Server",
+            when_to_use=[
+                "Avoiding vendor lock-in",
+                "Need full control over GraphQL implementation",
+                "Complex business logic in code",
+                "Existing GraphQL codebase to migrate",
+                "Don't need real-time subscriptions",
+                "Cost-sensitive (cheaper for query-only APIs)",
+            ],
+            when_not_to_use=[
+                "Need real-time subscriptions (very complex to implement)",
+                "Need offline sync for mobile apps",
+                "Want low DevOps overhead",
+                "Team lacks GraphQL expertise",
+            ],
+            pros=[
+                "No vendor lock-in (portable GraphQL)",
+                "Full flexibility and control",
+                "Standard GraphQL libraries (Apollo, GraphQL.js)",
+                "Easier local testing and debugging",
+                "Cheaper for query-only APIs ($1.20/million)",
+            ],
+            cons=[
+                "Must implement real-time subscriptions yourself (complex)",
+                "No offline sync SDK",
+                "More code to write and maintain",
+                "Lambda cold starts affect performance",
+                "Higher operational overhead",
+            ],
+            monthly_cost_range=(12.0, 60.0),
+            cost_drivers=[
+                "API Gateway HTTP: $1.00 per million requests",
+                "Lambda: $0.20 per million requests",
+                "Example: 10M requests = $12/month",
+                "Cheaper than AppSync if no real-time subscriptions",
+            ],
+            soc2_controls=["CC6.1", "CC7.2"],
+            implementation_complexity="high",
+            operational_overhead="medium",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF need_realtime_subscriptions OR mobile_offline_sync:
+        → AWS AppSync ($4/million, real-time built-in)
+
+    ELIF avoid_vendor_lockin OR complex_business_logic:
+        → Lambda + GraphQL library ($1.20/million, full control)
+
+    ELSE:
+        → AWS AppSync (best for most GraphQL use cases)
+
+    **Cost Comparison (10M requests/month):**
+    - AppSync: $40/month (includes real-time)
+    - Lambda GraphQL: $12/month (query-only)
+
+    **Real-Time Subscriptions:**
+    - AppSync: Built-in, easy to implement
+    - Lambda: Very complex (need WebSocket API, connection management, etc.)
+
+    **Recommendation:** Use AppSync for GraphQL unless vendor lock-in is unacceptable. The real-time subscription features alone justify the cost.
     """,
-    options={
-        "AWS AppSync (Recommended for GraphQL)": """
-        **Architecture:**
-        - AppSync GraphQL API
-        - DynamoDB, Lambda, RDS, or HTTP as data sources
-        - Cognito or API key authentication
-        - Real-time subscriptions (WebSockets)
-        - CloudWatch Logs
+    soc2_relevance="""
+    GraphQL APIs require access controls and monitoring:
 
-        **Features:**
-        - Managed GraphQL service
-        - Real-time subscriptions built-in
-        - Offline sync for mobile apps
-        - Caching (in-memory)
-        - VTL or JavaScript resolvers
+    **CC6.1 (Access Controls):** Cognito or API key authentication
+    **CC6.4 (Access Restrictions):** Field-level authorization in resolvers
+    **CC7.2 (Monitoring):** CloudWatch Logs for all GraphQL operations
 
-        **Cost:** approx. $4.00 per million requests
-        - Query/Mutation: $4.00/million
-        - Real-time updates: $2.00/million messages
-        - Cheaper than API Gateway + Lambda for GraphQL
-
-        **Pros:**
-        - Built for GraphQL (no custom resolver logic)
-        - Real-time subscriptions easy
-        - Offline sync SDK
-        - Auto-caching
-        - Direct DynamoDB integration
-
-        **Cons:**
-        - Vendor lock-in (AppSync-specific)
-        - VTL learning curve (use JS resolvers instead)
-        - Less flexible than Lambda
-
-        **When to use:** GraphQL APIs, real-time apps, mobile apps needing offline sync
-        """,
-
-        "API Gateway + Lambda + GraphQL library": """
-        **Architecture:**
-        - API Gateway HTTP/REST API
-        - Lambda with Apollo Server or similar
-        - GraphQL schema in code
-        - DynamoDB/RDS for data
-
-        **Features:**
-        - Full control over GraphQL implementation
-        - Any GraphQL library
-        - Standard Node.js/Python code
-
-        **Cost:** approx. $1.20 per million requests
-        - Same as REST API (API Gateway + Lambda)
-
-        **Pros:**
-        - No vendor lock-in
-        - Full flexibility
-        - Standard GraphQL libraries
-        - Easier testing
-
-        **Cons:**
-        - Must implement subscriptions yourself (complex)
-        - No offline sync
-        - More code to write
-        - Cold starts
-
-        **When to use:** Need full control, no real-time subscriptions, avoid vendor lock-in
-        """
-    },
-    recommendation="AWS AppSync for GraphQL APIs",
-    tradeoffs="""
-    **AppSync vs Lambda GraphQL:**
-    - AppSync: Easier, real-time built-in, $4/million, vendor lock-in
-    - Lambda: More flexible, no lock-in, $1.20/million, more work
-
-    **When to use AppSync:**
-    - Real-time subscriptions needed
-    - Mobile app with offline sync
-    - Want managed GraphQL
-
-    **When to use Lambda:**
-    - Avoid vendor lock-in
-    - Complex business logic
-    - Existing GraphQL codebase
+    Both options support encryption (HTTPS/WSS) and CloudWatch integration.
     """,
-    related_controls=["CC6.1", "CC6.4", "CC7.2"],
-    aws_services=["appsync", "dynamodb", "lambda", "cognito", "cloudwatch"],
-    estimated_cost="$50-200/month for 1M requests"
+    common_mistakes=[
+        "Using Lambda for GraphQL when real-time is needed (reinventing AppSync)",
+        "Not implementing field-level authorization",
+        "Forgetting to enable CloudWatch Logs for debugging",
+        "Not using DataLoader pattern (causes N+1 queries)",
+        "Using VTL resolvers instead of JavaScript (harder to debug)",
+    ],
 )
 
 FULLSTACK_AMPLIFY = ArchitectureDecision(
-    name="Full-Stack Web App with AWS Amplify",
-    context="""
-    Need complete full-stack application with:
-    - Frontend hosting (React, Vue, Angular)
-    - Backend API
-    - Authentication
-    - Database
-    - File storage
-    - CI/CD
-    - Minimal DevOps
+    question="What should I use to build a full-stack web application with minimal DevOps?",
+    options=[
+        DecisionOption(
+            name="AWS Amplify Hosting + Backend (Recommended for Rapid Development)",
+            description="All-in-one platform for frontend hosting, backend API, authentication, and CI/CD",
+            when_to_use=[
+                "Startups and MVPs (speed to market)",
+                "Small teams without DevOps expertise",
+                "Want zero-config hosting and CI/CD",
+                "React, Vue, Angular, or Next.js apps",
+                "Need preview environments for PRs",
+                "Rapid prototyping",
+            ],
+            when_not_to_use=[
+                "Cost-sensitive (2-3x more expensive than DIY)",
+                "Need full control over infrastructure",
+                "Complex custom requirements",
+                "High traffic (>100GB served/month)",
+            ],
+            pros=[
+                "Fastest way to production (minutes, not days)",
+                "Managed CI/CD built-in (automatic deploys on git push)",
+                "Preview environments for every PR",
+                "Backend scaffolding via Amplify CLI",
+                "Great for startups and MVPs",
+                "Zero DevOps knowledge required",
+            ],
+            cons=[
+                "Higher cost than DIY ($15-50/month vs $5-20/month)",
+                "Less control over infrastructure",
+                "Vendor lock-in (hard to migrate off Amplify)",
+                "Limited customization options",
+            ],
+            monthly_cost_range=(15.0, 50.0),
+            cost_drivers=[
+                "Hosting: $0.15 per GB served",
+                "Build minutes: $0.01 per minute",
+                "AppSync: $4 per million requests",
+                "Example: 5GB served, 100 builds, 1M API calls = $15-20/month",
+            ],
+            soc2_controls=["CC6.1", "CC8.1", "CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="CloudFront + S3 + API Gateway + Lambda (DIY)",
+            description="Self-managed full-stack using individual AWS services for maximum control and cost efficiency",
+            when_to_use=[
+                "Cost-sensitive (want lowest cost)",
+                "Need full control over infrastructure",
+                "Complex custom requirements",
+                "High traffic (>100GB served/month)",
+                "Team has AWS expertise",
+            ],
+            when_not_to_use=[
+                "Small team without DevOps skills",
+                "Want fast time to market (Amplify is faster)",
+                "Startup/MVP (speed > cost optimization)",
+            ],
+            pros=[
+                "Lower cost (50% cheaper: $5-20/month vs $15-50/month)",
+                "Full control over each service",
+                "No vendor lock-in",
+                "Better for complex requirements",
+                "Cheaper at scale",
+            ],
+            cons=[
+                "More setup time (days vs minutes)",
+                "Manual CI/CD configuration (GitHub Actions, CodePipeline)",
+                "More moving parts to manage",
+                "Requires AWS knowledge",
+                "Higher operational overhead",
+            ],
+            monthly_cost_range=(5.0, 20.0),
+            cost_drivers=[
+                "S3 + CloudFront: $1-5/month (5GB served)",
+                "API Gateway + Lambda: $1-10/month",
+                "DynamoDB: $1-5/month",
+                "Example: Low traffic = $5-10/month",
+            ],
+            soc2_controls=["CC6.1", "CC7.2"],
+            implementation_complexity="high",
+            operational_overhead="medium",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF startup OR mvp OR small_team OR need_speed:
+        → AWS Amplify (fastest to market)
+
+    ELIF cost_sensitive OR high_traffic OR complex_requirements:
+        → DIY CloudFront + S3 + API Gateway (cheaper, more control)
+
+    ELSE:
+        → AWS Amplify (default for most teams)
+
+    **Cost Comparison:**
+    - Amplify: $15-50/month (low traffic), easy setup
+    - DIY: $5-20/month (low traffic), more setup work
+
+    **Time to Production:**
+    - Amplify: 1 hour (zero DevOps)
+    - DIY: 1-2 days (requires CI/CD setup)
+
+    **Sweet Spot Strategy:**
+    1. Start with Amplify for speed (pre-product-market-fit)
+    2. Migrate to DIY when you hit scale (post-PMF)
+    3. Cost savings justify migration effort at 100GB+ served/month
+
+    **Recommendation:** Use Amplify unless you have DevOps expertise and cost is critical.
     """,
-    options={
-        "AWS Amplify Hosting + Backend (Recommended for Rapid Development)": """
-        **Architecture:**
-        - Amplify Hosting (frontend - React, Vue, Angular, Next.js)
-        - Amplify Backend:
-          * AppSync GraphQL API
-          * Cognito authentication
-          * DynamoDB tables
-          * S3 storage
-          * Lambda functions
-        - Git-based CI/CD (GitHub, GitLab, Bitbucket)
+    soc2_relevance="""
+    Full-stack applications need comprehensive security:
 
-        **Features:**
-        - Zero-config hosting
-        - Automatic builds on git push
-        - Preview environments for PRs
-        - Custom domains
-        - Backend scaffolding (CLI)
-        - SDKs for auth, API, storage
+    **CC6.1 (Access Controls):** Cognito authentication for both options
+    **CC8.1 (Change Management):** CI/CD ensures tested, version-controlled changes
+    **CC7.2 (Monitoring):** CloudWatch for backend, Amplify Console or CloudFront logs for frontend
 
-        **Cost:** approx. $15-50/month (low traffic)
-        - Hosting: $0.15/GB served
-        - Build minutes: $0.01/minute
-        - AppSync: $4/million requests
-        - Storage: S3 costs
-        - Example: 5GB served, 100 builds = approx. $15/month
-
-        **Pros:**
-        - Fastest way to production
-        - Managed CI/CD built-in
-        - Preview environments automatic
-        - Backend scaffolding via CLI
-        - Great for startups/MVPs
-
-        **Cons:**
-        - Higher cost than DIY
-        - Less control over infrastructure
-        - Vendor lock-in
-        - Limited customization
-
-        **When to use:** Startups, MVPs, rapid prototyping, small teams
-        """,
-
-        "CloudFront + S3 + API Gateway + Lambda (DIY)": """
-        **Architecture:**
-        - CloudFront + S3 (frontend hosting)
-        - API Gateway + Lambda (backend API)
-        - Cognito (authentication)
-        - DynamoDB (database)
-        - S3 (file storage)
-        - GitHub Actions (CI/CD)
-
-        **Features:**
-        - Full control over each service
-        - Cheaper at scale
-        - More customization
-
-        **Cost:** approx. $5-20/month (low traffic)
-        - S3 + CloudFront: $1-5/month
-        - API Gateway + Lambda: $1-10/month
-        - DynamoDB: $1-5/month
-        - Total: approx. $5-20/month (half of Amplify)
-
-        **Pros:**
-        - Lower cost
-        - Full control
-        - No vendor lock-in
-        - Better for complex requirements
-
-        **Cons:**
-        - More setup time
-        - Manual CI/CD configuration
-        - More moving parts
-        - Requires more AWS knowledge
-
-        **When to use:** Cost-sensitive, complex requirements, want full control
-        """
-    },
-    recommendation="Amplify for speed, DIY for cost/control",
-    tradeoffs="""
-    **Amplify vs DIY:**
-    - Amplify: Fast setup, higher cost ($15-50/mo), less control
-    - DIY: Slower setup, lower cost ($5-20/mo), full control
-
-    **Decision:**
-    - Pre-product-market-fit → Amplify (speed to market)
-    - Post-PMF / scale → DIY (cost optimization)
-
-    **Sweet spot:** Start with Amplify, migrate to DIY when you hit scale
+    Both options support HTTPS, authentication, and logging for compliance.
     """,
-    related_controls=["CC6.1", "CC8.1", "CC7.2"],
-    aws_services=["amplify", "appsync", "cognito", "dynamodb", "s3", "lambda"],
-    estimated_cost="$15-50/month (Amplify), $5-20/month (DIY)"
+    common_mistakes=[
+        "Using Amplify for cost-sensitive projects (DIY is 50% cheaper)",
+        "DIY without CI/CD (error-prone manual deployments)",
+        "Not setting up CloudFront cache invalidation in CI/CD",
+        "Forgetting to enable HTTPS redirect in CloudFront",
+        "Not using environment variables for API endpoints (hard to deploy)",
+    ],
 )
 
 # Export patterns
