@@ -1733,7 +1733,7 @@ def handle_ask_command(
         }
 
     # Post "Thinking..." message via Slack API (not in HTTP response)
-    slack.post_message(channel_id, text=f"🤔 Thinking about: _{question}_...")
+    slack.post_message(channel_id, text=f"🤔 Analyzing your question...")
 
     # Invoke async processing in background
     try:

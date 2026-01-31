@@ -18,15 +18,17 @@ from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import get_vpc_patterns
 from knowledge.security_tooling_patterns import get_security_tooling_patterns
 from knowledge.identity_patterns import get_identity_patterns
-from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
-from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
-from knowledge.container_patterns import PATTERNS as CONTAINER_PATTERNS
-from knowledge.backup_dr_patterns import PATTERNS as BACKUP_DR_PATTERNS
-from knowledge.cicd_patterns import PATTERNS as CICD_PATTERNS
-from knowledge.file_storage_patterns import PATTERNS as FILE_STORAGE_PATTERNS
-from knowledge.streaming_patterns import PATTERNS as STREAMING_PATTERNS
-from knowledge.additional_service_patterns import PATTERNS as ADDITIONAL_SERVICE_PATTERNS
-from knowledge.static_website_patterns import PATTERNS as STATIC_WEBSITE_PATTERNS
+# Temporarily disabled - these patterns use wrong ArchitectureDecision API (name/context/options dict)
+# TODO: Rewrite these patterns to use correct API (question/options list/recommendation_logic/soc2_relevance)
+# from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
+# from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
+# from knowledge.container_patterns import PATTERNS as CONTAINER_PATTERNS
+# from knowledge.backup_dr_patterns import PATTERNS as BACKUP_DR_PATTERNS
+# from knowledge.cicd_patterns import PATTERNS as CICD_PATTERNS
+# from knowledge.file_storage_patterns import PATTERNS as FILE_STORAGE_PATTERNS
+# from knowledge.streaming_patterns import PATTERNS as STREAMING_PATTERNS
+# from knowledge.additional_service_patterns import PATTERNS as ADDITIONAL_SERVICE_PATTERNS
+# from knowledge.static_website_patterns import PATTERNS as STATIC_WEBSITE_PATTERNS
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -125,31 +127,32 @@ def create_architecture_tools() -> list[Tool]:
                 "vpc": get_vpc_patterns(),
                 "security": get_security_tooling_patterns(),
                 "identity": get_identity_patterns(),
-                "etl": ETL_PATTERNS,
-                "data-processing": ETL_PATTERNS,
-                "serverless": SERVERLESS_PATTERNS,
-                "api": SERVERLESS_PATTERNS,
-                "containers": CONTAINER_PATTERNS,
-                "ecs": CONTAINER_PATTERNS,
-                "backup": BACKUP_DR_PATTERNS,
-                "disaster-recovery": BACKUP_DR_PATTERNS,
-                "dr": BACKUP_DR_PATTERNS,
-                "cicd": CICD_PATTERNS,
-                "deployment": CICD_PATTERNS,
-                "storage": FILE_STORAGE_PATTERNS,
-                "file-storage": FILE_STORAGE_PATTERNS,
-                "streaming": STREAMING_PATTERNS,
-                "real-time": STREAMING_PATTERNS,
-                "kinesis": STREAMING_PATTERNS,
-                "database": ADDITIONAL_SERVICE_PATTERNS,  # Includes Redshift, DocumentDB
-                "redshift": ADDITIONAL_SERVICE_PATTERNS,
-                "documentdb": ADDITIONAL_SERVICE_PATTERNS,
-                "firewall": ADDITIONAL_SERVICE_PATTERNS,  # Network Firewall
-                "cognito": ADDITIONAL_SERVICE_PATTERNS,
-                "authentication": ADDITIONAL_SERVICE_PATTERNS,
-                "website": STATIC_WEBSITE_PATTERNS,
-                "static-website": STATIC_WEBSITE_PATTERNS,
-                "cloudfront": STATIC_WEBSITE_PATTERNS,
+                # Temporarily disabled patterns with wrong API - TODO: Fix these
+                # "etl": ETL_PATTERNS,
+                # "data-processing": ETL_PATTERNS,
+                # "serverless": SERVERLESS_PATTERNS,
+                # "api": SERVERLESS_PATTERNS,
+                # "containers": CONTAINER_PATTERNS,
+                # "ecs": CONTAINER_PATTERNS,
+                # "backup": BACKUP_DR_PATTERNS,
+                # "disaster-recovery": BACKUP_DR_PATTERNS,
+                # "dr": BACKUP_DR_PATTERNS,
+                # "cicd": CICD_PATTERNS,
+                # "deployment": CICD_PATTERNS,
+                # "storage": FILE_STORAGE_PATTERNS,
+                # "file-storage": FILE_STORAGE_PATTERNS,
+                # "streaming": STREAMING_PATTERNS,
+                # "real-time": STREAMING_PATTERNS,
+                # "kinesis": STREAMING_PATTERNS,
+                # "database": ADDITIONAL_SERVICE_PATTERNS,
+                # "redshift": ADDITIONAL_SERVICE_PATTERNS,
+                # "documentdb": ADDITIONAL_SERVICE_PATTERNS,
+                # "firewall": ADDITIONAL_SERVICE_PATTERNS,
+                # "cognito": ADDITIONAL_SERVICE_PATTERNS,
+                # "authentication": ADDITIONAL_SERVICE_PATTERNS,
+                # "website": STATIC_WEBSITE_PATTERNS,
+                # "static-website": STATIC_WEBSITE_PATTERNS,
+                # "cloudfront": STATIC_WEBSITE_PATTERNS,
             }
 
             if category in patterns_map:
