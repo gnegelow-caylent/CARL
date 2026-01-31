@@ -6993,10 +6993,20 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
         for category, items in results.items():
             summary_lines.append(f"• {category.upper()}: {len(items)} items")
 
-        slack.post_message(channel_id, text="\n".join(summary_lines))
+        logger.info(f"Posting evidence collection summary to channel {channel_id}")
+        try:
+            slack.post_message(channel_id, text="\n".join(summary_lines))
+            logger.info("Successfully posted collection summary")
+        except Exception as slack_err:
+            logger.error(f"Failed to post collection summary: {slack_err}")
 
         # Create findings from security issues detected in evidence
-        slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
+        logger.info("Posting 'Analyzing evidence' message")
+        try:
+            slack.post_message(channel_id, text="🔍 Analyzing evidence for security issues...")
+            logger.info("Successfully posted analyzing message")
+        except Exception as slack_err:
+            logger.error(f"Failed to post analyzing message: {slack_err}")
 
         findings = collector.create_findings_from_evidence(results)
 
@@ -7010,17 +7020,26 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
             except Exception as e:
                 logger.error(f"Failed to store finding {finding.id}: {e}")
 
+        logger.info(f"Posting findings result: stored_count={stored_count}")
         if stored_count > 0:
-            slack.post_message(
-                channel_id,
-                text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
-                     f"Run `/carl jira sync` to create Jira tickets for these issues."
-            )
+            try:
+                slack.post_message(
+                    channel_id,
+                    text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
+                         f"Run `/carl jira sync` to create Jira tickets for these issues."
+                )
+                logger.info("Successfully posted new findings message")
+            except Exception as slack_err:
+                logger.error(f"Failed to post new findings message: {slack_err}")
         else:
-            slack.post_message(
-                channel_id,
-                text="✓ No new security issues found (all findings already exist)."
-            )
+            try:
+                slack.post_message(
+                    channel_id,
+                    text="✓ No new security issues found (all findings already exist)."
+                )
+                logger.info("Successfully posted no new findings message")
+            except Exception as slack_err:
+                logger.error(f"Failed to post no new findings message: {slack_err}")
 
     except Exception as e:
         logger.exception("Error collecting evidence")
