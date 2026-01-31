@@ -6052,6 +6052,9 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_build_answer_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
+            elif action_id.startswith("drift_create_ticket_"):
+                drift_id = action_id.replace("drift_create_ticket_", "")
+                return handle_drift_create_ticket_button(payload, drift_id)
             elif action_id.startswith("drift_acknowledge_"):
                 drift_id = action_id.replace("drift_acknowledge_", "")
                 return handle_drift_acknowledge_button(payload, drift_id)
@@ -8068,6 +8071,91 @@ def handle_drift_suppress_button(payload: dict, drift_id: str) -> dict:
 
     except Exception as e:
         logger.exception(f"Error suppressing drift {drift_id}")
+        slack.post_message(channel, text=f"❌ Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_create_ticket_button(payload: dict, drift_id: str) -> dict:
+    """Handle Create Ticket button click for drift items."""
+    import os
+    from services.drift_detector import DriftDetector
+    from services.jira_service import JiraService
+
+    slack = get_slack_service()
+    user = payload.get("user", {})
+    user_id = user.get("id", "unknown")
+    channel = payload.get("channel", {}).get("id", "")
+
+    drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+
+    try:
+        detector = DriftDetector(drift_table=drift_table)
+        jira = JiraService()
+
+        # Get drift item details
+        drift_items = detector.get_drift_items_for_ticketing(limit=100)
+        drift_item = next((item for item in drift_items if item.get("drift_id") == drift_id), None)
+
+        if not drift_item:
+            slack.post_message(
+                channel,
+                text=f"❌ Drift item `{drift_id}` not found"
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Check if ticket already exists
+        existing_ticket_id = drift_item.get("jira_ticket_id")
+        if existing_ticket_id:
+            # Verify ticket exists in Jira
+            try:
+                jira.get_issue(existing_ticket_id)
+                slack.post_message(
+                    channel,
+                    text=f"ℹ️ Ticket already exists: {existing_ticket_id}\n{jira.JIRA_URL}/browse/{existing_ticket_id}"
+                )
+                return {"statusCode": 200, "body": ""}
+            except Exception:
+                # Ticket doesn't exist in Jira, create new one
+                pass
+
+        # Create Jira ticket
+        result = jira.create_drift_ticket(
+            resource_type=drift_item.get("resource_type", "Unknown"),
+            resource_id=drift_item.get("resource_id", ""),
+            drift_type=drift_item.get("drift_type", "modified"),
+            detected_at=drift_item.get("detected_at", ""),
+            expected_state={"attribute": drift_item.get("attribute"), "value": str(drift_item.get("expected_value", ""))},
+            actual_state={"attribute": drift_item.get("attribute"), "value": str(drift_item.get("actual_value", ""))},
+            drift_details=drift_item.get("description", "")
+        )
+
+        ticket_key = result.get("key")
+        if ticket_key:
+            jira_url = f"{jira.JIRA_URL}/browse/{ticket_key}"
+
+            # Update drift item with ticket ID
+            detector.update_drift_jira(
+                drift_id=drift_id,
+                jira_ticket_id=ticket_key,
+                jira_url=jira_url,
+                account_id=drift_item.get("account_id")
+            )
+
+            slack.post_message(
+                channel,
+                text=f"✅ Jira ticket created by <@{user_id}>:\n\n"
+                     f"🎫 *{ticket_key}*: {drift_item.get('description', 'Drift detected')}\n"
+                     f"🔗 {jira_url}"
+            )
+        else:
+            slack.post_message(
+                channel,
+                text=f"❌ Failed to create Jira ticket for drift `{drift_id}`"
+            )
+
+    except Exception as e:
+        logger.exception(f"Error creating ticket for drift {drift_id}")
         slack.post_message(channel, text=f"❌ Error: {str(e)}")
 
     return {"statusCode": 200, "body": ""}

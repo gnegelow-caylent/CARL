@@ -1141,12 +1141,21 @@ class DriftDetector:
                 # Action buttons for each drift item
                 action_buttons = []
 
+                # Show "Create Ticket" if no ticket exists yet
+                has_ticket = hasattr(item, 'jira_ticket_id') and item.jira_ticket_id
+                if not has_ticket:
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🎫 Create Ticket"},
+                        "action_id": f"drift_create_ticket_{item.drift_id}",
+                        "style": "primary"
+                    })
+
                 if not item.acknowledged:
                     action_buttons.append({
                         "type": "button",
                         "text": {"type": "plain_text", "text": "✓ Acknowledge"},
-                        "action_id": f"drift_acknowledge_{item.drift_id}",
-                        "style": "primary"
+                        "action_id": f"drift_acknowledge_{item.drift_id}"
                     })
 
                 action_buttons.append({
