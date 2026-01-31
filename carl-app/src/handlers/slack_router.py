@@ -7567,13 +7567,7 @@ _Link expires in 24 hours_"""
             slack.post_message(channel_id, text=summary_text)
             return {"statusCode": 200, "body": "Report generated (S3 fallback)"}
 
-        # Success message already sent with file upload
-        summary_text = None  # Suppress duplicate message below
-• Convert to PDF using tools like pandoc or online converters
-
-*Note: Professional PDF reports coming soon (requires Lambda Layer deployment)*"""
-
-        slack.post_message(channel_id, text=summary_text)
+        # Success message already sent with file upload (no additional message needed)
 
     except Exception as e:
         logger.exception("Error generating report")
