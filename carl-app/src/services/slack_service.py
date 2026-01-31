@@ -125,6 +125,9 @@ class SlackService:
             title: Title for the file
             initial_comment: Message to post with the file
         """
+        import tempfile
+        import os
+
         try:
             # Normalize channels to list
             if isinstance(channels, str):
@@ -136,14 +139,30 @@ class SlackService:
             if not channel_id:
                 raise ValueError("No channel specified for file upload")
 
+            temp_file = None
+
+            # For binary content (like PDFs), write to temp file first
+            if file_content is not None and isinstance(file_content, bytes):
+                # Create temp file
+                fd, temp_file = tempfile.mkstemp(suffix=f"_{filename}")
+                try:
+                    os.write(fd, file_content)
+                    os.close(fd)
+                    file_path = temp_file
+                except Exception as e:
+                    os.close(fd)
+                    if temp_file:
+                        os.unlink(temp_file)
+                    raise
+
             kwargs: dict[str, Any] = {
-                "channel_id": channel_id,
+                "channel": channel_id,  # Use 'channel' not 'channel_id' for files_upload_v2
                 "filename": filename,
             }
 
             if file_path:
                 kwargs["file"] = file_path
-            elif file_content is not None:
+            elif file_content is not None and isinstance(file_content, str):
                 kwargs["content"] = file_content
             elif content is not None:
                 # Backward compatibility
@@ -157,6 +176,14 @@ class SlackService:
                 kwargs["initial_comment"] = initial_comment
 
             response = self.client.files_upload_v2(**kwargs)
+
+            # Clean up temp file
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file: {e}")
+
             return response.data
         except SlackApiError as e:
             logger.error(f"Slack API error: {e.response['error']}")
