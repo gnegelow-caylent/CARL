@@ -399,6 +399,7 @@ class EvidenceCollector:
                     if e.response["Error"]["Code"] == "ServerSideEncryptionConfigurationNotFoundError":
                         bucket_evidence["encryption"] = None
                     else:
+                        logger.warning(f"Error getting encryption for bucket {bucket_name}: {e.response['Error']['Code']} - {e.response['Error']['Message']}")
                         bucket_evidence["encryption"] = "ERROR"
 
                 # Public access block
