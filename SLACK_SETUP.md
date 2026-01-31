@@ -36,9 +36,12 @@ CARL uses Slack as its primary interface. Users interact with CARL through slash
 1. Click **"OAuth & Permissions"** in the left sidebar
 2. Scroll to **"Bot Token Scopes"**
 3. Click **"Add an OAuth Scope"** and add these scopes:
+   - `app_mentions:read` - CARL can read @mentions
+   - `channels:history` - CARL can read channel messages (for context)
    - `chat:write` - CARL sends messages
    - `commands` - CARL responds to slash commands
-   - `users:read` - CARL can read user info
+   - `files:write` - CARL uploads PDF reports directly to Slack
+   - `im:history` - CARL can read direct messages (for context)
 
 ### Step 3: Install App to Workspace
 
