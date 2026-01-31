@@ -17,6 +17,7 @@ from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 import boto3
+from botocore.config import Config
 
 from utils.logger import get_logger
 from services.evidence_collector import (
@@ -154,7 +155,8 @@ class ReportGenerator:
         self.reports_bucket = reports_bucket
 
         self.dynamodb = boto3.resource("dynamodb")
-        self.s3 = boto3.client("s3")
+        # Use Signature Version 4 for KMS-encrypted S3 buckets
+        self.s3 = boto3.client("s3", config=Config(signature_version='s3v4'))
 
         if findings_table:
             self.findings_db = self.dynamodb.Table(findings_table)
