@@ -767,6 +767,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("user_id")
         )
 
+    if event.get("action") == "process_drift_scan_async":
+        logger.info("Processing async drift scan")
+        slack = get_slack_service()
+        return handle_drift_scan_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("user_id")
+        )
+
     if event.get("action") == "process_jira_sync_async":
         logger.info("Processing async Jira sync")
         slack = get_slack_service()
@@ -6002,6 +6011,15 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_build_answer_button(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
+            elif action_id.startswith("drift_acknowledge_"):
+                drift_id = action_id.replace("drift_acknowledge_", "")
+                return handle_drift_acknowledge_button(payload, drift_id)
+            elif action_id.startswith("drift_show_fix_"):
+                drift_id = action_id.replace("drift_show_fix_", "")
+                return handle_drift_show_fix_button(payload, drift_id)
+            elif action_id.startswith("drift_suppress_"):
+                drift_id = action_id.replace("drift_suppress_", "")
+                return handle_drift_suppress_button(payload, drift_id)
 
     return {"statusCode": 200, "body": "OK"}
 
@@ -7618,6 +7636,8 @@ def handle_drift_command(
 ) -> dict:
     """Handle /carl drift command - infrastructure drift detection."""
     import os
+    import json
+    import boto3
     from services.drift_detector import DriftDetector
 
     parts = args.split() if args else []
@@ -7634,19 +7654,32 @@ def handle_drift_command(
         )
 
         if subcommand == "scan":
-            slack.post_message(channel_id, text="Starting drift detection scan... This may take a few minutes.")
+            # Post initial message
+            slack.post_message(
+                channel_id,
+                text="🔍 *Starting drift detection scan across all resources...*\n\n"
+                     "_This may take a few minutes. I'll post results when complete._"
+            )
 
-            report = detector.detect_all_drift()
-
-            # Format and send report
-            slack_format = detector.format_drift_report_for_slack(report)
-            slack.post_message(channel_id, blocks=slack_format["blocks"])
-
-            if report.critical_drifts:
-                slack.post_message(
-                    channel_id,
-                    text=f"⚠️ *{len(report.critical_drifts)} critical drift items require immediate attention!*"
+            # Invoke async processing in background
+            try:
+                lambda_client = boto3.client('lambda')
+                lambda_client.invoke(
+                    FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps({
+                        'action': 'process_drift_scan_async',
+                        'channel_id': channel_id,
+                        'user_id': user_id
+                    })
                 )
+            except Exception as e:
+                logger.error(f"Failed to invoke async drift scan: {e}")
+                # Fallback to synchronous if async fails
+                return handle_drift_scan_sync(slack, channel_id, user_id)
+
+            # Return empty 200 OK immediately to Slack (prevents timeout)
+            return {"statusCode": 200, "body": ""}
 
         elif subcommand == "status":
             summary = detector.get_drift_summary()
@@ -7741,6 +7774,172 @@ def handle_drift_command(
     except Exception as e:
         logger.exception("Error in drift command")
         slack.post_message(channel_id, text=f"Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_scan_sync(slack: SlackService, channel_id: str, user_id: str) -> dict:
+    """Synchronous version of drift scan - does the actual work."""
+    import os
+    from services.drift_detector import DriftDetector
+
+    drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+    terraform_bucket = os.environ.get("TERRAFORM_STATE_BUCKET", "")
+
+    try:
+        detector = DriftDetector(
+            drift_table=drift_table,
+            terraform_state_bucket=terraform_bucket if terraform_bucket else None
+        )
+
+        # Perform drift detection
+        report = detector.detect_all_drift()
+
+        # Format and send report
+        slack_format = detector.format_drift_report_for_slack(report)
+        slack.post_message(channel_id, blocks=slack_format["blocks"])
+
+        if report.critical_drifts:
+            slack.post_message(
+                channel_id,
+                text=f"⚠️ *{len(report.critical_drifts)} critical drift items require immediate attention!*"
+            )
+
+    except Exception as e:
+        logger.exception("Error in drift scan")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Drift scan failed: {str(e)}\n\n"
+                 f"Please check CloudWatch logs for details."
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_acknowledge_button(payload: dict, drift_id: str) -> dict:
+    """Handle Acknowledge button click for drift items."""
+    import os
+    from services.drift_detector import DriftDetector
+
+    slack = get_slack_service()
+    user = payload.get("user", {})
+    user_id = user.get("id", "unknown")
+    channel = payload.get("container", {}).get("channel_id")
+
+    drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+
+    try:
+        detector = DriftDetector(drift_table=drift_table)
+
+        # Acknowledge the drift
+        success = detector.acknowledge_drift(drift_id, user_id, notes="Acknowledged via Slack")
+
+        if success:
+            slack.post_message(
+                channel,
+                text=f"✓ Drift item `{drift_id}` acknowledged by <@{user_id}>"
+            )
+        else:
+            slack.post_message(
+                channel,
+                text=f"❌ Failed to acknowledge drift item `{drift_id}`"
+            )
+
+    except Exception as e:
+        logger.exception(f"Error acknowledging drift {drift_id}")
+        slack.post_message(channel, text=f"❌ Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
+    """Handle Show Fix button click for drift items."""
+    import os
+    from services.drift_detector import DriftDetector
+    from services.remediation_service import RemediationService
+
+    slack = get_slack_service()
+    channel = payload.get("container", {}).get("channel_id")
+
+    drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+
+    try:
+        detector = DriftDetector(drift_table=drift_table)
+
+        # Get drift item details
+        drift_items = detector.get_drift_items()
+        drift_item = next((d for d in drift_items if d.drift_id == drift_id), None)
+
+        if not drift_item:
+            slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
+            return {"statusCode": 200, "body": ""}
+
+        # Convert drift item to finding format for remediation service
+        finding = {
+            "id": drift_item.drift_id,
+            "title": f"{drift_item.resource_type} Configuration Drift",
+            "resource_type": drift_item.resource_type,
+            "resource_id": drift_item.resource_id,
+            "severity": drift_item.severity.upper(),
+            "description": drift_item.description
+        }
+
+        # Generate remediation guidance
+        remediation_service = RemediationService()
+        guidance = remediation_service.generate_remediation(finding)
+
+        if guidance:
+            # Format for Slack
+            guidance_blocks = remediation_service.format_for_slack(guidance)
+            slack.post_message(channel, blocks=guidance_blocks['blocks'])
+        else:
+            slack.post_message(
+                channel,
+                text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
+                     f"*Drift Details:*\n{drift_item.description}\n\n"
+                     f"Please review and fix manually or run `/carl drift terraform` to compare with state."
+            )
+
+    except Exception as e:
+        logger.exception(f"Error showing fix for drift {drift_id}")
+        slack.post_message(channel, text=f"❌ Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_drift_suppress_button(payload: dict, drift_id: str) -> dict:
+    """Handle Suppress button click for drift items."""
+    import os
+    from services.drift_detector import DriftDetector
+
+    slack = get_slack_service()
+    user = payload.get("user", {})
+    user_id = user.get("id", "unknown")
+    channel = payload.get("container", {}).get("channel_id")
+
+    drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
+
+    try:
+        detector = DriftDetector(drift_table=drift_table)
+
+        # Mark as remediated (suppressed)
+        success = detector.mark_remediated(drift_id)
+
+        if success:
+            slack.post_message(
+                channel,
+                text=f"🙈 Drift item `{drift_id}` suppressed by <@{user_id}>\n\n"
+                     f"_This drift will be hidden from future reports. Re-run `/carl drift scan` to detect if it recurs._"
+            )
+        else:
+            slack.post_message(
+                channel,
+                text=f"❌ Failed to suppress drift item `{drift_id}`"
+            )
+
+    except Exception as e:
+        logger.exception(f"Error suppressing drift {drift_id}")
+        slack.post_message(channel, text=f"❌ Error: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 

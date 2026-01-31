@@ -951,7 +951,7 @@ class DriftDetector:
             "text": {"type": "mrkdwn", "text": f"*By Severity:* {severity_text}"}
         })
 
-        # Show critical items
+        # Show critical items with action buttons
         if report.critical_drifts:
             blocks.append({
                 "type": "section",
@@ -961,15 +961,50 @@ class DriftDetector:
             for drift_id in report.critical_drifts[:5]:
                 item = next((d for d in report.drift_items if d.drift_id == drift_id), None)
                 if item:
+                    # Drift item section
                     blocks.append({
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"• `{item.resource_id}` - {item.description[:100]}"}
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{item.resource_type}*: `{item.resource_id}`\n{item.description[:150]}"
+                        }
                     })
+
+                    # Action buttons for each drift item
+                    action_buttons = []
+
+                    if not item.acknowledged:
+                        action_buttons.append({
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✓ Acknowledge"},
+                            "action_id": f"drift_acknowledge_{drift_id}",
+                            "style": "primary"
+                        })
+
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🔧 Show Fix"},
+                        "action_id": f"drift_show_fix_{drift_id}"
+                    })
+
+                    action_buttons.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🙈 Suppress"},
+                        "action_id": f"drift_suppress_{drift_id}",
+                        "style": "danger"
+                    })
+
+                    blocks.append({
+                        "type": "actions",
+                        "elements": action_buttons
+                    })
+
+                    blocks.append({"type": "divider"})
 
             if len(report.critical_drifts) > 5:
                 blocks.append({
                     "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": f"_...and {len(report.critical_drifts) - 5} more critical items_"}]
+                    "elements": [{"type": "mrkdwn", "text": f"_...and {len(report.critical_drifts) - 5} more critical items. Run `/carl drift status` to see all._"}]
                 })
 
         blocks.append({
