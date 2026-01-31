@@ -881,3 +881,207 @@ requiring attention.
         except Exception as e:
             logger.error(f"Failed to generate presigned URL: {e}")
             return ""
+
+    def generate_executive_summary_pdf(
+        self,
+        audit_period_start: str,
+        audit_period_end: str,
+        organization_name: str = "Organization"
+    ) -> tuple[bytes, dict]:
+        """
+        Generate executive summary as professional PDF.
+
+        Returns:
+            Tuple of (PDF bytes, report data dict)
+        """
+        from services.pdf_generator import PDFReportGenerator
+
+        # Get data
+        coverage = self.evidence_collector.get_control_coverage()
+        findings_summary = self._get_findings_summary()
+        exceptions_summary = self._get_exceptions_summary()
+
+        # Calculate compliance score
+        compliance_score = coverage["coverage_percent"]
+        if findings_summary["critical"] > 0:
+            compliance_score *= 0.7  # Penalty for critical findings
+
+        # Structure data for PDF
+        report_data = {
+            'report_type': 'SOC 2 Executive Summary',
+            'organization': organization_name,
+            'audit_period': f'{audit_period_start} to {audit_period_end}',
+            'generated_at': datetime.utcnow().strftime('%B %d, %Y'),
+            'compliance_score': compliance_score,
+            'executive_summary': self._generate_executive_text(coverage, findings_summary),
+            'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
+            'controls_passed': len(coverage["covered"]),
+            'total_findings': findings_summary["total"],
+            'findings_by_severity': {
+                'critical': findings_summary["critical"],
+                'high': findings_summary["high"],
+                'medium': findings_summary["medium"],
+                'low': findings_summary["low"]
+            },
+            'controls': self._format_controls_for_pdf(coverage, findings_summary),
+            'findings': self._format_findings_for_pdf(findings_summary.get('findings', []))
+        }
+
+        # Generate PDF
+        pdf_gen = PDFReportGenerator()
+        pdf_bytes = pdf_gen.generate_pdf(report_data)
+
+        return pdf_bytes, report_data
+
+    def generate_full_audit_pdf(
+        self,
+        audit_period_start: str,
+        audit_period_end: str,
+        organization_name: str = "Organization"
+    ) -> tuple[bytes, dict]:
+        """
+        Generate full audit report as professional PDF.
+
+        Returns:
+            Tuple of (PDF bytes, report data dict)
+        """
+        from services.pdf_generator import PDFReportGenerator
+
+        # Get data
+        coverage = self.evidence_collector.get_control_coverage()
+        findings_summary = self._get_findings_summary()
+        exceptions_summary = self._get_exceptions_summary()
+
+        # Calculate compliance score
+        compliance_score = coverage["coverage_percent"]
+        if findings_summary["critical"] > 0:
+            compliance_score *= 0.7
+
+        # Structure comprehensive data for PDF
+        report_data = {
+            'report_type': 'SOC 2 Full Audit Report',
+            'organization': organization_name,
+            'audit_period': f'{audit_period_start} to {audit_period_end}',
+            'generated_at': datetime.utcnow().strftime('%B %d, %Y'),
+            'compliance_score': compliance_score,
+            'executive_summary': self._generate_executive_text(coverage, findings_summary),
+            'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
+            'controls_passed': len(coverage["covered"]),
+            'total_findings': findings_summary["total"],
+            'findings_by_severity': {
+                'critical': findings_summary["critical"],
+                'high': findings_summary["high"],
+                'medium': findings_summary["medium"],
+                'low': findings_summary["low"]
+            },
+            'controls': self._format_controls_for_pdf(coverage, findings_summary, detailed=True),
+            'findings': self._format_findings_for_pdf(findings_summary.get('findings', []), detailed=True)
+        }
+
+        # Generate PDF
+        pdf_gen = PDFReportGenerator()
+        pdf_bytes = pdf_gen.generate_pdf(report_data)
+
+        return pdf_bytes, report_data
+
+    def _generate_executive_text(self, coverage: dict, findings_summary: dict) -> str:
+        """Generate concise executive summary text."""
+        total_controls = len(coverage["covered"]) + len(coverage["missing"])
+        coverage_pct = coverage["coverage_percent"]
+
+        if coverage_pct >= 90 and findings_summary["critical"] == 0:
+            status = "The organization demonstrates strong compliance posture"
+        elif coverage_pct >= 70:
+            status = "The organization demonstrates partial compliance with areas requiring attention"
+        else:
+            status = "The organization requires significant remediation to achieve compliance"
+
+        return f"""{status}. Assessment covers {len(coverage['covered'])} of {total_controls} SOC 2 controls ({coverage_pct:.0f}% coverage). {findings_summary['total']} findings identified across all severity levels, including {findings_summary['critical']} critical issues requiring immediate attention."""
+
+    def _format_controls_for_pdf(self, coverage: dict, findings_summary: dict, detailed: bool = False) -> list[dict]:
+        """Format control data for PDF table."""
+        controls = []
+
+        # Map controls to their status
+        for control_id in coverage["covered"]:
+            evidence_count = len(coverage["control_evidence"].get(control_id, []))
+            findings_count = len([f for f in findings_summary.get("findings", [])
+                                if control_id in f.get("control_ids", [])])
+
+            controls.append({
+                'control_id': control_id,
+                'control_name': SOC2_CONTROL_DESCRIPTIONS.get(control_id, "").split(":")[1].strip()
+                              if ":" in SOC2_CONTROL_DESCRIPTIONS.get(control_id, "") else "N/A",
+                'status': 'compliant' if findings_count == 0 else 'non-compliant',
+                'evidence_count': evidence_count,
+                'findings_count': findings_count
+            })
+
+        # Add missing controls
+        for control_id in coverage["missing"]:
+            controls.append({
+                'control_id': control_id,
+                'control_name': SOC2_CONTROL_DESCRIPTIONS.get(control_id, "").split(":")[1].strip()
+                              if ":" in SOC2_CONTROL_DESCRIPTIONS.get(control_id, "") else "N/A",
+                'status': 'not_assessed',
+                'evidence_count': 0,
+                'findings_count': 0
+            })
+
+        # Sort by control ID
+        controls.sort(key=lambda x: x['control_id'])
+
+        return controls
+
+    def _format_findings_for_pdf(self, findings: list, detailed: bool = False) -> list[dict]:
+        """Format findings data for PDF."""
+        formatted = []
+
+        for finding in findings[:20]:  # Limit to top 20 for readability
+            formatted.append({
+                'title': finding.get('title', 'N/A'),
+                'severity': finding.get('severity', 'MEDIUM').upper(),
+                'resource_id': finding.get('resource_id', 'N/A'),
+                'description': finding.get('description', 'N/A')[:200] + '...'
+                             if len(finding.get('description', '')) > 200 and not detailed
+                             else finding.get('description', 'N/A'),
+                'remediation_steps': finding.get('remediation_steps', 'N/A')[:300] + '...'
+                                   if len(finding.get('remediation_steps', '')) > 300 and not detailed
+                                   else finding.get('remediation_steps', 'N/A')
+            })
+
+        return formatted
+
+    def save_pdf_report(self, pdf_bytes: bytes, report_type: ReportType) -> str:
+        """
+        Save PDF report to S3 and return the S3 key.
+
+        Args:
+            pdf_bytes: PDF content as bytes
+            report_type: Type of report
+
+        Returns:
+            S3 key where PDF was saved
+        """
+        if not self.reports_bucket:
+            logger.warning("No reports bucket configured")
+            return ""
+
+        timestamp = datetime.utcnow()
+        filename = f"{report_type.value}_{timestamp.strftime('%Y%m%d_%H%M%S')}.pdf"
+        s3_key = f"reports/{timestamp.strftime('%Y/%m')}/{filename}"
+
+        self.s3.put_object(
+            Bucket=self.reports_bucket,
+            Key=s3_key,
+            Body=pdf_bytes,
+            ContentType="application/pdf",
+            ContentDisposition=f'attachment; filename="{filename}"',
+            Metadata={
+                "report-type": report_type.value,
+                "generated-at": timestamp.isoformat(),
+            }
+        )
+
+        logger.info(f"PDF report saved to s3://{self.reports_bucket}/{s3_key}")
+        return s3_key

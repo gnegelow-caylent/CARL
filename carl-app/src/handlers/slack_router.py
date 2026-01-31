@@ -7477,30 +7477,40 @@ def handle_report_command_sync(
 
 """
 
+        # Generate professional PDF reports
+        update_progress("📊 Generating professional PDF report...")
+
         if report_type == "executive":
-            report = generator.generate_executive_summary(start_date, end_date)
-            # Prepend scan context
-            report = report_context + report
+            pdf_bytes, report_data = generator.generate_executive_summary_pdf(
+                audit_period_start=start_date,
+                audit_period_end=end_date,
+                organization_name="CARL"
+            )
             report_type_enum = ReportType.EXECUTIVE_SUMMARY
 
         elif report_type == "full":
-            report = generator.generate_full_audit_report(start_date, end_date)
-            report = report_context + report
+            pdf_bytes, report_data = generator.generate_full_audit_pdf(
+                audit_period_start=start_date,
+                audit_period_end=end_date,
+                organization_name="CARL"
+            )
             report_type_enum = ReportType.FULL_AUDIT
 
         elif report_type == "control" and control_id:
+            # Fallback to markdown for control reports (TODO: implement PDF)
             report = generator.generate_control_report(control_id.upper())
             report = report_context + report
+            pdf_bytes = report.encode('utf-8')
             report_type_enum = ReportType.CONTROL_SPECIFIC
 
         else:
             report_type_enum = None
+            pdf_bytes = b""
 
-        # Step 4: Save markdown report to S3
-        update_progress("☁️ Uploading report to S3...")
+        # Upload PDF to S3
+        update_progress("☁️ Uploading PDF report to S3...")
 
-        # Save as markdown file
-        s3_key = generator.save_report(report, report_type_enum)
+        s3_key = generator.save_pdf_report(pdf_bytes, report_type_enum)
 
         # Generate presigned URL
         download_url = generator.generate_presigned_url(s3_key, expiration=86400)  # 24 hours
@@ -7521,15 +7531,17 @@ def handle_report_command_sync(
 **Audit Period:** {start_date} to {end_date}
 **Environment Scan:** {scan_summary}
 
-📥 **Download Report (Markdown):**
+📥 **Download Professional PDF Report:**
 {download_url}
 
 _Link expires in 24 hours_
 
-The report is in Markdown format - you can:
-• View directly in your browser
-• Open in any text editor
-• Convert to PDF using tools like pandoc or online converters"""
+The report includes:
+• Executive summary with compliance score
+• Visual charts and metrics
+• Detailed control assessments
+• Findings breakdown with remediation steps
+• Professional formatting ready for auditors"""
 
         slack.post_message(channel_id, text=summary_text)
 
