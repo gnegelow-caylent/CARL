@@ -4043,7 +4043,11 @@ Return ONLY the Terraform variables.tf file content, no markers or extra text.""
 - **Databases**: KMS encryption + automated backups + Multi-AZ + monitoring
 - **Container Apps**: ECS + ALB + WAF + ECR + monitoring
 
-Return ONLY the main.tf file content, no markers or extra text."""
+**DO NOT INCLUDE:**
+- DO NOT include output blocks - those belong in outputs.tf (generated separately)
+- DO NOT include variable definitions - those are in variables.tf
+
+Return ONLY the main.tf file content (terraform block, provider, locals, data sources, resources), no markers or extra text."""
 
     main_content = bedrock.invoke_model(
         prompt=main_prompt,
