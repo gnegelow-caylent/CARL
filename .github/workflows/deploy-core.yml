@@ -243,7 +243,7 @@ jobs:
           # Create placeholder lambda.zip for modules that still use zip deployment
           # (realtime-monitor, pattern-analyzer, pricing-prefetch)
           # Main API Lambda uses container image from ECR
-          cd carl-infrastructure/core
+          cd carl-app
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -337,7 +337,7 @@ jobs:
           # Create placeholder lambda.zip for modules that still use zip deployment
           # (realtime-monitor, pattern-analyzer, pricing-prefetch)
           # Main API Lambda uses container image from ECR
-          cd carl-infrastructure/core
+          cd carl-app
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -409,7 +409,7 @@ jobs:
           # Create placeholder lambda.zip for modules that still use zip deployment
           # (realtime-monitor, pattern-analyzer, pricing-prefetch)
           # Main API Lambda uses container image from ECR
-          cd carl-infrastructure/core
+          cd carl-app
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
