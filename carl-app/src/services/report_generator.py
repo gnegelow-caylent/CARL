@@ -480,7 +480,7 @@ The following controls require evidence collection:
         return report
 
     def _get_findings_summary(self) -> dict:
-        """Get summary of current findings."""
+        """Get summary of current OPEN findings (excludes remediated/closed)."""
         if not self.findings_db:
             return {
                 "total": 0,
@@ -494,7 +494,13 @@ The following controls require evidence collection:
 
         try:
             response = self.findings_db.scan()
-            items = response.get("Items", [])
+            all_items = response.get("Items", [])
+
+            # Filter to OPEN findings only (exclude REMEDIATED, CLOSED, SUPPRESSED)
+            items = [
+                item for item in all_items
+                if item.get("status", "OPEN").upper() in ["OPEN", "NEW", "IN_PROGRESS"]
+            ]
 
             summary = {
                 "total": len(items),
