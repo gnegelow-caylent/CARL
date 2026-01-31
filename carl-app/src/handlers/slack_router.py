@@ -7911,7 +7911,10 @@ def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
                     channel,
                     text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
                          f"*Drift Details:*\n{drift_item.description}\n\n"
-                         f"Please review and fix manually or run `/carl drift terraform` to compare with state."
+                         f"*Next Steps:*\n"
+                         f"1. Review the drift details above\n"
+                         f"2. Fix manually in AWS Console or via AWS CLI\n"
+                         f"3. Run `/carl drift scan` to verify the fix"
                 )
 
         except Exception as e:
