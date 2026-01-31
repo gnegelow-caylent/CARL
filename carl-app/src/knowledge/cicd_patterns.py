@@ -4,493 +4,585 @@ CI/CD Pipeline Patterns for AWS.
 Patterns for CodePipeline, CodeBuild, CodeDeploy, and GitHub Actions with AWS integration.
 """
 
-from knowledge.architecture_patterns import ArchitectureDecision
+from knowledge.architecture_patterns import ArchitectureDecision, DecisionOption
 
 CICD_GITHUB_ACTIONS = ArchitectureDecision(
-    name="GitHub Actions with AWS Deployment",
-    context="""
-    Need CI/CD pipeline with:
-    - Git-based workflow
-    - Automated testing
-    - AWS deployment
-    - Pull request previews
-    - Low cost
-    """,
-    options={
-        "GitHub Actions + OIDC to AWS (Recommended)": """
-        **Architecture:**
-        - GitHub repository
-        - GitHub Actions workflows
-        - OpenID Connect (OIDC) to AWS (no long-lived credentials)
-        - Deploy to Lambda, ECS, S3, etc.
-        - CloudWatch for deployment logs
+    question="What should I use for CI/CD pipelines to AWS?",
+    options=[
+        DecisionOption(
+            name="GitHub Actions + OIDC to AWS (Recommended)",
+            description="GitHub Actions with OpenID Connect authentication - no long-lived AWS credentials needed",
+            when_to_use=[
+                "Using GitHub for source control",
+                "Want free or low-cost CI/CD",
+                "Need fast build times",
+                "Public repos or private repos <2000 minutes/month",
+                "Security-conscious (OIDC, no stored credentials)",
+            ],
+            when_not_to_use=[
+                "Need manual approval gates (use CodePipeline)",
+                "Multi-environment with strict access controls",
+                "Compliance requires audit trail in AWS (use CodePipeline)",
+                "Not using GitHub",
+            ],
+            pros=[
+                "Free for public repos",
+                "2,000 free minutes/month for private repos",
+                "No AWS credentials stored (OIDC authentication)",
+                "Fast builds with parallel jobs",
+                "Huge marketplace of actions",
+                "Matrix builds for multi-platform testing",
+            ],
+            cons=[
+                "Dependent on GitHub availability",
+                "6-hour job timeout limit",
+                "Less AWS integration than CodePipeline",
+                "No native approval gates (can implement manually)",
+            ],
+            monthly_cost_range=(0.0, 10.0),
+            cost_drivers=[
+                "Free for public repositories",
+                "Private repos: 2,000 minutes/month free",
+                "Additional minutes: $0.008/minute (Linux)",
+                "Example: 3,000 minutes/month = $8/month",
+            ],
+            soc2_controls=["CC8.1", "PI1.4", "CC5.3"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="GitHub Actions + Self-Hosted Runners",
+            description="GitHub Actions with EC2 self-hosted runners for unlimited builds and VPC access",
+            when_to_use=[
+                "High build volume (>2000 minutes/month)",
+                "Need VPC access (private RDS, internal APIs)",
+                "Need custom software or GPU instances",
+                "Want faster builds (no artifact download)",
+            ],
+            when_not_to_use=[
+                "Low build volume (<2000 minutes/month - use GitHub-hosted)",
+                "Don't want to manage EC2 instances",
+                "Security concerns about running third-party code",
+            ],
+            pros=[
+                "Unlimited build minutes",
+                "VPC network access",
+                "Faster builds (no artifact download)",
+                "Custom software pre-installed",
+                "Can use GPU instances",
+            ],
+            cons=[
+                "Must manage EC2 instances (patching, monitoring)",
+                "Security risk (third-party code runs on your infrastructure)",
+                "Always-on cost even when not building",
+            ],
+            monthly_cost_range=(10.0, 50.0),
+            cost_drivers=[
+                "EC2: t3.micro ≈ $7/month, t3.small ≈ $15/month",
+                "EBS storage: included in EC2",
+                "Example: 1 t3.small runner = $15/month for unlimited builds",
+            ],
+            soc2_controls=["CC8.1", "CC5.3"],
+            implementation_complexity="medium",
+            operational_overhead="medium",
+        ),
+        DecisionOption(
+            name="CodePipeline + CodeBuild (AWS-Native)",
+            description="Fully AWS-native CI/CD with manual approval gates and deep AWS integration",
+            when_to_use=[
+                "Need manual approval gates (security/QA sign-off)",
+                "Multi-environment with strict IAM controls",
+                "Compliance requires AWS audit trail (CloudTrail)",
+                "All-in on AWS ecosystem",
+                "Using CodeCommit for source control",
+            ],
+            when_not_to_use=[
+                "Cost-sensitive (<$1/month budget)",
+                "Using GitHub (GitHub Actions is easier)",
+                "Don't need approval gates",
+                "Small project with simple deployment",
+            ],
+            pros=[
+                "Native AWS integration (IAM, CloudWatch, CloudTrail)",
+                "Manual approval gates built-in",
+                "Advanced deployment strategies (canary, blue/green)",
+                "CloudWatch alarm-based rollback",
+                "Full audit trail in AWS",
+            ],
+            cons=[
+                "$1/pipeline/month (always-on cost)",
+                "Build minutes cost $0.005/minute",
+                "Less community tooling than GitHub Actions",
+                "Tied to AWS (not portable)",
+            ],
+            monthly_cost_range=(3.0, 20.0),
+            cost_drivers=[
+                "CodePipeline: $1/active pipeline/month",
+                "CodeBuild: $0.005/build minute (100 minutes free/month)",
+                "Example: 1 pipeline, 500 build minutes/month = $3.50/month",
+            ],
+            soc2_controls=["CC8.1", "PI1.4", "CC5.3", "CC4.1"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
 
-        **Features:**
-        - No AWS credentials in GitHub (OIDC)
-        - Parallel jobs
-        - Matrix builds
-        - Reusable workflows
-        - GitHub-hosted runners (free)
+    IF using_github AND cost_sensitive:
+        → GitHub Actions + OIDC (free or cheap)
 
-        **Cost:** approx. $0/month (free tier)
-        - Free for public repos
-        - 2,000 minutes/month free for private repos
-        - Self-hosted runners: free (use EC2)
+    ELIF need_approval_gates OR compliance_audit_trail:
+        → CodePipeline (AWS-native approvals)
 
-        **Example Workflow:**
-        1. Push to main branch
-        2. GitHub Actions triggers
-        3. Run tests (Jest, pytest, etc.)
-        4. Build artifacts (Docker image, Lambda zip)
-        5. Assume AWS role via OIDC
-        6. Deploy to AWS (update Lambda, push to ECR, etc.)
-        7. Run smoke tests
-        8. Notify Slack on success/failure
+    ELIF build_volume > 2000_minutes_per_month:
+        → GitHub Actions + Self-hosted runners (unlimited)
 
-        **Pros:**
-        - Free (within limits)
-        - No AWS credentials to manage
-        - Fast builds
-        - Great for open source
-        - Huge marketplace of actions
+    ELSE:
+        → GitHub Actions + OIDC (best for most cases)
 
-        **Cons:**
-        - Dependent on GitHub
-        - 6-hour job limit
-        - Less integration with AWS than CodePipeline
+    **Cost Comparison (500 build minutes/month):**
+    - GitHub Actions: $0/month (within free tier)
+    - GitHub Actions (self-hosted): $15/month (t3.small always-on)
+    - CodePipeline: $3.50/month ($1 pipeline + $2.50 build minutes)
 
-        **When to use:** Most projects, GitHub-hosted, want free/cheap CI/CD
-        """,
-
-        "GitHub Actions + Self-Hosted Runners": """
-        **Architecture:**
-        - GitHub Actions
-        - EC2 self-hosted runners (or ECS tasks)
-        - VPC access (can access private RDS, etc.)
-
-        **Cost:** approx. $10-30/month (EC2 t3.micro or t3.small)
-
-        **Pros:**
-        - Unlimited minutes
-        - VPC access
-        - Faster (no download time)
-        - Custom software/tools
-
-        **Cons:**
-        - Must manage runners
-        - Security concerns (third-party code on your EC2)
-
-        **When to use:** High build volume, need VPC access, hitting GitHub minute limits
-        """
-    },
-    recommendation="GitHub Actions + OIDC (free, secure, simple)",
-    tradeoffs="""
-    **GitHub Actions vs CodePipeline:**
-    - GitHub Actions: Free/cheap, GitHub ecosystem, OIDC auth
-    - CodePipeline: More AWS-native, $1/pipeline/month, deeper AWS integration
-
-    **GitHub-hosted vs Self-hosted:**
-    - GitHub-hosted: Free (within limits), zero management
-    - Self-hosted: Unlimited, VPC access, requires EC2 management
-
-    **Default choice:** GitHub Actions with OIDC (free, secure)
-    """,
-    related_controls=["CC8.1", "PI1.4", "CC5.3"],
-    aws_services=["iam", "lambda", "ecs", "s3", "cloudwatch"],
-    estimated_cost="$0/month (free tier)"
-)
-
-CICD_CODEPIPELINE = ArchitectureDecision(
-    name="AWS CodePipeline Full CI/CD",
-    context="""
-    Need AWS-native CI/CD with:
-    - Multiple environments (dev, staging, prod)
-    - Manual approval steps
-    - Blue/green deployments
-    - Integration with AWS services
-    - Audit trail
-    """,
-    options={
-        "CodePipeline + CodeBuild + CodeDeploy (AWS-Native)": """
-        **Architecture:**
-        - CodePipeline (orchestration)
-        - CodeCommit or GitHub (source)
-        - CodeBuild (build/test)
-        - CodeDeploy (deployment)
-        - S3 (artifact storage)
-        - SNS (notifications)
-        - CloudWatch (logs, metrics)
-
-        **Features:**
-        - Multi-stage pipeline (dev → staging → prod)
-        - Manual approval gates
-        - Blue/green deployments
-        - Canary deployments
-        - Rollback on CloudWatch alarm
-        - IAM integration
-
-        **Cost:** approx. $1/pipeline/month + build minutes
-        - CodePipeline: $1/active pipeline/month
-        - CodeBuild: $0.005/build minute (100 free/month)
-        - CodeDeploy: Free
-        - Example: 1 pipeline, 100 builds/month at 5 min = approx. $3.50/month
-
-        **Pipeline Stages:**
-        1. Source: CodeCommit or GitHub webhook
-        2. Build: CodeBuild compiles, runs tests, builds Docker image
-        3. Test: CodeBuild runs integration tests
-        4. Deploy to Dev: CodeDeploy blue/green
-        5. Manual Approval: Security/QA approval
-        6. Deploy to Prod: CodeDeploy with canary (10% → 100%)
-        7. Notify: SNS to Slack
-
-        **Pros:**
-        - Native AWS integration
-        - Manual approval gates
-        - Advanced deployment strategies
-        - CloudWatch alarm rollback
-        - Audit trail in CloudTrail
-
-        **Cons:**
-        - More expensive than GitHub Actions
-        - Less community actions
-        - Tied to AWS
-
-        **When to use:** AWS-centric teams, need approval gates, compliance audit trail
-        """,
-
-        "CodePipeline + Jenkins": """
-        **Architecture:**
-        - CodePipeline orchestration
-        - Jenkins on EC2 (build server)
-        - CodeDeploy for deployment
-
-        **Cost:** approx. $30/month (EC2 for Jenkins)
-
-        **When to use:** Existing Jenkins pipelines, complex build requirements
-        """
-    },
-    recommendation="GitHub Actions for most projects, CodePipeline for enterprise/compliance",
-    tradeoffs="""
-    **CodePipeline vs GitHub Actions:**
-    - CodePipeline: $1-5/mo, approval gates, AWS-native, audit trail
-    - GitHub Actions: Free, faster, community actions, less AWS integration
-
-    **When to use CodePipeline:**
-    - Need manual approval gates (QA/security sign-off)
-    - Multi-environment with different permissions
-    - Compliance audit trail important
+    **When to Use CodePipeline:**
+    - Need manual approval gates
+    - Multi-environment with different IAM permissions
+    - Compliance requires AWS audit trail
     - Already all-in on AWS
 
-    **When to use GitHub Actions:**
-    - Cost-conscious
-    - GitHub-hosted
+    **When to Use GitHub Actions:**
+    - Using GitHub for source control
+    - Want free or low-cost CI/CD
     - Don't need approval gates
+    - 80% of use cases
     """,
-    related_controls=["CC8.1", "PI1.4", "CC5.3", "CC4.1"],
-    aws_services=["codepipeline", "codebuild", "codedeploy", "s3", "cloudwatch", "sns"],
-    estimated_cost="$1-10/month"
+    soc2_relevance="""
+    CI/CD pipelines are critical for SOC 2 change management:
+
+    **CC8.1 (Change Management):** Automated pipelines ensure all changes go through testing
+    **PI1.4 (Authorization):** Approval gates enforce proper authorization for production changes
+    **CC5.3 (Policies and Procedures):** Documented pipeline enforces deployment procedures
+    **CC4.1 (Ongoing Evaluations):** Automated tests continuously validate system quality
+
+    GitHub Actions and CodePipeline both support audit logging and approval gates.
+    """,
+    common_mistakes=[
+        "Storing AWS credentials in GitHub Secrets (use OIDC instead)",
+        "Not setting up branch protection rules (allow direct commits to main)",
+        "Skipping security scanning (missing vulnerabilities)",
+        "Using self-hosted runners without proper security hardening",
+        "Not implementing approval gates for production deployments",
+    ],
 )
 
 CICD_ECS_DEPLOYMENT = ArchitectureDecision(
-    name="CI/CD for ECS Fargate Applications",
-    context="""
-    Need to deploy containerized apps to ECS with:
-    - Automated Docker image builds
-    - Blue/green deployments
-    - Rollback on failure
-    - Zero-downtime deployments
+    question="How should I deploy containerized applications to ECS?",
+    options=[
+        DecisionOption(
+            name="GitHub Actions + ECR + ECS (Recommended)",
+            description="GitHub Actions builds Docker images, pushes to ECR, deploys to ECS with blue/green",
+            when_to_use=[
+                "Using GitHub for source control",
+                "Want free CI/CD",
+                "ECS Fargate or ECS on EC2 deployments",
+                "Need zero-downtime deployments",
+                "Don't need approval gates",
+            ],
+            when_not_to_use=[
+                "Need manual approval gates (use CodePipeline)",
+                "Need canary deployments (use CodePipeline + CodeDeploy)",
+                "Enterprise compliance requirements",
+            ],
+            pros=[
+                "Free CI/CD (GitHub Actions free tier)",
+                "Zero-downtime blue/green deployments",
+                "Fast rollback (revert task definition)",
+                "Simple workflow",
+                "Integrates well with ECR",
+            ],
+            cons=[
+                "No built-in approval gates",
+                "No canary deployments (all-at-once traffic shift)",
+                "Manual rollback (not automatic)",
+            ],
+            monthly_cost_range=(0.0, 5.0),
+            cost_drivers=[
+                "GitHub Actions: $0/month (free tier)",
+                "ECR: $0.10/GB/month (≈ $5/month for 50GB images)",
+                "ECS: No deployment cost (pay for tasks)",
+            ],
+            soc2_controls=["CC8.1", "CC5.3"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="CodePipeline + CodeBuild + CodeDeploy",
+            description="Full AWS-native pipeline with approval gates, canary deployments, and alarm-based rollback",
+            when_to_use=[
+                "Need manual approval gates",
+                "Need canary deployments (10% → 50% → 100%)",
+                "Want CloudWatch alarm-based automatic rollback",
+                "Enterprise compliance requirements",
+                "Multi-environment with strict controls",
+            ],
+            when_not_to_use=[
+                "Cost-sensitive (adds $3-5/month)",
+                "Simple deployment without approvals",
+                "Using GitHub (GitHub Actions is simpler)",
+            ],
+            pros=[
+                "Manual approval gates built-in",
+                "Advanced traffic shifting (canary, linear)",
+                "Automatic rollback on CloudWatch alarms",
+                "Full audit trail in CloudTrail",
+                "Deeper AWS integration",
+            ],
+            cons=[
+                "More expensive ($3-5/month)",
+                "More complex to set up",
+                "Slower deployments (gradual traffic shift)",
+            ],
+            monthly_cost_range=(5.0, 15.0),
+            cost_drivers=[
+                "CodePipeline: $1/pipeline/month",
+                "CodeBuild: $0.005/minute (≈ $2/month for 400 minutes)",
+                "CodeDeploy: Free",
+                "ECR: $5/month",
+                "Example: $8/month total",
+            ],
+            soc2_controls=["CC8.1", "PI1.4", "CC5.3", "CC4.1"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF need_approval_gates OR need_canary_deployment:
+        → CodePipeline + CodeDeploy ($8/month, enterprise features)
+
+    ELSE:
+        → GitHub Actions ($0/month, simple)
+
+    **Deployment Strategies:**
+    - GitHub Actions: Blue/green (instant traffic switch)
+    - CodePipeline: Canary (10% → 50% → 100%) or Linear (10% every 10 minutes)
+
+    **Cost Comparison:**
+    - GitHub Actions: $0/month (free)
+    - CodePipeline: $8/month (approval gates, canary, auto-rollback)
+
+    **Recommendation:** Start with GitHub Actions. Add CodePipeline only if you need approval gates or canary deployments for production.
     """,
-    options={
-        "GitHub Actions + ECR + ECS (Recommended)": """
-        **Architecture:**
-        - GitHub repository with Dockerfile
-        - GitHub Actions workflow
-        - Amazon ECR (container registry)
-        - ECS Fargate cluster
-        - Application Load Balancer
-        - Blue/green deployment
+    soc2_relevance="""
+    ECS deployments must be controlled and monitored:
 
-        **Workflow:**
-        1. Push to main branch
-        2. GitHub Actions builds Docker image
-        3. Run tests in container
-        4. Push image to ECR (with tag: commit SHA)
-        5. Update ECS task definition (new image)
-        6. ECS deploys new tasks (blue/green)
-        7. ALB shifts traffic gradually
-        8. CloudWatch monitors for errors
-        9. Auto-rollback on alarm
+    **CC8.1 (Change Management):** Automated deployments ensure tested code reaches production
+    **CC5.3 (Policies):** Blue/green or canary deployments follow safe deployment procedures
 
-        **Cost:** approx. $0/month (GitHub Actions) + ECR storage
-        - GitHub Actions: Free (within limits)
-        - ECR: $0.10/GB/month (approx. $5/month for 50GB)
-
-        **Pros:**
-        - Zero-downtime deployments
-        - Fast rollback
-        - Free CI/CD
-        - Simple workflow
-
-        **Cons:**
-        - No built-in approval gates (can add manually)
-
-        **When to use:** Most ECS Fargate deployments
-        """,
-
-        "CodePipeline + CodeBuild + ECR + ECS": """
-        **Architecture:**
-        - CodePipeline orchestration
-        - CodeBuild (Docker build)
-        - ECR registry
-        - ECS blue/green deployment controller
-        - CodeDeploy for traffic shifting
-
-        **Features:**
-        - Manual approval before prod
-        - Canary deployments (10% → 50% → 100%)
-        - CloudWatch alarm rollback
-
-        **Cost:** approx. $3-5/month
-
-        **Pros:**
-        - Approval gates
-        - Advanced traffic shifting
-        - Alarm-based rollback
-
-        **Cons:**
-        - More expensive
-        - More complex
-
-        **When to use:** Enterprise, need approval gates, advanced deployment strategies
-        """
-    },
-    recommendation="GitHub Actions for most teams, CodePipeline for enterprise",
-    tradeoffs="""
-    **GitHub Actions vs CodePipeline for ECS:**
-    - GitHub Actions: Free, simple, fast
-    - CodePipeline: Approval gates, canary, $3-5/mo
-
-    Both support blue/green deployments and rollback
+    CodePipeline adds approval gates for **PI1.4 (Authorization)** controls.
     """,
-    related_controls=["CC8.1", "CC5.3"],
-    aws_services=["ecr", "ecs", "elasticloadbalancing", "codepipeline", "codebuild"],
-    estimated_cost="$0-5/month"
+    common_mistakes=[
+        "Not using blue/green deployments (downtime during deploys)",
+        "Not setting up CloudWatch alarms for deployment monitoring",
+        "Not tagging Docker images with commit SHA (can't track what's deployed)",
+        "Deploying directly to production without staging environment",
+        "Not implementing rollback strategy (stuck with broken deployment)",
+    ],
 )
 
 CICD_LAMBDA_DEPLOYMENT = ArchitectureDecision(
-    name="CI/CD for Lambda Functions",
-    context="""
-    Need to deploy Lambda functions with:
-    - Automated testing
-    - Versioning and aliases
-    - Canary deployments
-    - Rollback capability
+    question="How should I deploy Lambda functions?",
+    options=[
+        DecisionOption(
+            name="GitHub Actions + Lambda (Simple)",
+            description="GitHub Actions packages and deploys Lambda functions - fast and free",
+            when_to_use=[
+                "Simple Lambda functions",
+                "Small teams",
+                "Don't need traffic shifting",
+                "Want fast deployments",
+                "Cost-sensitive",
+            ],
+            when_not_to_use=[
+                "Production APIs with significant traffic",
+                "Need canary deployments",
+                "Want automatic rollback on errors",
+            ],
+            pros=[
+                "Simple and fast",
+                "Free (GitHub Actions)",
+                "Quick deployments (seconds)",
+                "Easy rollback (update alias to previous version)",
+            ],
+            cons=[
+                "All-at-once deployment (no traffic shifting)",
+                "Manual rollback (not automatic)",
+                "No gradual rollout",
+            ],
+            monthly_cost_range=(0.0, 0.0),
+            cost_drivers=[
+                "GitHub Actions: $0/month (free tier)",
+                "Lambda: No deployment cost",
+            ],
+            soc2_controls=["CC8.1", "CC5.3"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="SAM + CodePipeline + CodeDeploy (Advanced)",
+            description="AWS SAM with CodeDeploy for gradual traffic shifting and automatic rollback",
+            when_to_use=[
+                "Production Lambda APIs",
+                "Need canary deployments (10% → 100%)",
+                "Want automatic rollback on errors",
+                "Using Infrastructure as Code (SAM/CloudFormation)",
+            ],
+            when_not_to_use=[
+                "Simple Lambda functions (overkill)",
+                "Development/staging only",
+                "Don't need gradual rollout",
+            ],
+            pros=[
+                "Gradual traffic shifting (canary, linear)",
+                "Automatic rollback on CloudWatch alarms",
+                "Infrastructure as Code (SAM templates)",
+                "Pre and post-traffic hooks for validation",
+            ],
+            cons=[
+                "More complex setup",
+                "Slower deployments (10-30 minutes for gradual shift)",
+                "Costs $1-5/month (CodePipeline)",
+            ],
+            monthly_cost_range=(1.0, 5.0),
+            cost_drivers=[
+                "CodePipeline: $1/pipeline/month",
+                "CodeBuild: $0-2/month",
+                "CodeDeploy: Free",
+                "Example: $3/month",
+            ],
+            soc2_controls=["CC8.1", "CC5.3", "CC4.1"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF production_api AND traffic_volume > 10K_requests_per_day:
+        → SAM + CodePipeline (canary, auto-rollback)
+
+    ELSE:
+        → GitHub Actions (simple, fast, free)
+
+    **Deployment Strategies:**
+    - GitHub Actions: All-at-once (instant switch)
+    - SAM + CodeDeploy:
+      * Canary10Percent30Minutes (10% for 30 min, then 100%)
+      * Linear10PercentEvery10Minutes (gradual 10-minute increments)
+      * AllAtOnce (instant, but with hooks)
+
+    **Cost Comparison:**
+    - GitHub Actions: $0/month
+    - SAM + CodePipeline: $3/month
+
+    **Recommendation:** Use GitHub Actions for most Lambda functions. Add SAM + CodeDeploy for production APIs that need safe, gradual rollouts.
     """,
-    options={
-        "GitHub Actions + Lambda (Simple)": """
-        **Architecture:**
-        - GitHub repository
-        - GitHub Actions workflow
-        - AWS Lambda
-        - Lambda versions + aliases
+    soc2_relevance="""
+    Lambda deployments must be controlled:
 
-        **Workflow:**
-        1. Push to main
-        2. Run unit tests
-        3. Package Lambda code (zip)
-        4. Update Lambda function code
-        5. Publish new version
-        6. Update alias (prod → v123)
-        7. Run smoke tests
+    **CC8.1 (Change Management):** Automated deployments with testing
+    **CC5.3 (Policies):** Canary deployments follow safe rollout procedures
+    **CC4.1 (Ongoing Evaluations):** Automatic rollback validates deployments
 
-        **Cost:** $0/month (GitHub Actions free tier)
-
-        **Pros:**
-        - Simple
-        - Free
-        - Fast deployments
-
-        **Cons:**
-        - No traffic shifting
-        - Manual rollback
-
-        **When to use:** Simple Lambda functions, small teams
-        """,
-
-        "SAM + CodePipeline (Advanced)": """
-        **Architecture:**
-        - SAM template (Infrastructure as Code)
-        - CodePipeline + CodeBuild
-        - CodeDeploy for Lambda (traffic shifting)
-        - CloudWatch alarms (auto-rollback)
-
-        **Features:**
-        - Canary deployments (10% → 100%)
-        - Linear traffic shifting (10% every 10 minutes)
-        - Automatic rollback on alarms
-
-        **Deployment Types:**
-        - Canary10Percent30Minutes
-        - Linear10PercentEvery10Minutes
-        - AllAtOnce
-
-        **Cost:** approx. $1-5/month
-
-        **Pros:**
-        - Advanced traffic shifting
-        - Auto-rollback on errors
-        - Infrastructure as Code
-
-        **Cons:**
-        - More complex
-        - Slower deployments
-
-        **When to use:** Production Lambda APIs, need gradual rollout
-        """
-    },
-    recommendation="GitHub Actions for simple, SAM + CodePipeline for production",
-    tradeoffs="""
-    **Simple vs Advanced Lambda Deployment:**
-    - GitHub Actions: Fast, free, all-at-once deploy
-    - SAM + CodePipeline: Gradual, safe, auto-rollback, $1-5/mo
-
-    **When to use advanced:**
-    - Production APIs with traffic
-    - Need canary deployments
-    - Want automatic rollback
+    SAM + CodeDeploy provides stronger change management controls.
     """,
-    related_controls=["CC8.1", "CC5.3"],
-    aws_services=["lambda", "codepipeline", "codedeploy", "cloudwatch", "sam"],
-    estimated_cost="$0-5/month"
+    common_mistakes=[
+        "Not using Lambda versions and aliases (can't rollback)",
+        "Deploying all traffic at once to production (risky)",
+        "Not setting up CloudWatch alarms for error rates",
+        "Not testing Lambda functions before deployment",
+        "Forgetting to run smoke tests after deployment",
+    ],
 )
 
 CICD_COMPLETE = ArchitectureDecision(
-    name="Complete Production CI/CD Pipeline",
-    context="""
-    Production CI/CD with all best practices:
-    - Automated testing (unit, integration, security)
-    - Multi-environment (dev, staging, prod)
-    - Manual approval gates
-    - Blue/green or canary deployments
-    - Automated rollback
-    - Security scanning
-    - Audit trail
-    - SOC 2 compliant
+    question="What does a complete production CI/CD pipeline look like?",
+    options=[
+        DecisionOption(
+            name="Full Production CI/CD Pipeline (Recommended)",
+            description="Complete pipeline with automated testing, security scanning, approval gates, and safe deployments",
+            when_to_use=[
+                "All production applications",
+                "SOC 2 compliance required",
+                "Customer-facing services",
+                "Want enterprise-grade deployments",
+            ],
+            when_not_to_use=[
+                "Proof of concept",
+                "Internal tools without security requirements",
+                "Simple scripts or utilities",
+            ],
+            pros=[
+                "Production-ready out of the box",
+                "SOC 2 compliant",
+                "Automated security scanning",
+                "Safe deployments with rollback",
+                "Complete audit trail",
+                "Low cost ($5-20/month)",
+            ],
+            cons=[
+                "More complex than simple deployments",
+                "Requires discipline (don't skip approvals)",
+                "Slower deployments (security scans + approvals)",
+            ],
+            monthly_cost_range=(5.0, 20.0),
+            cost_drivers=[
+                "GitHub Actions: $0-10/month (free tier usually sufficient)",
+                "ECR: $5/month (container image storage)",
+                "CodeDeploy: Free",
+                "S3: $1/month (artifacts)",
+                "CloudWatch: $3/month (logs and alarms)",
+                "Example: $9/month for complete pipeline",
+            ],
+            soc2_controls=["CC8.1", "CC5.3", "PI1.4", "CC4.1", "CC6.8"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Complete Pipeline Components:**
+
+    **1. Source Control (GitHub):**
+    - Main branch protected (no direct commits)
+    - Required PR reviews (1-2 approvers)
+    - Status checks must pass
+    - Signed commits enforced
+
+    **2. CI Pipeline (GitHub Actions):**
+
+    **Linting:**
+    - ESLint, Pylint, Terraform fmt
+    - Enforce code style
+
+    **Unit Tests:**
+    - Jest, pytest, Go test
+    - Minimum 80% code coverage
+
+    **Security Scanning:**
+    - Dependency scanning (Dependabot, Snyk)
+    - Secret scanning (GitHub native)
+    - SAST (Semgrep, SonarCloud)
+    - Container scanning (Trivy, ECR scanning)
+    - Infrastructure scanning (Checkov for Terraform)
+
+    **Build:**
+    - Docker image or Lambda package
+    - Tag with commit SHA
+    - Push to ECR or S3
+
+    **Integration Tests:**
+    - Test against staging environment
+    - API tests, end-to-end tests
+
+    **3. CD Pipeline (Multi-Environment):**
+
+    **Dev Environment:**
+    - Auto-deploy on merge to main
+    - No approval needed
+    - All-at-once deployment
+    - Smoke tests after deploy
+
+    **Staging Environment:**
+    - Auto-deploy after successful dev
+    - Full integration test suite
+    - Load testing (optional)
+
+    **Production Environment:**
+    - Manual approval required (security/QA team)
+    - Canary deployment:
+      * 10% traffic for 10 minutes
+      * 50% traffic for 10 minutes
+      * 100% traffic
+    - CloudWatch alarms monitoring:
+      * Error rate > 1%
+      * Latency p99 > 1 second
+      * Custom business metrics
+    - Automatic rollback on alarm
+    - Post-deployment smoke tests
+
+    **4. Deployment Strategies:**
+    - **ECS Fargate:** Blue/green via ECS deployment controller
+    - **Lambda:** CodeDeploy canary (SAM)
+    - **Static sites:** S3 + CloudFront invalidation
+
+    **5. Security:**
+    - OIDC to AWS (no long-lived credentials)
+    - IAM roles per environment (deploy-dev, deploy-staging, deploy-prod)
+    - Secrets in GitHub Secrets + AWS Secrets Manager
+    - Least privilege IAM policies
+    - Audit log in GitHub + CloudTrail
+
+    **6. Monitoring & Notifications:**
+    - CloudWatch dashboards per environment
+    - Deployment success/failure metrics
+    - Build duration tracking
+    - SNS notifications to Slack:
+      * Build failures
+      * Deployment started/completed/failed
+      * Rollback triggered
+      * Security vulnerabilities found
+
+    **Cost:** $5-20/month for complete production pipeline
     """,
-    options={
-        "Full Stack CI/CD (Recommended)": """
-        **Complete Architecture:**
+    soc2_relevance="""
+    This pipeline addresses all critical SOC 2 change management controls:
 
-        **Source Control:**
-        - GitHub repository (main branch protected)
-        - Branch protection rules
-        - Required PR reviews
-        - Status checks must pass
+    **CC8.1 (Change Management):**
+    - All changes go through automated pipeline
+    - Testing ensures changes don't break system
+    - Approval gates enforce authorization
+    - Audit trail tracks all deployments
 
-        **CI Pipeline (GitHub Actions):**
-        1. **Linting:** ESLint, Pylint, Terraform fmt
-        2. **Unit Tests:** Jest, pytest, Go test
-        3. **Security Scanning:**
-           - Dependency scanning (Dependabot)
-           - Secret scanning (GitHub native)
-           - SAST (Semgrep, SonarCloud)
-           - Container scanning (Trivy)
-        4. **Build:** Docker image or Lambda zip
-        5. **Integration Tests:** Against test environment
+    **CC5.3 (Policies and Procedures):**
+    - Pipeline enforces documented procedures
+    - Infrastructure as Code (IaC)
+    - Automated, repeatable deployments
 
-        **CD Pipeline:**
+    **PI1.4 (Authorization):**
+    - Manual approvals for production changes
+    - IAM roles enforce least privilege
+    - Signed commits enforce identity
 
-        **Dev Environment (Auto-Deploy):**
-        - Deploys on merge to main
-        - No approval needed
-        - All-at-once deployment
-        - Smoke tests after deploy
+    **CC4.1 (Ongoing Evaluations):**
+    - Automated tests continuously validate quality
+    - Security scans detect vulnerabilities
+    - Integration tests validate system health
 
-        **Staging Environment (Auto-Deploy):**
-        - Deploys after successful dev
-        - Runs full integration test suite
-        - Load testing (optional)
+    **CC6.8 (Malware Protection):**
+    - Dependency scanning detects vulnerable libraries
+    - Container scanning detects malicious images
+    - SAST detects code vulnerabilities
 
-        **Production Environment (Manual Approval + Canary):**
-        - Manual approval required (security/QA)
-        - Canary deployment (10% → 50% → 100%)
-        - CloudWatch alarms monitoring:
-          * Error rate
-          * Latency p99
-          * Custom metrics
-        - Automatic rollback on alarm
-        - Post-deployment smoke tests
-
-        **Deployment Strategies by Service:**
-        - **ECS Fargate:** Blue/green via ECS deployment controller
-        - **Lambda:** CodeDeploy canary (SAM)
-        - **Static site:** S3 + CloudFront invalidation
-
-        **Security:**
-        - OIDC to AWS (no long-lived credentials)
-        - IAM roles per environment
-        - Secrets in GitHub Secrets + AWS Secrets Manager
-        - Signed commits required
-        - Audit log in GitHub + CloudTrail
-
-        **Monitoring:**
-        - CloudWatch dashboards per environment
-        - Deployment success/failure metrics
-        - Build duration tracking
-        - SNS notifications to Slack:
-          * Build failures
-          * Deployment started/completed
-          * Rollback triggered
-
-        **SOC 2 Controls Addressed:**
-        - CC8.1: Change management (automated pipeline, approval gates)
-        - CC5.3: Policies and procedures (IaC, documented pipeline)
-        - PI1.4: Authorization (manual approvals, IAM roles)
-        - CC4.1: Ongoing evaluations (automated tests)
-        - CC6.8: Malware protection (security scanning)
-
-        **Cost Breakdown:** approx. $5-20/month
-        - GitHub Actions: $0-10/month (free tier usually sufficient)
-        - ECR: $5/month (container storage)
-        - CodeDeploy: Free
-        - S3: $1/month (artifacts)
-        - CloudWatch: $3/month (logs, alarms)
-
-        **Terraform Modules Needed:**
-        - IAM OIDC provider for GitHub
-        - IAM roles per environment (deploy-dev, deploy-prod)
-        - ECR repository with lifecycle policies
-        - CodeDeploy application (for Lambda canary)
-        - CloudWatch alarms (for rollback)
-        - SNS topics (notifications)
-        - S3 bucket (artifacts, encrypted)
-
-        **Pros:**
-        - Production-ready
-        - SOC 2 compliant
-        - Automated security scanning
-        - Safe deployments (canary)
-        - Audit trail
-        - Low cost
-
-        **Cons:**
-        - Requires discipline (don't skip approvals)
-
-        **When to use:** All production applications
-        """
-    },
-    recommendation="Full stack with automated testing, security scanning, and canary deployments",
-    tradeoffs="No tradeoffs - this is the complete, production-ready setup",
-    related_controls=["CC8.1", "CC5.3", "PI1.4", "CC4.1", "CC6.8"],
-    aws_services=["iam", "ecr", "ecs", "lambda", "codedeploy", "cloudwatch", "sns", "s3"],
-    estimated_cost="$5-20/month"
+    This is the gold standard for SOC 2 compliant CI/CD.
+    """,
+    common_mistakes=[
+        "Skipping security scanning (missing vulnerabilities in production)",
+        "No approval gates for production (unauthorized changes)",
+        "All-at-once production deploys (risky, no gradual rollout)",
+        "Not setting up automatic rollback (stuck with broken deployment)",
+        "Storing AWS credentials in GitHub Secrets (use OIDC)",
+        "No branch protection (allow direct commits to main)",
+        "Skipping integration tests (unit tests don't catch everything)",
+        "No monitoring/alerting (don't know when deployments fail)",
+    ],
 )
 
 # Export patterns
 PATTERNS = [
     CICD_GITHUB_ACTIONS,
-    CICD_CODEPIPELINE,
     CICD_ECS_DEPLOYMENT,
     CICD_LAMBDA_DEPLOYMENT,
     CICD_COMPLETE
