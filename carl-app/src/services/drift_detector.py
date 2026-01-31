@@ -322,6 +322,17 @@ class DriftDetector:
         resource_type = ev_dict.get('resource_type', '')
         content = ev_dict.get('content', {})
 
+        # Skip account-level findings from Security Hub (no actual resource to fix)
+        # Example: "AutoScaling.X" control when there are zero ASGs in account
+        if resource_type == 'security_hub' and ('AWS::::Account:' in resource_id or 'config-rule' in resource_id):
+            logger.debug(f"Skipping account-level Security Hub finding: {title}")
+            return None
+
+        # Skip Config rules themselves - these are checks, not actual resources to fix
+        if resource_type == 'config_rule':
+            logger.debug(f"Skipping Config rule (not an actual resource): {title}")
+            return None
+
         # Check for issues in title/description (evidence_collector flags issues)
         issue_indicators = [
             'NOT ENABLED', 'NOT CONFIGURED', 'not enabled', 'not configured',

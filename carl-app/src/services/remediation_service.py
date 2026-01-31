@@ -482,7 +482,8 @@ resource "aws_db_instance" "{db_instance.replace('-', '_')}" {{
             )
 
         # Auto Scaling Group - Public IP
-        elif 'autoscaling' in resource_type.lower() or 'auto scaling' in title.lower():
+        # Only match actual ASG resources, not Config rules that check ASGs
+        elif 'autoscaling' in resource_type.lower() and 'config' not in resource_type.lower():
             if 'public ip' in description.lower() or 'public ip' in title.lower():
                 asg_name = resource_id.split('/')[-1] if '/' in resource_id else resource_id
                 return RemediationGuidance(
