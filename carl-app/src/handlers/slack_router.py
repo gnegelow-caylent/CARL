@@ -2585,12 +2585,54 @@ def handle_patterns_command(
 ) -> dict:
     """Handle /carl patterns command - view architecture patterns with pros/cons."""
     from knowledge.architecture_patterns import get_pattern_by_category, get_all_patterns
+    from knowledge.vpc_patterns import get_vpc_patterns
+    from knowledge.identity_patterns import get_identity_patterns
+    from knowledge.security_tooling_patterns import get_security_tooling_patterns
+    from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
+    from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
+    from knowledge.container_patterns import PATTERNS as CONTAINER_PATTERNS
+    from knowledge.cicd_patterns import PATTERNS as CICD_PATTERNS
 
     category = args.strip().lower() if args else ""
 
     if not category:
         # List all pattern categories with better formatting
-        patterns = get_all_patterns()
+        # Combine all patterns from all modules
+        patterns = {}
+
+        # Networking patterns
+        patterns.update(get_all_patterns())
+
+        # VPC patterns
+        vpc_patterns = get_vpc_patterns()
+        for i, pattern in enumerate(vpc_patterns):
+            patterns[f"vpc_{i}"] = pattern
+
+        # Identity patterns
+        identity_patterns = get_identity_patterns()
+        for i, pattern in enumerate(identity_patterns):
+            patterns[f"identity_{i}"] = pattern
+
+        # Security patterns
+        security_patterns = get_security_tooling_patterns()
+        for i, pattern in enumerate(security_patterns):
+            patterns[f"security_{i}"] = pattern
+
+        # ETL patterns
+        for i, pattern in enumerate(ETL_PATTERNS):
+            patterns[f"etl_{i}"] = pattern
+
+        # Serverless patterns
+        for i, pattern in enumerate(SERVERLESS_PATTERNS):
+            patterns[f"serverless_{i}"] = pattern
+
+        # Container patterns
+        for i, pattern in enumerate(CONTAINER_PATTERNS):
+            patterns[f"container_{i}"] = pattern
+
+        # CI/CD patterns
+        for i, pattern in enumerate(CICD_PATTERNS):
+            patterns[f"cicd_{i}"] = pattern
 
         blocks = [
             {
@@ -2613,27 +2655,39 @@ def handle_patterns_command(
         # Group patterns by theme
         networking_patterns = []
         security_patterns = []
-        other_patterns = []
+        compute_patterns = []
+        data_patterns = []
+        cicd_patterns_list = []
 
         for cat, p in patterns.items():
-            emoji = "🌐" if cat in ["egress", "ingress", "transit", "dns", "inspection"] else \
-                    "🔒" if cat in ["landing_zone", "client_vpn", "site_to_site_vpn"] else "📊"
-
-            pattern_line = f"{emoji} *`{cat}`*\n_{p.question}_"
-
-            if cat in ["egress", "ingress", "transit", "dns", "inspection"]:
+            # Determine category and emoji based on pattern type
+            if cat in ["egress", "ingress", "transit", "dns", "inspection"] or cat.startswith("vpc_"):
+                emoji = "🌐"
+                pattern_line = f"{emoji} *{p.question.split('?')[0]}?*"
                 networking_patterns.append(pattern_line)
-            elif cat in ["landing_zone", "client_vpn", "site_to_site_vpn"]:
+            elif cat in ["landing_zone", "client_vpn", "site_to_site_vpn"] or cat.startswith("security_") or cat.startswith("identity_"):
+                emoji = "🔒"
+                pattern_line = f"{emoji} *{p.question.split('?')[0]}?*"
                 security_patterns.append(pattern_line)
-            else:
-                other_patterns.append(pattern_line)
+            elif cat.startswith("serverless_") or cat.startswith("container_"):
+                emoji = "⚡" if cat.startswith("serverless_") else "📦"
+                pattern_line = f"{emoji} *{p.question.split('?')[0]}?*"
+                compute_patterns.append(pattern_line)
+            elif cat.startswith("etl_"):
+                emoji = "🔄"
+                pattern_line = f"{emoji} *{p.question.split('?')[0]}?*"
+                data_patterns.append(pattern_line)
+            elif cat.startswith("cicd_"):
+                emoji = "🚀"
+                pattern_line = f"{emoji} *{p.question.split('?')[0]}?*"
+                cicd_patterns_list.append(pattern_line)
 
         if networking_patterns:
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Networking Patterns:*\n" + "\n\n".join(networking_patterns)
+                    "text": "*🌐 Networking Patterns:*\n" + "\n".join(networking_patterns)
                 }
             })
             blocks.append({"type": "divider"})
@@ -2643,25 +2697,46 @@ def handle_patterns_command(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Security Patterns:*\n" + "\n\n".join(security_patterns)
+                    "text": "*🔒 Security & Identity Patterns:*\n" + "\n".join(security_patterns)
                 }
             })
             blocks.append({"type": "divider"})
 
-        if other_patterns:
+        if compute_patterns:
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Other Patterns:*\n" + "\n\n".join(other_patterns)
+                    "text": "*⚡ Compute Patterns (Serverless & Containers):*\n" + "\n".join(compute_patterns)
+                }
+            })
+            blocks.append({"type": "divider"})
+
+        if data_patterns:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*🔄 Data Processing Patterns (ETL):*\n" + "\n".join(data_patterns)
+                }
+            })
+            blocks.append({"type": "divider"})
+
+        if cicd_patterns_list:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*🚀 CI/CD Patterns:*\n" + "\n".join(cicd_patterns_list)
                 }
             })
 
+        blocks.append({"type": "divider"})
         blocks.append({
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": "💡 Use `/carl patterns <category>` to see detailed comparisons"
+                "text": f"💡 Showing {len(patterns)} architecture patterns | Use `/carl recommend <requirement>` for personalized recommendations"
             }]
         })
 
