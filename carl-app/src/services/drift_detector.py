@@ -985,7 +985,8 @@ class DriftDetector:
                 "text": {"type": "mrkdwn", "text": "*🔴 Critical Drift Items:*"}
             })
 
-            for drift_id in report.critical_drifts[:5]:
+            # Show ALL critical drift items (removed [:5] limit)
+            for drift_id in report.critical_drifts:
                 item = next((d for d in report.drift_items if d.drift_id == drift_id), None)
                 if item:
                     # Drift item section
@@ -1027,12 +1028,6 @@ class DriftDetector:
                     })
 
                     blocks.append({"type": "divider"})
-
-            if len(report.critical_drifts) > 5:
-                blocks.append({
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": f"_...and {len(report.critical_drifts) - 5} more critical items. Run `/carl drift status` to see all._"}]
-                })
 
         blocks.append({
             "type": "context",
