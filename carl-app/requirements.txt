@@ -24,6 +24,9 @@ tenacity>=8.2.0  # Retry logic
 # JSON handling
 orjson>=3.9.0  # Faster JSON
 
+# YAML parsing (for compliance frameworks)
+PyYAML>=6.0.1
+
 # Report generation - Professional PDFs
 # NOTE: These dependencies work with Lambda Container Images (Docker)
 weasyprint>=60.0  # HTML to PDF conversion
