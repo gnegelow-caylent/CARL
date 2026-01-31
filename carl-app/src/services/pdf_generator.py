@@ -485,16 +485,23 @@ class PDFReportGenerator:
     def _generate_recommendations_section(self, report_data: dict) -> str:
         """Generate AI recommendations section if available."""
         recommendations = report_data.get('ai_recommendations', '')
+        insights = report_data.get('ai_insights', '')
+        is_executive = report_data.get('is_executive', False)
 
         if not recommendations or len(recommendations.strip()) < 20:
             return ""
+
+        # Only add page break if insights section didn't already add one
+        # Insights is only shown in full reports (not executive)
+        has_insights = not is_executive and insights and len(insights.strip()) >= 20
+        page_break = "" if has_insights else '<div class="page-break"></div>'
 
         # Format recommendations with proper HTML
         # Replace line breaks with <br> and wrap in styled div
         formatted_recs = recommendations.replace('\n', '<br>')
 
         return f"""
-    <div class="page-break"></div>
+    {page_break}
     <h2>Priority Remediation Recommendations</h2>
     <div class="executive-summary">
         <p style="white-space: pre-wrap;">{formatted_recs}</p>
@@ -511,7 +518,10 @@ class PDFReportGenerator:
 
         # Controls section (only for full audit report)
         if show_controls and 'controls' in report_data and report_data['controls']:
-            sections.append('<div class="page-break"></div>')
+            # Only add page break if we don't have insights or recommendations before this
+            # (they already added appropriate page breaks)
+            if not (has_insights or has_recommendations):
+                sections.append('<div class="page-break"></div>')
             sections.append('<h2>Control Assessment</h2>')
             sections.append('<table>')
             sections.append('<thead><tr><th>Control ID</th><th>Control Name</th><th>Status</th><th>Evidence</th><th>Findings</th></tr></thead>')
