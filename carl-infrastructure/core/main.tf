@@ -1153,14 +1153,14 @@ module "realtime_monitor" {
   source = "../modules/realtime-monitor"
   count  = var.enable_realtime_monitor ? 1 : 0
 
-  project_name               = "carl"
-  environment                = var.environment
-  aws_region                 = var.region
-  lambda_zip_path            = local.lambda_zip_path
-  slack_bot_token_ssm_path   = "/${var.environment}/carl/slack/bot-token"
+  project_name                  = "carl"
+  environment                   = var.environment
+  aws_region                    = var.region
+  lambda_zip_path               = local.lambda_zip_path
+  slack_bot_token_ssm_path      = "/${var.environment}/carl/slack/bot-token"
   slack_signing_secret_ssm_path = "/${var.environment}/carl/slack/signing-secret"
-  security_alert_channel     = "#carl-security-alerts"
-  log_retention_days         = 30
+  security_alert_channel        = "#carl-security-alerts"
+  log_retention_days            = 30
 
   tags = merge(var.tags, {
     Feature = "realtime_security_monitor"
