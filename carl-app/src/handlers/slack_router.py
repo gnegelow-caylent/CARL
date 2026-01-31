@@ -1906,6 +1906,105 @@ def handle_architecture_question(
     return handle_recommend_command_sync(slack, channel_id, user_id, question)
 
 
+def _evidence_to_context_summary(evidence_results: dict) -> str:
+    """
+    Convert evidence collection results to human-readable context summary for AI.
+
+    Args:
+        evidence_results: Dict of evidence items by category from EvidenceCollector
+
+    Returns:
+        Human-readable summary string for AI context
+    """
+    summary = "AWS ENVIRONMENT SCAN RESULTS\n\n"
+
+    # Count total resources
+    total_resources = sum(len(items) for items in evidence_results.values())
+    summary += f"Total Resources Scanned: {total_resources} across {len(evidence_results)} service categories\n\n"
+
+    # IAM
+    if 'iam' in evidence_results and evidence_results['iam']:
+        iam_items = evidence_results['iam']
+        user_count = sum(1 for e in iam_items if 'iam_user' in getattr(e, 'resource_type', ''))
+        role_count = sum(1 for e in iam_items if 'iam_role' in getattr(e, 'resource_type', ''))
+        summary += f"IAM: {user_count} users, {role_count} roles\n"
+
+    # S3
+    if 's3' in evidence_results and evidence_results['s3']:
+        s3_items = evidence_results['s3']
+        summary += f"S3: {len(s3_items)} buckets\n"
+
+    # EC2
+    if 'ec2' in evidence_results and evidence_results['ec2']:
+        ec2_items = evidence_results['ec2']
+        summary += f"EC2: {len(ec2_items)} instances\n"
+
+    # RDS
+    if 'rds' in evidence_results and evidence_results['rds']:
+        rds_items = evidence_results['rds']
+        summary += f"RDS: {len(rds_items)} database instances\n"
+
+    # Lambda
+    if 'lambda' in evidence_results and evidence_results['lambda']:
+        lambda_items = evidence_results['lambda']
+        summary += f"Lambda: {len(lambda_items)} functions\n"
+
+    # VPC
+    if 'vpc' in evidence_results and evidence_results['vpc']:
+        vpc_items = evidence_results['vpc']
+        summary += f"VPC/Networking: {len(vpc_items)} resources\n"
+
+    # Security Services
+    security_services = []
+    if 'guardduty' in evidence_results and evidence_results['guardduty']:
+        security_services.append(f"GuardDuty ({len(evidence_results['guardduty'])} items)")
+    if 'security_hub' in evidence_results and evidence_results['security_hub']:
+        security_services.append(f"Security Hub ({len(evidence_results['security_hub'])} items)")
+    if 'inspector' in evidence_results and evidence_results['inspector']:
+        security_services.append(f"Inspector ({len(evidence_results['inspector'])} items)")
+    if 'macie' in evidence_results and evidence_results['macie']:
+        security_services.append(f"Macie ({len(evidence_results['macie'])} items)")
+
+    if security_services:
+        summary += f"Security Services: {', '.join(security_services)}\n"
+
+    # CloudTrail
+    if 'cloudtrail' in evidence_results and evidence_results['cloudtrail']:
+        summary += f"CloudTrail: {len(evidence_results['cloudtrail'])} trails\n"
+
+    # Config
+    if 'config' in evidence_results and evidence_results['config']:
+        summary += f"AWS Config: {len(evidence_results['config'])} recorders/rules\n"
+
+    # KMS
+    if 'kms' in evidence_results and evidence_results['kms']:
+        summary += f"KMS: {len(evidence_results['kms'])} customer-managed keys\n"
+
+    # Secrets Manager
+    if 'secrets_manager' in evidence_results and evidence_results['secrets_manager']:
+        summary += f"Secrets Manager: {len(evidence_results['secrets_manager'])} secrets\n"
+
+    # DynamoDB
+    if 'dynamodb' in evidence_results and evidence_results['dynamodb']:
+        summary += f"DynamoDB: {len(evidence_results['dynamodb'])} tables\n"
+
+    # ECS
+    if 'ecs' in evidence_results and evidence_results['ecs']:
+        summary += f"ECS: {len(evidence_results['ecs'])} clusters/services\n"
+
+    # EKS
+    if 'eks' in evidence_results and evidence_results['eks']:
+        summary += f"EKS: {len(evidence_results['eks'])} clusters\n"
+
+    # CloudWatch
+    if 'cloudwatch' in evidence_results and evidence_results['cloudwatch']:
+        summary += f"CloudWatch: {len(evidence_results['cloudwatch'])} log groups/alarms\n"
+
+    summary += "\nNOTE: Use this environment data to answer the user's question with specific details about their AWS resources.\n"
+
+    return summary
+
+
 def handle_ask_command_fallback(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
@@ -1944,21 +2043,29 @@ def handle_ask_command_fallback(
 
     context = ""
 
-    # Use comprehensive AWS environment scanner
+    # Use comprehensive evidence collector (scans 50+ AWS services)
     try:
-        # Perform comprehensive AWS environment scan
-        from services.aws_environment_scanner import AWSEnvironmentScanner
-
-        logger.info("🔍 Performing comprehensive AWS environment scan...")
+        logger.info("🔍 Performing comprehensive AWS environment scan across 50+ services...")
         slack.post_message(channel_id, text="🔍 Scanning your AWS environment to answer your question...")
 
-        scanner = AWSEnvironmentScanner(region="us-east-1")
-        scan_result = scanner.scan()
-        environment_summary = scan_result.to_context_summary()
+        # Initialize evidence collector
+        evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-dev-evidence")
+        evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-dev-evidence")
 
-        logger.info(f"✅ Scan complete: {len(scan_result.networking.vpcs)} VPCs, "
-                   f"{len(scan_result.databases.rds_instances)} RDS, "
-                   f"{len(scan_result.compute.ec2_instances)} EC2")
+        collector = EvidenceCollector(
+            evidence_bucket=evidence_bucket,
+            evidence_table=evidence_table
+        )
+
+        # Collect comprehensive evidence across all AWS services
+        evidence_results = collector.collect_all_evidence()
+
+        # Convert evidence to context summary for AI
+        environment_summary = _evidence_to_context_summary(evidence_results)
+
+        # Count resources for logging
+        total_resources = sum(len(items) for items in evidence_results.values())
+        logger.info(f"✅ Scan complete: {total_resources} resources across {len(evidence_results)} service categories")
 
         # Initialize learning service
         scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
@@ -1979,16 +2086,16 @@ def handle_ask_command_fallback(
         if learned_context:
             context += f"\n\n{learned_context}"
 
-        # Track scans performed
-        scans_performed = ["comprehensive_aws_scan"]
+        # Track scans performed (all service categories)
+        scans_performed = list(evidence_results.keys())
 
-        # Track resources found
-        for vpc in scan_result.networking.vpcs:
-            resources_found.append({"type": "vpc", "id": vpc.vpc_id})
-        for db in scan_result.databases.rds_instances:
-            resources_found.append({"type": "rds", "id": db['identifier']})
-        for instance in scan_result.compute.ec2_instances:
-            resources_found.append({"type": "ec2", "id": instance['instance_id']})
+        # Track resources found from evidence
+        for category, evidence_items in evidence_results.items():
+            for evidence in evidence_items:
+                resources_found.append({
+                    "type": evidence.resource_type if hasattr(evidence, 'resource_type') else category,
+                    "id": evidence.resource_id if hasattr(evidence, 'resource_id') else "unknown"
+                })
 
     except Exception as e:
         logger.error(f"Comprehensive AWS scanning failed: {e}", exc_info=True)
