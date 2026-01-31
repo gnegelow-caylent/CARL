@@ -581,6 +581,18 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
         Resource = [
           "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter/${var.environment}/${var.project_name}/*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketTagging",
+          "s3:GetBucketLogging",
+          "s3:GetBucketPolicy"
+        ]
+        Resource = ["*"]
       }
     ]
   })
