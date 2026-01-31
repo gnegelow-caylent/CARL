@@ -17,7 +17,11 @@ Analyze evidence for security issues
     ↓
 Create Finding objects (stable IDs)
     ↓
-Store findings in DynamoDB (FINDINGS table)
+Store NEW findings in DynamoDB (FINDINGS table)
+    ↓
+Auto-resolve existing findings that no longer have evidence ✨ NEW
+    ↓
+Post completion message: "Created X new, Y existed, Z resolved"
     ↓
 /carl jira sync
     ↓
@@ -139,6 +143,52 @@ Security Group: sg-4e5f6g7h (allows 0.0.0.0/0:3389) → Finding: finding-mno345
 - GuardDuty not enabled
 - CloudTrail not configured properly
 - AWS Config not enabled
+
+### Auto-Resolution of Fixed Findings ✅
+
+**New Feature:** Findings automatically transition to REMEDIATED status when evidence shows the issue is fixed.
+
+**How It Works:**
+1. Evidence collection runs and analyzes current AWS state
+2. Tracks which finding IDs SHOULD exist based on current evidence
+3. Scans existing findings in DynamoDB (source=CONFIG)
+4. For each existing finding:
+   - If finding ID not in current evidence → Issue is fixed
+   - If status != REMEDIATED → Mark as REMEDIATED
+   - Set remediated_at timestamp
+   - Log: "Resolved finding {id}: {title} (issue fixed)"
+
+**Example:**
+```
+Initial State (Jan 30):
+- S3 Bucket: aws-config-403802364021-us-east-1
+  ❌ Encryption status unknown (permission denied)
+  → Finding: finding-d217b7b8863b (status=NEW)
+
+After Fix (Jan 31):
+- Deploy s3:GetEncryptionConfiguration permission
+- Run /carl evidence collect
+- Evidence shows: Encryption = AES256 ✅
+- No finding created (bucket is compliant)
+- Auto-resolve detects finding-d217b7b8863b no longer needed
+- Update finding: status=REMEDIATED, remediated_at=2026-01-31T16:00:00Z
+
+Result:
+✓ Created 0 new findings, 0 already existed, 1 resolved (issues fixed)
+```
+
+**Benefits:**
+- No manual finding cleanup needed
+- Findings reflect current AWS state automatically
+- Clear audit trail (remediated_at timestamp)
+- Jira tickets can be closed automatically (future enhancement)
+
+**Logging:**
+```
+INFO: Created 0 new findings, 3 already existed, 2 resolved (issues fixed)
+INFO: Resolved finding finding-abc123: S3 Bucket Encryption Status Unknown (issue fixed)
+INFO: Resolved finding finding-def456: IAM Password Policy Not Configured (issue fixed)
+```
 
 ## Jira Sync
 

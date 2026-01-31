@@ -70,6 +70,9 @@ List compliance findings, optionally filtered by severity.
 - Control ID (e.g., CC6.1)
 - Remediation steps
 - "View Details" button for each finding
+- **Refresh reminder**: Suggests running `/carl evidence collect` to update with latest AWS state
+
+**Note:** Findings are based on the most recent evidence collection. Run `/carl evidence collect` to refresh with current AWS configuration.
 
 ---
 
@@ -408,15 +411,22 @@ Collect audit evidence across all AWS resources.
 - Security Hub findings
 - GuardDuty detections
 - IAM configurations
-- Encryption status
+- Encryption status (S3, RDS, EBS)
 - Network configurations
 - Backup status
 
 **Processing:**
-- Async operation (can take 2-5 minutes)
-- Progress updates posted
+- **Async operation** (no timeout, completes in background)
+- Immediate response within 3 seconds
+- Completion messages posted when done (2-5 minutes)
 - Results stored in DynamoDB
 - Mapped to SOC 2 controls
+- **Auto-resolve**: Findings automatically marked as REMEDIATED when evidence shows issues are fixed
+
+**Recent Improvements:**
+- Fixed S3 encryption permission check (s3:GetEncryptionConfiguration)
+- Eliminated timeout errors with instant async invocation
+- Auto-resolution of fixed findings
 
 ---
 
@@ -562,6 +572,31 @@ Generate Terraform to remediate drift.
 
 ---
 
+#### `/carl drift jira-sync`
+Create Jira tickets for drift items.
+
+**Features:**
+- **Duplicate Prevention**: Checks for existing tickets before creating
+- Verifies tickets still exist in Jira (handles deleted tickets)
+- Skips acknowledged or remediated drift
+- Only tickets security-relevant or high/critical drift
+- Async processing (no timeout)
+- Progress updates every 5 items
+
+**Response Format:**
+- Synced count (new tickets created)
+- Skipped count (tickets already exist)
+- Recreated count (tickets were deleted in Jira)
+- Failed count
+
+**Use Cases:**
+- Track drift remediation in Jira
+- Assign drift fixes to team members
+- Report on configuration drift trends
+- Integrate drift detection with project management
+
+---
+
 ## Interactive Features
 
 ### 1. Configuration Modals
@@ -658,6 +693,81 @@ CARL uses Slack's Block Kit for rich formatting:
 ---
 
 ## Recent Improvements
+
+### January 31, 2026 - Evidence Collection & Drift Management
+
+#### 1. Fixed Evidence Collection Timeout ✅
+**Problem:** `/carl evidence collect` showed "operation_timeout" error despite completing successfully.
+
+**Solution:** Invoke async Lambda IMMEDIATELY without EvidenceCollector initialization:
+- Responds within 3 seconds (before Slack timeout)
+- Heavy boto3 client initialization happens in background
+- Completion messages posted when done
+
+**Result:** No more timeout errors, clear completion feedback
+
+---
+
+#### 2. Auto-Resolve Findings 🎯
+**Problem:** Findings stayed "NEW" even after issues were fixed (e.g., S3 encryption enabled).
+
+**Solution:** Auto-resolution logic in evidence collector:
+- Tracks which findings SHOULD exist based on current evidence
+- Scans existing findings in DynamoDB
+- Marks findings as REMEDIATED when evidence shows issue is fixed
+- Logs: "Resolved finding {id}: {title} (issue fixed)"
+
+**Result:** Findings automatically update to reflect current AWS state
+
+---
+
+#### 3. S3 Encryption Permission Fix 🔐
+**Problem:** Evidence collection showed S3 encryption as "ERROR" (AccessDenied).
+
+**Root Cause:**
+- Boto3 method: `get_bucket_encryption()`
+- IAM action required: `s3:GetEncryptionConfiguration` (AWS named them differently!)
+- Lambda role had wrong action: `s3:GetBucketEncryption`
+
+**Solution:** Fixed IAM policy to use correct action name
+
+**Result:** S3 encryption status now detected correctly
+
+---
+
+#### 4. Drift Detection Jira Integration 🎫
+**New Feature:** `/carl drift jira-sync` command
+
+**Capabilities:**
+- Creates Jira tickets for drift items
+- **Duplicate prevention**: Checks DynamoDB for existing ticket IDs
+- Verifies tickets still exist in Jira (handles deleted tickets)
+- Only tickets security-relevant or high/critical drift
+- Async processing with progress updates
+- Reuses same ticket creation engine as findings
+
+**Use Case:** Track configuration drift remediation in Jira project management
+
+---
+
+#### 5. Fixed False Drift Alerts 🚨
+**Problem:** ALL S3 buckets flagged as critical drift, even when fully compliant.
+
+**Root Cause:** Evidence description "S3 bucket security configuration including encryption, **public** access, versioning" contained keyword "public" which triggered drift detector's issue indicator check.
+
+**Solution:** Changed to neutral description: "S3 bucket configuration snapshot for {bucket_name}"
+
+**Result:** Only actual drift (missing encryption, public buckets, etc.) is flagged
+
+---
+
+#### 6. Findings Refresh Reminder 💡
+**Improvement:** `/carl findings` now shows context message:
+- "💡 _To refresh findings with latest AWS state, run `/carl evidence collect`_"
+- Helps users understand findings may be stale
+- `/carl status` already does live scan, so no reminder needed there
+
+---
 
 ### January 2026 Updates
 
