@@ -2209,10 +2209,10 @@ def handle_help_command(
 - `/carl ask <question>` - Ask compliance questions
 
 *Architecture & Build Commands:*
-- `/carl recommend <requirement>` - Get architecture recommendations with cost comparison
-- `/carl build <blueprint>` - Generate compliant Terraform code
+- `/carl recommend <requirement>` - **Smart:** AI analyzes needs, scans environment, recommends with costs
+- `/carl build <blueprint>` - **Quick:** Pick from templates, fill params, generate code & PR instantly
+- `/carl blueprints` - List all quick-build templates
 - `/carl estimate <component>` - Get cost estimates
-- `/carl blueprints` - List available infrastructure blueprints
 
 *Foundation Builder:*
 - `/carl foundation start` - Start guided foundation building wizard
