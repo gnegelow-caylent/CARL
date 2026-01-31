@@ -61,7 +61,13 @@ class RealTimeSecurityMonitor:
     """
 
     def __init__(self):
-        self.slack = SlackService()
+        # Load Slack token from SSM Parameter Store
+        slack_token_path = os.environ.get('SLACK_BOT_TOKEN_SSM_PATH')
+        if not slack_token_path:
+            raise ValueError("SLACK_BOT_TOKEN_SSM_PATH environment variable not set")
+
+        slack_token = get_parameter(slack_token_path)
+        self.slack = SlackService(slack_token)
         self.sns = boto3.client('sns')
         self.alert_topic = os.environ.get('SECURITY_ALERT_TOPIC')
 
