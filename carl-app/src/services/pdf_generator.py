@@ -460,13 +460,11 @@ class PDFReportGenerator:
         """Generate detailed sections for controls, findings, etc."""
         sections = []
         is_executive = report_data.get('is_executive', False)
+        show_controls = report_data.get('show_controls_table', True)
 
-        # Only add page break if we have detailed sections
-        if 'controls' in report_data or 'findings' in report_data:
+        # Controls section (only for full audit report)
+        if show_controls and 'controls' in report_data and report_data['controls']:
             sections.append('<div class="page-break"></div>')
-
-        # Controls section
-        if 'controls' in report_data and report_data['controls']:
             sections.append('<h2>Control Assessment</h2>')
             sections.append('<table>')
             sections.append('<thead><tr><th>Control ID</th><th>Control Name</th><th>Status</th><th>Evidence</th><th>Findings</th></tr></thead>')
@@ -488,14 +486,17 @@ class PDFReportGenerator:
 
         # Findings section
         if 'findings' in report_data and report_data['findings']:
-            # Add page break before findings section (after controls)
-            if 'controls' in report_data and report_data['controls']:
+            # Add page break only if we had controls section before this
+            if show_controls and 'controls' in report_data and report_data['controls']:
+                sections.append('<div class="page-break"></div>')
+            # For executive without controls, still add page break
+            elif is_executive:
                 sections.append('<div class="page-break"></div>')
 
             # Title depends on report type
             if is_executive:
-                sections.append('<h2>Top Findings</h2>')
-                sections.append('<p><em>Showing highest priority findings. See full audit report for complete list.</em></p>')
+                sections.append('<h2>Priority Findings Requiring Attention</h2>')
+                sections.append('<p><em>Showing critical and high severity findings only. Run full audit report for complete details.</em></p>')
             else:
                 sections.append('<h2>Findings Detail</h2>')
 

@@ -903,17 +903,32 @@ requiring attention.
         findings_summary = self._get_findings_summary()
         exceptions_summary = self._get_exceptions_summary()
 
-        # Calculate compliance score
+        # Calculate compliance score (different from coverage)
+        # Coverage = how many controls assessed (12/43 = 28%)
+        # Compliance = how well you're doing on assessed controls
+
         base_coverage = coverage["coverage_percent"]
-        compliance_score = base_coverage
+        controls_assessed = len(coverage["covered"])
 
-        # Apply penalty for critical findings
-        score_penalty_applied = False
-        if findings_summary["critical"] > 0:
-            compliance_score = base_coverage * 0.7  # 30% penalty for critical findings
-            score_penalty_applied = True
+        # Calculate compliance based on findings per control
+        if controls_assessed > 0:
+            # Start with 100%, deduct based on findings severity
+            compliance_score = 100.0
 
-        # Structure data for PDF
+            # Deduct points based on findings
+            compliance_score -= (findings_summary["critical"] * 20)  # -20% per critical
+            compliance_score -= (findings_summary["high"] * 10)      # -10% per high
+            compliance_score -= (findings_summary["medium"] * 5)     # -5% per medium
+            compliance_score -= (findings_summary["low"] * 2)        # -2% per low
+
+            # Floor at 0%
+            compliance_score = max(0, compliance_score)
+        else:
+            compliance_score = 0.0
+
+        score_penalty_applied = findings_summary["total"] > 0
+
+        # Structure data for PDF - EXECUTIVE SUMMARY (high-level only)
         report_data = {
             'report_type': 'SOC 2 Executive Summary',
             'organization': organization_name,
@@ -932,9 +947,13 @@ requiring attention.
                 'medium': findings_summary["medium"],
                 'low': findings_summary["low"]
             },
-            'controls': self._format_controls_for_pdf(coverage, findings_summary),
-            'findings': self._format_findings_for_pdf(findings_summary.get('items', []))[:10],  # Top 10 for executive
-            'is_executive': True  # Flag for template to show limited findings
+            # Executive report: NO detailed control table, only top critical/high findings
+            'findings': self._format_findings_for_pdf(
+                [f for f in findings_summary.get('items', [])
+                 if f.get('severity') in ['CRITICAL', 'HIGH']]
+            )[:5],  # Top 5 critical/high findings only
+            'is_executive': True,  # Flag for template
+            'show_controls_table': False  # Don't show detailed control table
         }
 
         # Generate PDF
@@ -962,17 +981,32 @@ requiring attention.
         findings_summary = self._get_findings_summary()
         exceptions_summary = self._get_exceptions_summary()
 
-        # Calculate compliance score
+        # Calculate compliance score (different from coverage)
+        # Coverage = how many controls assessed (12/43 = 28%)
+        # Compliance = how well you're doing on assessed controls
+
         base_coverage = coverage["coverage_percent"]
-        compliance_score = base_coverage
+        controls_assessed = len(coverage["covered"])
 
-        # Apply penalty for critical findings
-        score_penalty_applied = False
-        if findings_summary["critical"] > 0:
-            compliance_score = base_coverage * 0.7  # 30% penalty for critical findings
-            score_penalty_applied = True
+        # Calculate compliance based on findings per control
+        if controls_assessed > 0:
+            # Start with 100%, deduct based on findings severity
+            compliance_score = 100.0
 
-        # Structure comprehensive data for PDF
+            # Deduct points based on findings
+            compliance_score -= (findings_summary["critical"] * 20)  # -20% per critical
+            compliance_score -= (findings_summary["high"] * 10)      # -10% per high
+            compliance_score -= (findings_summary["medium"] * 5)     # -5% per medium
+            compliance_score -= (findings_summary["low"] * 2)        # -2% per low
+
+            # Floor at 0%
+            compliance_score = max(0, compliance_score)
+        else:
+            compliance_score = 0.0
+
+        score_penalty_applied = findings_summary["total"] > 0
+
+        # Structure comprehensive data for PDF - FULL AUDIT (everything)
         report_data = {
             'report_type': 'SOC 2 Full Audit Report',
             'organization': organization_name,
@@ -991,9 +1025,11 @@ requiring attention.
                 'medium': findings_summary["medium"],
                 'low': findings_summary["low"]
             },
+            # Full report: Show ALL controls and ALL findings with details
             'controls': self._format_controls_for_pdf(coverage, findings_summary, detailed=True),
             'findings': self._format_findings_for_pdf(findings_summary.get('items', []), detailed=True),
-            'is_executive': False  # Full report shows all findings
+            'is_executive': False,  # Full report shows everything
+            'show_controls_table': True  # Show detailed control table
         }
 
         # Generate PDF
@@ -1003,26 +1039,31 @@ requiring attention.
         return pdf_bytes, report_data
 
     def _generate_executive_text(self, coverage: dict, findings_summary: dict, base_coverage: float = None, penalty_applied: bool = False) -> str:
-        """Generate concise executive summary text."""
+        """Generate concise executive summary text with clear coverage vs compliance explanation."""
         total_controls = len(coverage["covered"]) + len(coverage["missing"])
+        controls_covered = len(coverage["covered"])
         coverage_pct = base_coverage if base_coverage is not None else coverage["coverage_percent"]
 
-        if coverage_pct >= 90 and findings_summary["critical"] == 0:
-            status = "The organization demonstrates strong compliance posture"
+        # Status based on coverage
+        if coverage_pct >= 90:
+            coverage_status = "comprehensive control coverage"
         elif coverage_pct >= 70:
-            status = "The organization demonstrates partial compliance with areas requiring attention"
+            coverage_status = "partial control coverage"
+        elif coverage_pct >= 50:
+            coverage_status = "limited control coverage"
         else:
-            status = "The organization requires significant remediation to achieve compliance"
+            coverage_status = "minimal control coverage"
 
-        summary = f"""{status}. Assessment covers {len(coverage['covered'])} of {total_controls} SOC 2 controls ({coverage_pct:.0f}% coverage). {findings_summary['total']} findings identified across all severity levels"""
+        summary = f"""The organization has {coverage_status} with {controls_covered} of {total_controls} SOC 2 controls assessed ({coverage_pct:.0f}% coverage). """
 
-        # Add critical findings note if applicable
-        if findings_summary['critical'] > 0:
-            summary += f", including {findings_summary['critical']} critical issues requiring immediate attention"
-            if penalty_applied:
-                summary += ". Compliance score reflects 30% penalty due to critical findings"
-
-        summary += "."
+        # Findings breakdown
+        if findings_summary['total'] == 0:
+            summary += "No compliance issues identified in assessed controls."
+        else:
+            summary += f"Assessment identified {findings_summary['total']} compliance issues"
+            if findings_summary['critical'] > 0 or findings_summary['high'] > 0:
+                summary += f" ({findings_summary['critical']} critical, {findings_summary['high']} high severity)"
+            summary += " requiring remediation."
 
         return summary
 
@@ -1061,33 +1102,38 @@ requiring attention.
 
     def _extract_control_name(self, control_id: str) -> str:
         """
-        Extract a clean control name from SOC2_CONTROL_DESCRIPTIONS.
+        Extract a clean, meaningful control name from SOC2_CONTROL_DESCRIPTIONS.
 
         Handles two formats:
-        1. "COSO Principle X: Description" → "COSO Principle X"
-        2. "Description" → First 60 chars of description
+        1. "COSO Principle X: Description" → Extract key topic from description
+        2. "Description" → First 60 chars with smart truncation
         """
         description = SOC2_CONTROL_DESCRIPTIONS.get(control_id, "")
 
         if not description:
             return f"Control {control_id}"
 
-        # If it starts with "COSO Principle", extract that as the name
+        # For COSO Principle controls, extract the meaningful part after the colon
         if description.startswith("COSO Principle"):
-            # Split on first colon and take the principle part
             parts = description.split(":", 1)
             if len(parts) > 1:
-                return parts[0].strip()  # "COSO Principle X"
-            return description[:60]  # Fallback if no colon
+                # Get the description part, capitalize first letter
+                topic = parts[1].strip()
+                # If it starts with "The entity", remove that part
+                if topic.lower().startswith("the entity "):
+                    topic = topic[11:]  # Remove "the entity "
+                    topic = topic[0].upper() + topic[1:]  # Capitalize first letter
+                return topic[:80] if len(topic) <= 80 else topic[:77] + "..."
+            return description[:80]
 
-        # For other controls, use first 60 chars as a short name
-        if len(description) <= 60:
+        # For other controls, use the description directly
+        if len(description) <= 80:
             return description
 
-        # Truncate at last space before 60 chars
-        truncated = description[:60]
+        # Truncate at last space before 80 chars
+        truncated = description[:80]
         last_space = truncated.rfind(' ')
-        if last_space > 30:  # Only truncate if we're not cutting too much
+        if last_space > 50:  # Only truncate if we're not cutting too much
             return truncated[:last_space] + "..."
 
         return truncated + "..."
