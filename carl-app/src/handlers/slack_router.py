@@ -6932,7 +6932,7 @@ def handle_evidence_command(
             evidence_table=evidence_table
         )
 
-        elif subcommand == "list":
+        if subcommand == "list":
             # Parse optional type filter (e.g., /carl evidence list IAM)
             evidence_type_filter = parts[1] if len(parts) > 1 else None
             return handle_evidence_list_command(slack, channel_id, user_id, evidence_type_filter)
