@@ -638,6 +638,147 @@ This handoff pattern can be used for:
 
 ---
 
+## 🔮 Future Innovation: Unified Command Interface (Phase 4)
+
+### Vision: Single `/carl ask` Command
+
+**Current State:**
+- 30+ slash commands (`/carl recommend`, `/carl build`, `/carl findings`, `/carl drift`, etc.)
+- Each command has specific syntax and parameters
+- Users need to remember which command does what
+- Fragmented UX across different workflows
+
+**Future Vision:**
+- **Single command: `/carl ask`** interprets natural language and routes to correct handler
+- Natural language understanding determines intent and parameters
+- Unified interface with consistent UX
+- Agent-based routing to specialized tools
+
+**Examples:**
+
+```
+User: /carl ask recommend a three-tier web app
+→ Routes to Architecture Agent → Shows options → Builds Terraform
+
+User: /carl ask show me my security findings
+→ Routes to Findings Service → Lists findings with filters
+
+User: /carl ask check for infrastructure drift
+→ Routes to Drift Detector → Scans Terraform state → Reports drift
+
+User: /carl ask create a VPC with 3 AZs
+→ Routes to Infrastructure Builder → Collects params → Generates code
+
+User: /carl ask sync my findings to Jira
+→ Routes to Jira Integration → Creates/updates tickets
+```
+
+**How It Works:**
+
+1. **Intent Classification:** AI analyzes the question to determine:
+   - Action type (recommend, build, check, list, sync, etc.)
+   - Resource type (VPC, findings, drift, architecture, etc.)
+   - Parameters (filters, configurations, options)
+
+2. **Intelligent Routing:** Based on classification, route to:
+   - Architecture Agent (design/recommend questions)
+   - Compliance Scanner (security/findings questions)
+   - Infrastructure Builder (build/create requests)
+   - Drift Detector (drift check requests)
+   - Jira Integration (sync requests)
+   - Evidence Collector (compliance/audit requests)
+
+3. **Parameter Extraction:** AI extracts parameters from natural language:
+   - "three-tier web app" → requirement: "web application", tier: "three-tier"
+   - "with 3 AZs" → availability_zones: 3
+   - "in us-west-2" → region: "us-west-2"
+   - "severity critical" → severity_filter: "critical"
+
+4. **Context Preservation:** Maintains conversation context for follow-ups:
+   ```
+   User: /carl ask recommend a database
+   CARL: Here are 3 options... [Aurora, RDS, DynamoDB]
+   User: /carl ask build option 2
+   CARL: [Knows user meant RDS from previous context]
+   ```
+
+**Benefits:**
+
+- **Simplified UX:** One command to learn instead of 30+
+- **Natural Language:** Ask questions naturally without memorizing syntax
+- **Context-Aware:** Understands follow-up questions and references
+- **Easier Onboarding:** New users only need to know `/carl ask`
+- **Extensible:** Adding new features doesn't add new commands
+- **Consistent:** Unified experience across all CARL capabilities
+
+**Technical Implementation:**
+
+1. **Classification Agent:**
+   ```python
+   class IntentClassifier:
+       def classify(self, question: str) -> Intent:
+           # Use LLM to classify intent
+           return Intent(
+               action="recommend",  # or build, check, list, sync, etc.
+               resource="architecture",  # or findings, drift, vpc, etc.
+               parameters={"requirement": "three-tier web app"},
+               confidence=0.95
+           )
+   ```
+
+2. **Unified Router:**
+   ```python
+   def handle_ask_command(question: str):
+       intent = classifier.classify(question)
+
+       router = {
+           "recommend": architecture_agent,
+           "build": infrastructure_builder,
+           "check_findings": findings_service,
+           "check_drift": drift_detector,
+           "sync_jira": jira_integration,
+           # ... etc
+       }
+
+       handler = router[intent.action]
+       return handler.execute(intent.parameters)
+   ```
+
+3. **Context Manager:**
+   ```python
+   class ConversationContext:
+       def remember(self, question: str, response: dict):
+           # Store in session
+           self.history.append((question, response))
+
+       def recall(self, question: str) -> dict:
+           # Resolve references like "option 2", "that VPC", etc.
+           return self.resolve_references(question, self.history)
+   ```
+
+**Migration Strategy:**
+
+- **Phase 1:** Keep existing commands, add unified routing (no breaking changes)
+- **Phase 2:** Deprecation warnings on old commands, encourage `/carl ask`
+- **Phase 3:** Remove old commands after 6-month transition period
+
+**Estimated Effort:**
+- Classification & routing logic: 1-2 weeks
+- Parameter extraction: 1 week
+- Context management: 1 week
+- Testing & refinement: 1-2 weeks
+- **Total: 4-6 weeks**
+
+**Priority:** Medium-Low
+- Current multi-command interface works fine
+- More valuable after all core features are complete
+- Nice-to-have UX improvement, not critical functionality
+- Good candidate for Phase 4 (post-Phase 3)
+
+**Status:** 📋 Planned for Future (Post-Phase 3)
+
+---
+
 ## 📊 Summary Timeline
 
 | Phase | Timeframe | Focus | Key Deliverables |
