@@ -105,15 +105,31 @@ class SlackService:
 
     def upload_file(
         self,
-        channels: list[str],
+        channels: list[str] | str,
         file_path: str | None = None,
-        content: str | None = None,
+        file_content: bytes | str | None = None,
+        content: str | None = None,  # Deprecated: use file_content
         filename: str = "file.txt",
         title: str | None = None,
         initial_comment: str | None = None,
     ) -> dict[str, Any]:
-        """Upload a file to Slack using files_upload_v2 API."""
+        """
+        Upload a file to Slack using files_upload_v2 API.
+
+        Args:
+            channels: Channel ID(s) to upload to
+            file_path: Path to file on disk
+            file_content: File content as bytes or string (for PDFs, images, etc.)
+            content: Deprecated alias for file_content (string only)
+            filename: Name for the uploaded file
+            title: Title for the file
+            initial_comment: Message to post with the file
+        """
         try:
+            # Normalize channels to list
+            if isinstance(channels, str):
+                channels = [channels]
+
             # files_upload_v2 expects channel_id (singular), not channels
             # Use the first channel if multiple are provided
             channel_id = channels[0] if channels else None
@@ -124,10 +140,17 @@ class SlackService:
                 "channel_id": channel_id,
                 "filename": filename,
             }
+
             if file_path:
                 kwargs["file"] = file_path
-            elif content:
+            elif file_content is not None:
+                kwargs["content"] = file_content
+            elif content is not None:
+                # Backward compatibility
                 kwargs["content"] = content
+            else:
+                raise ValueError("Must provide either file_path, file_content, or content")
+
             if title:
                 kwargs["title"] = title
             if initial_comment:

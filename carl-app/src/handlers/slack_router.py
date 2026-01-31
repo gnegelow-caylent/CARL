@@ -7480,35 +7480,56 @@ def handle_report_command_sync(
 
 """
 
-        # Generate reports (Markdown for now - PDF requires Lambda Layer)
-        update_progress("📝 Generating report...")
+        # Generate PDF reports (Docker container has WeasyPrint support)
+        update_progress("📝 Generating professional PDF report...")
 
         if report_type == "executive":
-            report = generator.generate_executive_summary(start_date, end_date)
-            # Prepend scan context
-            report = report_context + report
+            pdf_bytes, report_data = generator.generate_executive_summary_pdf(
+                start_date,
+                end_date,
+                organization_name="Your Organization"
+            )
+            filename = f"executive-summary-{datetime.utcnow().strftime('%Y%m%d')}.pdf"
             report_type_enum = ReportType.EXECUTIVE_SUMMARY
 
         elif report_type == "full":
-            report = generator.generate_full_audit_report(start_date, end_date)
-            report = report_context + report
+            pdf_bytes, report_data = generator.generate_full_audit_pdf(
+                start_date,
+                end_date,
+                organization_name="Your Organization"
+            )
+            filename = f"full-audit-report-{datetime.utcnow().strftime('%Y%m%d')}.pdf"
             report_type_enum = ReportType.FULL_AUDIT
 
         elif report_type == "control" and control_id:
+            # Control reports don't have PDF version yet - fallback to markdown
+            update_progress("📝 Generating control report (markdown)...")
             report = generator.generate_control_report(control_id.upper())
             report = report_context + report
             report_type_enum = ReportType.CONTROL_SPECIFIC
 
+            # Save to S3
+            s3_key = generator.save_report(report, report_type_enum)
+            download_url = generator.generate_presigned_url(s3_key, expiration=86400)
+
+            summary_text = f"""📊 **Control Report Generated Successfully**
+
+**Control ID:** {control_id.upper()}
+**Audit Period:** {start_date} to {end_date}
+
+📥 **Download Report (Markdown):**
+{download_url}
+
+_Link expires in 24 hours. PDF format coming soon!_"""
+
+            slack.post_message(channel_id, text=summary_text)
+            return {"statusCode": 200, "body": "Control report generated"}
+
         else:
-            report_type_enum = None
+            raise ValueError(f"Unknown report type: {report_type}")
 
-        # Upload Markdown to S3 (switch to PDF when Lambda Layer is deployed)
-        update_progress("☁️ Uploading report to S3...")
-
-        s3_key = generator.save_report(report, report_type_enum)
-
-        # Generate presigned URL
-        download_url = generator.generate_presigned_url(s3_key, expiration=86400)  # 24 hours
+        # Upload PDF directly to Slack
+        update_progress("📤 Uploading PDF to Slack...")
 
         # Delete the status message (cleanup)
         if status_ts:
@@ -7517,23 +7538,37 @@ def handle_report_command_sync(
             except Exception as e:
                 logger.warning(f"Failed to delete status message: {e}")
 
-        # Step 5: Post summary with download link
-        update_progress("✅ Report generation complete!")
+        # Upload PDF file to Slack channel
+        try:
+            slack.upload_file(
+                channels=channel_id,
+                file_content=pdf_bytes,
+                filename=filename,
+                title=f"{report_type.title()} Compliance Report",
+                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n**Environment:** {scan_summary}\n\nProfessional PDF report attached above ⬆️"
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload PDF to Slack: {e}")
+            # Fallback: save to S3 and provide download link
+            update_progress("☁️ Uploading to S3 as fallback...")
+            s3_key = generator.save_pdf_report(pdf_bytes, report_type_enum)
+            download_url = generator.generate_presigned_url(s3_key, expiration=86400)
 
-        # Extract key metrics for summary
-        summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
+            summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
 
 **Audit Period:** {start_date} to {end_date}
 **Environment Scan:** {scan_summary}
 
-📥 **Download Report (Markdown):**
+⚠️ Could not upload directly to Slack. Download from S3:
 {download_url}
 
-_Link expires in 24 hours_
+_Link expires in 24 hours_"""
 
-The report is in Markdown format - you can:
-• View directly in your browser
-• Open in any text editor
+            slack.post_message(channel_id, text=summary_text)
+            return {"statusCode": 200, "body": "Report generated (S3 fallback)"}
+
+        # Success message already sent with file upload
+        summary_text = None  # Suppress duplicate message below
 • Convert to PDF using tools like pandoc or online converters
 
 *Note: Professional PDF reports coming soon (requires Lambda Layer deployment)*"""
