@@ -250,6 +250,64 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
+#### 1.5 Regression Testing Framework (Week 5-6)
+**Goal:** Ensure changes don't break existing functionality
+
+**Problem:**
+- Major features being added (framework-aware foundation, compliance reports, etc.)
+- No automated tests to catch regressions
+- Manual testing is time-consuming and incomplete
+- Risk of breaking production features with new changes
+
+**Tasks:**
+- [ ] **Core Feature Regression Tests**
+  - Test AI-enhanced compliance reports (executive, full, control-specific)
+  - Test framework-aware foundation flow (SOC 2 framework selection → gap analysis → Terraform generation)
+  - Test blueprint generation (security/basic-stack, security/soc2-stack, networking/basic-vpc)
+  - Test `/carl ask` with intelligent scanning
+  - Test Jira integration (sync, ticket creation, deduplication)
+  - Test findings management (create, update, status filtering)
+
+- [ ] **Integration Testing**
+  - Test Bedrock API integration (AI summaries, insights, recommendations)
+  - Test DynamoDB operations (findings, evidence, exceptions, scan history)
+  - Test S3 operations (evidence collection, report uploads)
+  - Test Slack interactions (messages, buttons, file uploads)
+  - Test GitHub integration (PR creation, code uploads)
+
+- [ ] **PDF Generation Testing**
+  - Test executive reports (3-4 pages, no blank pages)
+  - Test full audit reports (8-10 pages with insights/recommendations)
+  - Test control-specific reports
+  - Test chart generation (compliance score, findings by severity)
+  - Test page breaks logic (no blank pages regression)
+
+- [ ] **Framework Testing**
+  - Test FrameworkLoader (YAML parsing, service lookup)
+  - Test FrameworkGapAnalyzer (gap detection, validation checks)
+  - Test compliance Terraform generation (CloudTrail, GuardDuty, Config, etc.)
+  - Test framework questions flow
+
+- [ ] **Test Infrastructure**
+  - Set up pytest framework
+  - Create mock AWS responses (boto3 mocking)
+  - Create test fixtures for reports, findings, frameworks
+  - Add GitHub Actions workflow for automated test runs
+  - Add test coverage reporting
+
+**Deliverables:**
+- Comprehensive regression test suite (100+ tests)
+- CI/CD integration (tests run on every PR)
+- Test coverage report (target: 70%+ coverage)
+- Automated nightly test runs
+- Regression test documentation
+
+**Estimated Effort:** 2 weeks
+
+**Priority:** High - Critical for maintaining quality as we add features
+
+---
+
 ## 🟡 Medium Priority (8-16 weeks)
 
 ### Phase 2: Missing Architecture Patterns
