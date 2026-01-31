@@ -1477,6 +1477,14 @@ def handle_findings_list_command(
                 "action_id": f"finding_ignore_{finding_id}",
             })
 
+        # Show "Show Fix" button for remediable findings
+        action_buttons.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "🔧 Show Fix"},
+            "action_id": f"finding_show_fix_{finding_id}",
+            "style": "primary"
+        })
+
         # Always show "Details" button
         action_buttons.append({
             "type": "button",
@@ -5848,6 +5856,9 @@ def handle_interaction(payload: dict) -> dict:
             elif action_id.startswith("finding_details_"):
                 finding_id = action_id.replace("finding_details_", "")
                 return handle_finding_details(payload, finding_id)
+            elif action_id.startswith("finding_show_fix_"):
+                finding_id = action_id.replace("finding_show_fix_", "")
+                return handle_finding_show_fix(payload, finding_id)
             elif action_id.startswith("approve_remediation_"):
                 remediation_id = action_id.replace("approve_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, True)
@@ -6416,6 +6427,53 @@ def handle_finding_ignore_button(payload: dict, finding_id: str) -> dict:
         slack.post_message(channel, text=f"❌ Failed to ignore finding `{finding_id}`")
 
     return {"statusCode": 200, "body": ""}
+
+
+def handle_finding_show_fix(payload: dict, finding_id: str) -> dict:
+    """Handle Show Fix button click - displays remediation guidance."""
+    from services.findings_service import FindingsService
+    from services.remediation_service import RemediationService
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    slack = get_slack_service()
+    findings_service = FindingsService()
+    remediation_service = RemediationService()
+
+    # Get account ID
+    import boto3
+    account_id = boto3.client('sts').get_caller_identity()['Account']
+
+    # Get finding
+    finding = findings_service.get_finding(finding_id, account_id)
+
+    if not finding:
+        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found")
+        return {"statusCode": 404, "body": "Finding not found"}
+
+    # Generate remediation guidance
+    guidance = remediation_service.generate_remediation(finding)
+
+    if not guidance:
+        slack.post_message(
+            channel,
+            text=f"⚠️ No automated remediation guidance available for this finding.\n\n"
+                 f"*Finding:* {finding.get('title', 'Unknown')}\n"
+                 f"Please refer to AWS documentation or contact your security team for remediation steps."
+        )
+        return {"statusCode": 200, "body": "No guidance available"}
+
+    # Format and send remediation guidance to Slack
+    guidance_blocks = remediation_service.format_for_slack(guidance)
+
+    slack.post_message(
+        channel,
+        text=f"🔧 Remediation Guidance for: {finding.get('title', 'Unknown')}",
+        blocks=guidance_blocks['blocks']
+    )
+
+    return {"statusCode": 200, "body": "Remediation guidance sent"}
 
 
 def handle_remediation_approval(
