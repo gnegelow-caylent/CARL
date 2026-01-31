@@ -3020,7 +3020,7 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "_Ready to generate Terraform code for one of these options?_"
+                        "text": "_Click below to generate Terraform code. Have questions? Use `/carl ask`_"
                     }
                 },
                 {
@@ -3050,7 +3050,7 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "_Ready to generate Terraform code?_"
+                        "text": "_Click below to generate Terraform code. Have questions? Use `/carl ask`_"
                     }
                 },
                 {
