@@ -458,6 +458,12 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# SecurityAudit policy for read-only evidence collection across all AWS services
+resource "aws_iam_role_policy_attachment" "lambda_security_audit" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
+}
+
 # Policy for Lambda to access CARL resources
 resource "aws_iam_role_policy" "lambda_carl_access" {
   name = "carl-access"
@@ -530,10 +536,13 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
       {
         Effect = "Allow"
         Action = [
-          "bedrock:InvokeModel"
+          "bedrock:InvokeModel",
+          "bedrock:Retrieve",
+          "bedrock:RetrieveAndGenerate"
         ]
         Resource = [
-          "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/*"
+          "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/*",
+          "arn:aws:bedrock:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:knowledge-base/*"
         ]
       },
       {
@@ -602,6 +611,25 @@ resource "aws_iam_role_policy" "lambda_carl_access" {
         Resource = [
           "arn:aws:iam::*:role/AWSConfigRole",
           "arn:aws:iam::*:role/aws-service-role/config.amazonaws.com/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = [
+          "arn:aws:lambda:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:function:${var.project_name}-${var.environment}-*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter/${var.environment}/${var.project_name}/*"
         ]
       }
     ]
