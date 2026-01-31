@@ -1841,6 +1841,49 @@ def handle_architecture_question(
     return handle_recommend_command_sync(slack, channel_id, user_id, question)
 
 
+def _scan_results_to_context_summary(scan_results: dict) -> str:
+    """
+    Convert AWSResourceScanner results to human-readable context summary for AI.
+
+    Args:
+        scan_results: Dict of ResourceScanResult objects by service from AWSResourceScanner
+
+    Returns:
+        Human-readable summary string for AI context
+    """
+    summary = "AWS ENVIRONMENT SCAN RESULTS\n\n"
+
+    # Count total resources
+    total_resources = sum(len(items) for items in scan_results.values())
+    summary += f"Total Resources Scanned: {total_resources} across {len(scan_results)} service categories\n\n"
+
+    # IAM
+    if 'iam' in scan_results and scan_results['iam']:
+        iam_items = scan_results['iam']
+        user_count = sum(1 for r in iam_items if 'User' in r.resource_type)
+        role_count = sum(1 for r in iam_items if 'Role' in r.resource_type)
+        summary += f"IAM: {user_count} users, {role_count} roles\n"
+
+    # S3
+    if 's3' in scan_results and scan_results['s3']:
+        summary += f"S3: {len(scan_results['s3'])} buckets\n"
+
+    # VPC
+    if 'vpc' in scan_results and scan_results['vpc']:
+        vpc_items = scan_results['vpc']
+        vpc_count = sum(1 for r in vpc_items if r.resource_type == "AWS::EC2::VPC")
+        sg_count = sum(1 for r in vpc_items if 'SecurityGroup' in r.resource_type)
+        summary += f"VPC/Networking: {vpc_count} VPCs, {sg_count} security groups\n"
+
+    # EC2
+    if 'ec2' in scan_results and scan_results['ec2']:
+        summary += f"EC2: {len(scan_results['ec2'])} instances\n"
+
+    summary += "\nNOTE: Use this environment data to answer the user's question with specific details about their AWS resources.\n"
+
+    return summary
+
+
 def _evidence_to_context_summary(evidence_results: dict) -> str:
     """
     Convert evidence collection results to human-readable context summary for AI.
@@ -1944,14 +1987,12 @@ def handle_ask_command_sync(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Synchronous version of ask command - uses AgentCore for intelligent scanning.
+    Synchronous version of ask command - uses lightweight scanner for AWS resources.
     """
     import os
     import json
     import time
-    from services.evidence_collector import EvidenceCollector
-    from services.scanning_tools import create_scanning_tools
-    from services.agent_core import Agent
+    from services.aws_resource_scanner import AWSResourceScanner
     from services.learning_service import LearningService
 
     # Get Bedrock service for final response generation
@@ -1978,19 +2019,14 @@ def handle_ask_command_sync(
 
     context = ""
 
-    # Use comprehensive evidence collector (scans 50+ AWS services)
+    # Use lightweight resource scanner (no storage overhead)
     try:
-        logger.info("🔍 Performing comprehensive AWS environment scan across 50+ services...")
+        logger.info("🔍 Performing comprehensive AWS environment scan...")
         slack.post_message(channel_id, text="🔍 Scanning your AWS environment to answer your question...")
 
-        # Initialize evidence collector
-        evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-dev-evidence")
-        evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-dev-evidence")
-
-        collector = EvidenceCollector(
-            evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
-        )
+        # Initialize lightweight scanner (no S3/DynamoDB storage)
+        from services.aws_resource_scanner import AWSResourceScanner
+        scanner = AWSResourceScanner(region=os.environ.get("AWS_REGION", "us-east-1"))
 
         # Track progress
         total_resources_scanned = 0
@@ -2000,25 +2036,25 @@ def handle_ask_command_sync(
             nonlocal total_resources_scanned
             total_resources_scanned += resources_found
 
-            # Post progress updates at milestones: 25%, 50%, 75%, and every 3 services
+            # Post progress updates at milestones
             percent = int((completed / total) * 100)
 
-            # Show progress at 25%, 50%, 75% or every 3rd service
-            if completed % 3 == 0 or percent in [25, 50, 75]:
+            # Show progress at 25%, 50%, 75% or every service
+            if percent in [25, 50, 75] or completed == total:
                 slack.post_message(
                     channel_id,
                     text=f"⏳ Scanning progress: {completed}/{total} services ({percent}%) - {total_resources_scanned} resources found"
                 )
 
-        # Collect comprehensive evidence across all AWS services with progress updates
-        evidence_results = collector.collect_all_evidence(progress_callback=progress_callback)
+        # Scan AWS resources with progress updates
+        scan_results = scanner.scan_all(progress_callback=progress_callback)
 
-        # Convert evidence to context summary for AI
-        environment_summary = _evidence_to_context_summary(evidence_results)
+        # Convert scan results to context summary for AI
+        environment_summary = _scan_results_to_context_summary(scan_results)
 
         # Count resources for logging
-        total_resources = sum(len(items) for items in evidence_results.values())
-        logger.info(f"✅ Scan complete: {total_resources} resources across {len(evidence_results)} service categories")
+        total_resources = sum(len(items) for items in scan_results.values())
+        logger.info(f"✅ Scan complete: {total_resources} resources across {len(scan_results)} service categories")
 
         # Initialize learning service
         scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
@@ -2040,14 +2076,14 @@ def handle_ask_command_sync(
             context += f"\n\n{learned_context}"
 
         # Track scans performed (all service categories)
-        scans_performed = list(evidence_results.keys())
+        scans_performed = list(scan_results.keys())
 
-        # Track resources found from evidence
-        for category, evidence_items in evidence_results.items():
-            for evidence in evidence_items:
+        # Track resources found from scan
+        for category, scan_items in scan_results.items():
+            for scan_result in scan_items:
                 resources_found.append({
-                    "type": evidence.resource_type if hasattr(evidence, 'resource_type') else category,
-                    "id": evidence.resource_id if hasattr(evidence, 'resource_id') else "unknown"
+                    "type": scan_result.resource_type,
+                    "id": scan_result.resource_id
                 })
 
     except Exception as e:
