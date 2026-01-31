@@ -481,6 +481,97 @@ resource "aws_db_instance" "{db_instance.replace('-', '_')}" {{
                 risk_level="HIGH"  # Could break connectivity if app expects public access
             )
 
+        # Auto Scaling Group - Public IP
+        elif 'autoscaling' in resource_type.lower() or 'auto scaling' in title.lower():
+            if 'public ip' in description.lower() or 'public ip' in title.lower():
+                asg_name = resource_id.split('/')[-1] if '/' in resource_id else resource_id
+                return RemediationGuidance(
+                    finding_id=finding_id,
+                    title="Disable Public IP for Auto Scaling Group",
+                    description=f"Disable automatic public IP assignment for Auto Scaling Group {asg_name}",
+                    aws_cli_commands=[
+                        f"# Get the current launch configuration/template for ASG",
+                        f"aws autoscaling describe-auto-scaling-groups \\",
+                        f"  --auto-scaling-group-names {asg_name} \\",
+                        f"  --query 'AutoScalingGroups[0].[LaunchConfigurationName,LaunchTemplate]'",
+                        "",
+                        f"# If using Launch Configuration:",
+                        f"# 1. Create new launch configuration without public IP",
+                        f"# 2. Update ASG to use new launch configuration",
+                        f"# Note: Launch configurations are immutable, must create new one",
+                        "",
+                        f"# If using Launch Template (recommended):",
+                        f"# Get current template version",
+                        f"aws ec2 describe-launch-template-versions \\",
+                        f"  --launch-template-id <template-id> \\",
+                        f"  --versions '$Latest'",
+                        "",
+                        f"# Create new version with AssociatePublicIpAddress=false",
+                        f"aws ec2 create-launch-template-version \\",
+                        f"  --launch-template-id <template-id> \\",
+                        f"  --source-version '$Latest' \\",
+                        f"  --launch-template-data '{{",
+                        f"    \"NetworkInterfaces\": [{{",
+                        f"      \"DeviceIndex\": 0,",
+                        f"      \"AssociatePublicIpAddress\": false,",
+                        f"      \"DeleteOnTermination\": true",
+                        f"    }}]",
+                        f"  }}'",
+                        "",
+                        f"# Update ASG to use new template version",
+                        f"aws autoscaling update-auto-scaling-group \\",
+                        f"  --auto-scaling-group-name {asg_name} \\",
+                        f"  --launch-template LaunchTemplateId=<template-id>,Version='$Latest'",
+                    ],
+                    terraform_code=f"""
+# Update launch template to disable public IP
+resource "aws_launch_template" "updated" {{
+  name_prefix = "secure-"
+
+  network_interfaces {{
+    associate_public_ip_address = false
+    delete_on_termination       = true
+    device_index                = 0
+    security_groups             = var.security_group_ids
+  }}
+
+  # Copy other settings from existing template
+  image_id      = var.ami_id
+  instance_type = var.instance_type
+
+  # Add other required configurations here
+}}
+
+# Update Auto Scaling Group
+resource "aws_autoscaling_group" "{asg_name.replace('-', '_')}" {{
+  name = "{asg_name}"
+
+  launch_template {{
+    id      = aws_launch_template.updated.id
+    version = "$Latest"
+  }}
+
+  # Keep existing ASG settings
+  min_size         = var.min_size
+  max_size         = var.max_size
+  desired_capacity = var.desired_capacity
+  vpc_zone_identifier = var.subnet_ids
+}}
+""",
+                    manual_steps=[
+                        "1. Ensure instances can reach required services via NAT Gateway or VPC endpoints",
+                        "2. Verify security groups allow necessary traffic",
+                        "3. Test instance connectivity after disabling public IPs",
+                        "4. Consider using AWS Systems Manager Session Manager for instance access (no SSH/public IP needed)"
+                    ],
+                    references=[
+                        "https://docs.aws.amazon.com/autoscaling/ec2/userguide/launch-templates.html",
+                        "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-instance-addressing.html"
+                    ],
+                    estimated_time="15 minutes",
+                    risk_level="HIGH"  # Could break instance connectivity if NAT not configured
+                )
+
         # Default case - generic guidance
         else:
             logger.warning(f"No specific remediation guidance for finding: {title}")
