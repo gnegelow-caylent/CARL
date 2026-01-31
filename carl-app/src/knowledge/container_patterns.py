@@ -4,470 +4,625 @@ Container and Load Balancer Patterns for AWS.
 Patterns for ALB, ECS, EKS, and Fargate containerized applications.
 """
 
-from knowledge.architecture_patterns import ArchitectureDecision
+from knowledge.architecture_patterns import ArchitectureDecision, DecisionOption
 
 ALB_APPLICATION = ArchitectureDecision(
-    name="Application Load Balancer for Web Applications",
-    context="""
-    Need load balancing for web application with:
-    - HTTP/HTTPS traffic
-    - Path-based or host-based routing
-    - SSL termination
-    - Auto-scaling targets
-    - Health checks
+    question="What load balancer should I use for my web application?",
+    options=[
+        DecisionOption(
+            name="ALB + ECS Fargate (Recommended for Containers)",
+            description="Application Load Balancer with serverless Fargate containers - no EC2 management",
+            when_to_use=[
+                "Containerized microservices",
+                "Want serverless containers (no EC2 management)",
+                "Need path-based or host-based routing",
+                "Blue/green deployments required",
+                "Dynamic port mapping needed",
+            ],
+            when_not_to_use=[
+                "Non-containerized applications",
+                "Need TCP/UDP load balancing (use NLB)",
+                "Budget < $30/month (consider Lambda)",
+            ],
+            pros=[
+                "No EC2 management (serverless)",
+                "Fast scaling",
+                "Dynamic port mapping",
+                "Blue/green deployments built-in",
+                "Pay per task",
+                "Layer 7 routing (path, host, headers)",
+            ],
+            cons=[
+                "More expensive than EC2 per compute hour",
+                "ALB always-on cost ($16/month minimum)",
+                "Cold start when scaling from zero",
+            ],
+            monthly_cost_range=(30.0, 150.0),
+            cost_drivers=[
+                "ALB: $16/month base cost",
+                "LCU (Load Balancer Capacity Units): $0.008/hour",
+                "Fargate tasks: $0.04/vCPU-hour + $0.004/GB-hour",
+                "Example: ALB + 2 tasks (0.25 vCPU, 0.5GB) = $36/month",
+            ],
+            soc2_controls=["CC6.1", "A1.2", "CC7.2"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="ALB + EC2 Auto Scaling Group",
+            description="Application Load Balancer with EC2 instances - more control, cheaper at scale",
+            when_to_use=[
+                "Traditional web applications (not containerized)",
+                "High utilization workloads (>70% CPU/memory)",
+                "Need full control over OS and instances",
+                "Existing EC2-based application",
+            ],
+            when_not_to_use=[
+                "Want serverless (use Fargate or Lambda)",
+                "Low utilization (<50%)",
+                "Microservices architecture (containers are better)",
+            ],
+            pros=[
+                "Cheaper at high utilization",
+                "Full control over instances",
+                "Can use Spot instances (70% savings)",
+                "Persistent local storage",
+            ],
+            cons=[
+                "Must manage EC2 instances (patching, monitoring)",
+                "Slower scaling than containers",
+                "More operational overhead",
+                "Pay for full instances even when idle",
+            ],
+            monthly_cost_range=(76.0, 200.0),
+            cost_drivers=[
+                "ALB: $16/month",
+                "EC2: t3.medium ≈ $30/month per instance",
+                "Example: ALB + 2 t3.medium = $76/month",
+            ],
+            soc2_controls=["CC6.1", "A1.2", "CC7.2"],
+            implementation_complexity="medium",
+            operational_overhead="high",
+        ),
+        DecisionOption(
+            name="ALB + Lambda",
+            description="Application Load Balancer with Lambda functions - for very high traffic APIs",
+            when_to_use=[
+                "Very high traffic APIs (>10M requests/month)",
+                "Break-even with API Gateway pricing",
+                "Need WebSocket support with serverless",
+            ],
+            when_not_to_use=[
+                "Low traffic (<5M requests/month - API Gateway is cheaper)",
+                "Standard REST APIs (use API Gateway HTTP API)",
+            ],
+            pros=[
+                "Cheaper than API Gateway at very high traffic",
+                "WebSocket support",
+                "Serverless (no containers to manage)",
+            ],
+            cons=[
+                "ALB always-on cost ($16/month)",
+                "15-minute Lambda timeout",
+                "Not suitable for long-running processes",
+            ],
+            monthly_cost_range=(20.0, 80.0),
+            cost_drivers=[
+                "ALB: $16/month",
+                "Lambda: $0.20/million invocations",
+                "Break-even with API Gateway at ~5-10M requests/month",
+            ],
+            soc2_controls=["CC6.1", "CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF containerized_app:
+        → ALB + Fargate (serverless containers)
+
+    ELIF traditional_app AND high_utilization:
+        → ALB + EC2 (cheaper at scale)
+
+    ELIF api_traffic > 10M_requests_per_month:
+        → ALB + Lambda (breaks even with API Gateway)
+
+    ELSE:
+        → ALB + Fargate (default for most cases)
+
+    **Cost Comparison:**
+    - ALB + Fargate: $36/month (2 small tasks)
+    - ALB + EC2: $76/month (2 t3.medium instances)
+    - ALB + Lambda: $20/month (5M requests)
+    - API Gateway HTTP: $5/month (5M requests) - cheaper for low traffic
+
+    **ALB vs API Gateway Break-even:**
+    - ALB becomes cheaper than API Gateway REST at ~5-10M requests/month
+    - For most REST APIs <5M requests: use API Gateway HTTP API
+    - For containers: always use ALB (designed for it)
     """,
-    options={
-        "ALB + EC2 Auto Scaling Group": """
-        **Architecture:**
-        - Application Load Balancer (public subnet)
-        - EC2 instances in Auto Scaling Group (private subnet)
-        - Target Group with health checks
-        - ACM certificate for HTTPS
-        - Security groups (least privilege)
+    soc2_relevance="""
+    Load balancers are critical for availability and security:
 
-        **Features:**
-        - Layer 7 (HTTP/HTTPS) load balancing
-        - Path-based routing (/api → backend, /admin → admin servers)
-        - Host-based routing (api.example.com → API servers)
-        - Sticky sessions
-        - WebSocket support
-        - HTTP/2 and gRPC support
+    **CC6.1 (Access Controls):** Security groups restrict traffic to ALB
+    **A1.2 (Availability):** Multi-AZ load balancing ensures high availability
+    **CC7.2 (Monitoring):** CloudWatch metrics and access logs
 
-        **Cost:** approx. $16/month + $0.008/LCU-hour + EC2 costs
-        - ALB: approx. $16/month base
-        - LCU: approx. $0.008/hour (Load Balancer Capacity Unit)
-        - EC2: Depends on instance types (t3.medium = approx. $30/month each)
-        - Example: ALB + 2 t3.medium = approx. $76/month
-
-        **Pros:**
-        - Advanced routing
-        - WebSocket support
-        - Integrated with Auto Scaling
-        - Native AWS service
-
-        **Cons:**
-        - More expensive than NLB for simple cases
-        - Not for TCP/UDP (use NLB)
-
-        **When to use:** Web applications, microservices, HTTP/HTTPS traffic
-        """,
-
-        "ALB + ECS/Fargate": """
-        **Architecture:**
-        - Application Load Balancer
-        - ECS Fargate tasks (serverless containers)
-        - Target Group (dynamic port mapping)
-        - Service Auto Scaling
-
-        **Features:**
-        - Serverless containers (no EC2 management)
-        - Dynamic port mapping
-        - Blue/green deployments
-        - Faster scaling than EC2
-
-        **Cost:** approx. $16/month (ALB) + Fargate costs
-        - ALB: approx. $16/month
-        - Fargate: approx. $0.04/vCPU-hour + $0.004/GB-hour
-        - Example: 0.25 vCPU, 0.5GB = approx. $10/month per task
-
-        **Pros:**
-        - No EC2 management
-        - Pay per use (can scale to zero)
-        - Fast deployment
-        - Better for microservices
-
-        **Cons:**
-        - More expensive per compute hour than EC2
-        - Cold start for scaling
-
-        **When to use:** Microservices, containerized apps, want serverless
-        """,
-
-        "ALB + Lambda": """
-        **Architecture:**
-        - ALB with Lambda targets
-        - Lambda functions handle requests
-        - Path-based routing to different functions
-
-        **Cost:** approx. $16/month (ALB) + Lambda costs
-        - Cheaper than API Gateway REST API for high traffic
-
-        **When to use:** Very high traffic APIs (>10M requests/month where ALB becomes cheaper than API Gateway)
-        """
-    },
-    recommendation="ALB + ECS Fargate for containerized apps, ALB + EC2 for traditional apps",
-    tradeoffs="""
-    **ALB + EC2 vs ALB + Fargate:**
-    - EC2: Cheaper at scale, more control, requires management
-    - Fargate: Easier, serverless, more expensive per hour
-
-    **ALB vs API Gateway:**
-    - ALB: Better for containers, always-on cost, WebSockets
-    - API Gateway: Better for serverless, pay-per-request, simpler
-
-    **Break-even:** API Gateway vs ALB at approx. 5-10M requests/month
+    ALB supports WAF integration for threat protection.
     """,
-    related_controls=["CC6.1", "A1.2", "CC7.2"],
-    aws_services=["elasticloadbalancing", "ec2", "autoscaling", "acm", "waf"],
-    estimated_cost="$16-100/month depending on compute"
+    common_mistakes=[
+        "Using ALB for low-traffic APIs (<5M requests - API Gateway is cheaper)",
+        "Not enabling access logs (can't debug issues)",
+        "Not setting up health check alarms",
+        "Using EC2 when Fargate would be simpler and cheaper at low utilization",
+        "Forgetting to attach WAF for public-facing applications",
+    ],
 )
 
 ECS_FARGATE = ArchitectureDecision(
-    name="ECS Fargate Containerized Applications",
-    context="""
-    Need to run containerized applications with:
-    - No server management
-    - Auto-scaling
-    - Service discovery
-    - Load balancing
-    - CI/CD integration
+    question="What should I use to run containerized applications?",
+    options=[
+        DecisionOption(
+            name="ECS Fargate (Recommended for Most Containers)",
+            description="Serverless containers with no EC2 management - pay per task, auto-scaling, task-level isolation",
+            when_to_use=[
+                "Most containerized applications",
+                "Microservices architecture",
+                "Want serverless (no server management)",
+                "Low to medium utilization (<70%)",
+                "Development and staging environments",
+            ],
+            when_not_to_use=[
+                "Very high utilization (>80% 24/7 - EC2 is cheaper)",
+                "Need persistent local storage",
+                "GPU workloads",
+                "Tasks requiring <0.25 vCPU (Lambda is better)",
+            ],
+            pros=[
+                "No EC2 management (truly serverless)",
+                "Task-level security and isolation",
+                "Fast deployment and scaling",
+                "Pay only for tasks (can scale to zero)",
+                "Simpler than ECS on EC2",
+                "Automatic patching by AWS",
+            ],
+            cons=[
+                "More expensive than EC2 at high utilization (>70%)",
+                "0.25 vCPU minimum per task",
+                "No persistent local storage (use EFS)",
+                "Cold start when scaling from zero",
+            ],
+            monthly_cost_range=(10.0, 200.0),
+            cost_drivers=[
+                "Fargate: $0.04/vCPU-hour + $0.004/GB-hour",
+                "0.25 vCPU, 0.5GB = $10/month per task (24/7)",
+                "1 vCPU, 2GB = $50/month per task (24/7)",
+                "Can scale to zero for dev/test (pay only when running)",
+                "Example: 3 tasks (1 vCPU, 2GB) = $150/month",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="ECS on EC2",
+            description="Containers running on EC2 instances - cheaper at high utilization, more control",
+            when_to_use=[
+                "High utilization workloads (>70% CPU/memory 24/7)",
+                "Need Spot instances (70% cost savings)",
+                "GPU workloads",
+                "Need persistent local storage",
+                "Very large scale (100+ containers)",
+            ],
+            when_not_to_use=[
+                "Low utilization (<50% - Fargate is cheaper)",
+                "Want serverless (no management overhead)",
+                "Small team without container platform expertise",
+            ],
+            pros=[
+                "Cheaper per compute hour at high utilization",
+                "More control over instances",
+                "Spot instance support (70% savings)",
+                "GPU support",
+                "Persistent local storage",
+            ],
+            cons=[
+                "Must manage EC2 instances (patching, monitoring)",
+                "Pay for full instances even when containers are idle",
+                "More complex than Fargate",
+                "Slower scaling",
+                "Higher operational overhead",
+            ],
+            monthly_cost_range=(30.0, 150.0),
+            cost_drivers=[
+                "EC2: t3.medium ≈ $30/month per instance (24/7)",
+                "Can run multiple containers per instance",
+                "Example: t3.medium running 3 small containers = $10/month per container",
+                "Spot instances: $9/month per t3.medium (70% savings)",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.2"],
+            implementation_complexity="high",
+            operational_overhead="high",
+        ),
+        DecisionOption(
+            name="Lambda with Container Images",
+            description="Lambda functions packaged as container images - for event-driven, short-running tasks",
+            when_to_use=[
+                "Event-driven processing",
+                "Batch jobs",
+                "Short-running tasks (<15 minutes)",
+                "Sporadic workloads",
+                "Very low cost priority",
+            ],
+            when_not_to_use=[
+                "Long-running processes (>15 minutes)",
+                "HTTP servers or always-on services",
+                "Need >10GB memory",
+                "Container images >10GB",
+            ],
+            pros=[
+                "True serverless (pay per invocation)",
+                "Very cheap for sporadic workloads",
+                "No always-on costs",
+                "Auto-scales to millions of invocations",
+            ],
+            cons=[
+                "15-minute timeout",
+                "10GB memory limit",
+                "10GB container image limit",
+                "Cold starts",
+                "Not suitable for HTTP servers",
+            ],
+            monthly_cost_range=(1.0, 20.0),
+            cost_drivers=[
+                "Lambda: $0.20/million invocations + compute time",
+                "Example: 1M invocations (512MB, 1s) = $12/month",
+                "Much cheaper than Fargate for sporadic workloads",
+            ],
+            soc2_controls=["CC6.1", "CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF event_driven OR batch_job OR runtime < 15_minutes:
+        → Lambda with containers (cheapest for sporadic)
+
+    ELIF utilization > 70% AND scale > 20_containers:
+        → ECS on EC2 (cheaper at high utilization)
+
+    ELSE:
+        → ECS Fargate (best for most cases)
+
+    **Break-even Analysis:**
+    - Fargate vs EC2: Fargate is cheaper when utilization <50-70%
+    - Fargate vs Lambda: Fargate for always-on, Lambda for event-driven
+
+    **Cost Example (1 vCPU, 2GB container, 24/7):**
+    - Fargate: $50/month
+    - EC2 (t3.medium): $10/month per container (can fit ~3 containers) = $30/month for instance
+    - Lambda (24/7): $1,440/month (not suitable for always-on!)
+
+    **Recommendation:** Start with Fargate, optimize to EC2 only if utilization >70% and scale justifies operational overhead.
     """,
-    options={
-        "ECS Fargate (Recommended for Most Containers)": """
-        **Architecture:**
-        - ECS Cluster
-        - Fargate tasks (serverless containers)
-        - ALB for load balancing
-        - ECR for container registry
-        - CloudWatch Logs
-        - Service Auto Scaling
-        - VPC with private subnets
+    soc2_relevance="""
+    Container platforms must ensure security and isolation:
 
-        **Features:**
-        - Serverless (no EC2 to manage)
-        - Task-level isolation
-        - Service discovery
-        - Blue/green deployments
-        - Integration with AWS services
+    **CC6.1 (Access Controls):** IAM roles for tasks provide least privilege access
+    **CC6.7 (Encryption):** Encryption at rest (ECR) and in transit (TLS)
+    **CC7.2 (Monitoring):** CloudWatch Container Insights and logs
+    **CC8.1 (Change Management):** CI/CD with blue/green deployments
 
-        **Cost:** approx. $0.04/vCPU-hour + $0.004/GB-hour
-        - 0.25 vCPU, 0.5GB = approx. $10/month (24/7)
-        - 1 vCPU, 2GB = approx. $50/month (24/7)
-        - Can scale to zero for dev/test
-
-        **Pros:**
-        - No EC2 management
-        - Task-level security
-        - Fast deployment
-        - Pay per task
-        - Easier than EC2-based ECS
-
-        **Cons:**
-        - More expensive than ECS on EC2 at scale
-        - 4GB RAM minimum per task (use EC2 for smaller)
-        - No persistent storage (use EFS)
-
-        **When to use:** Most containerized apps, microservices, want serverless
-        """,
-
-        "ECS on EC2": """
-        **Architecture:**
-        - ECS Cluster
-        - EC2 instances (container hosts)
-        - ECS agent
-        - Multiple tasks per instance
-        - Capacity Providers
-
-        **Features:**
-        - More control over instances
-        - Can use Spot instances (savings)
-        - Persistent storage
-        - GPU support
-
-        **Cost:** approx. $30/month per t3.medium (24/7)
-        - Cheaper per compute hour than Fargate
-        - Must pay for full instances even if not fully utilized
-
-        **Pros:**
-        - Cheaper at high utilization
-        - More control
-        - Spot instance support (70% savings)
-        - GPU workloads
-
-        **Cons:**
-        - Must manage EC2 instances
-        - More complex
-        - Slower scaling
-
-        **When to use:** High utilization (>70%), need Spot instances, GPU workloads
-        """,
-
-        "Lambda (For Simple Cases)": """
-        **Architecture:**
-        - Lambda with container image support
-        - Up to 10GB container images
-        - 15-minute timeout
-
-        **Cost:** approx. $0.20/million invocations
-        - Much cheaper for sporadic workloads
-
-        **Pros:**
-        - True serverless
-        - Pay per invocation
-        - No always-on costs
-
-        **Cons:**
-        - 15-min timeout
-        - Cold starts
-        - 10GB image limit
-
-        **When to use:** Batch jobs, event-driven processing, short-running tasks
-        """
-    },
-    recommendation="ECS Fargate for most containerized applications",
-    tradeoffs="""
-    **Fargate vs ECS on EC2:**
-    - Fargate: Easier, serverless, approx. $50/mo per 1vCPU/2GB task
-    - EC2: Cheaper at scale, more control, approx. $30/mo per t3.medium (can run multiple tasks)
-
-    **Break-even:** Fargate cheaper than EC2 when utilization <50%
-
-    **Fargate vs Lambda:**
-    - Fargate: Long-running, HTTP servers, always-on
-    - Lambda: Event-driven, batch jobs, sporadic
-
-    **Start with Fargate**, optimize to EC2 if needed
+    Fargate provides stronger task-level isolation than EC2.
     """,
-    related_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
-    aws_services=["ecs", "ecr", "elasticloadbalancing", "cloudwatch", "secretsmanager"],
-    estimated_cost="$50-200/month for small app"
+    common_mistakes=[
+        "Using ECS on EC2 when Fargate would be simpler and cheaper (low utilization)",
+        "Not using Spot instances for ECS on EC2 (missing 70% savings)",
+        "Using Lambda for always-on workloads (very expensive)",
+        "Not setting up CloudWatch Container Insights (no visibility)",
+        "Forgetting to implement blue/green deployments (risky deployments)",
+    ],
 )
 
 ECS_COMPLETE = ArchitectureDecision(
-    name="Complete Production ECS Fargate Application",
-    context="""
-    Production containerized application with all best practices:
-    - Load balancing
-    - Auto-scaling
-    - Service discovery
-    - CI/CD
-    - Monitoring and alerting
-    - Security (encryption, secrets)
-    - SOC 2 compliant
+    question="How do I build a production-ready containerized application with full security?",
+    options=[
+        DecisionOption(
+            name="Complete ECS Fargate Production Stack (Recommended)",
+            description="Full production stack with ALB, Fargate, monitoring, security, and CI/CD",
+            when_to_use=[
+                "Production workloads requiring SOC 2 compliance",
+                "Customer-facing containerized applications",
+                "Need enterprise security and monitoring",
+                "Want low operational overhead",
+            ],
+            when_not_to_use=[
+                "Proof of concept (too complex)",
+                "Budget < $150/month",
+                "Internal tools without security requirements",
+            ],
+            pros=[
+                "Production-ready out of the box",
+                "SOC 2 compliant architecture",
+                "Serverless containers (no EC2 management)",
+                "Auto-scaling with target tracking",
+                "Blue/green deployments",
+                "Comprehensive monitoring and alerting",
+            ],
+            cons=[
+                "More complex than simple Fargate setup",
+                "Higher cost ($150-400/month)",
+                "Requires learning ECS concepts",
+            ],
+            monthly_cost_range=(150.0, 400.0),
+            cost_drivers=[
+                "ALB: $16/month",
+                "Fargate tasks: $50-200/month (depends on size and count)",
+                "RDS: $30-100/month (db.t3.micro to db.t3.small)",
+                "ECR: $5/month (image storage)",
+                "CloudWatch: $10-20/month (logs, metrics, alarms)",
+                "WAF: $10/month (rate limiting, threat protection)",
+                "X-Ray: $5/month (distributed tracing)",
+                "VPC endpoints: $7.50/month per endpoint (optional)",
+                "Example: Small app with 3 tasks = $150-250/month",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.1", "CC7.2", "CC8.1", "A1.2"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+        ),
+    ],
+    recommendation_logic="""
+    **Complete Stack Includes:**
+
+    **Compute:**
+    - ECS Cluster with Fargate
+    - ECS Services (one per microservice)
+    - Task definitions with secrets from Secrets Manager
+    - Service Auto Scaling (target tracking on CPU/memory)
+    - VPC with private subnets (no public IPs on tasks)
+
+    **Load Balancing:**
+    - Application Load Balancer (public subnet)
+    - Target Groups with health checks
+    - ACM certificate for HTTPS
+    - WAF with rate limiting and threat protection
+
+    **Container Registry:**
+    - ECR private registry
+    - Image vulnerability scanning
+    - Lifecycle policies (cleanup old images)
+    - Encryption at rest
+
+    **Security:**
+    - IAM roles for tasks (least privilege)
+    - Secrets Manager for passwords and API keys
+    - Security groups (task-level, least privilege)
+    - VPC endpoints (private AWS API access, no NAT Gateway)
+    - Encryption at rest (ECR, EFS)
+    - Encryption in transit (TLS, HTTPS)
+
+    **Monitoring:**
+    - CloudWatch Logs (centralized)
+    - CloudWatch Container Insights (resource metrics)
+    - X-Ray distributed tracing
+    - CloudWatch Alarms:
+      * CPU utilization > 80%
+      * Memory utilization > 80%
+      * Target response time > 1s
+      * 5xx errors > 1%
+      * Task count < minimum
+    - SNS notifications for alerts
+
+    **CI/CD:**
+    - GitHub Actions or CodePipeline
+    - Build Docker images in CodeBuild
+    - Push to ECR
+    - Blue/green deployment with ECS deployment controller
+    - Automated rollback on CloudWatch alarm
+
+    **Data:**
+    - RDS or Aurora (database)
+    - ElastiCache (caching)
+    - S3 (file storage)
+    - EFS (shared persistent storage, if needed)
+
+    **Cost:** $150-400/month for complete production setup
     """,
-    options={
-        "Full Stack ECS Fargate (Recommended)": """
-        **Complete Architecture:**
+    soc2_relevance="""
+    This architecture addresses critical SOC 2 controls:
 
-        **Compute:**
-        - ECS Cluster with Fargate
-        - ECS Services (one per microservice)
-        - Task definitions (container specs)
-        - Service Auto Scaling (target tracking)
-        - VPC with private subnets (no public IPs on tasks)
+    **CC6.1 (Access Controls):** IAM roles + security groups enforce least privilege
+    **CC6.7 (Encryption):** KMS encryption at rest + TLS in transit
+    **CC7.1 (Threat Detection):** WAF + ECR vulnerability scanning
+    **CC7.2 (System Monitoring):** CloudWatch Container Insights + X-Ray tracing
+    **CC8.1 (Change Management):** CI/CD with blue/green deployments
+    **A1.2 (Availability):** Auto Scaling + Multi-AZ ALB
 
-        **Load Balancing:**
-        - Application Load Balancer (public subnet)
-        - Target Groups (health checks)
-        - ACM certificate (HTTPS)
-        - WAF (rate limiting, threat protection)
-
-        **Container Registry:**
-        - ECR (private Docker registry)
-        - Image scanning (vulnerabilities)
-        - Lifecycle policies (cleanup old images)
-        - Encryption at rest
-
-        **Security:**
-        - IAM roles for tasks (least privilege)
-        - Secrets Manager (database passwords, API keys)
-        - Parameter Store (configuration)
-        - Security groups (task-level)
-        - VPC endpoints (private AWS API access)
-        - Encryption at rest (EFS, ECR)
-        - Encryption in transit (TLS, HTTPS)
-
-        **Monitoring:**
-        - CloudWatch Logs (centralized)
-        - CloudWatch Container Insights (resource metrics)
-        - X-Ray (distributed tracing)
-        - CloudWatch Alarms:
-          * CPU utilization > 80%
-          * Memory utilization > 80%
-          * Target response time > 1s
-          * 5xx errors > 1%
-          * Task count < minimum
-        - SNS notifications
-
-        **CI/CD:**
-        - CodePipeline or GitHub Actions
-        - CodeBuild (build Docker images)
-        - Push to ECR
-        - Blue/green deployment (ECS deployment controller)
-        - Automated rollback on alarm
-
-        **Data:**
-        - RDS or Aurora (database)
-        - ElastiCache (caching)
-        - S3 (file storage)
-        - EFS (shared persistent storage, if needed)
-
-        **SOC 2 Controls Addressed:**
-        - CC6.1: Access controls (IAM, security groups)
-        - CC6.7: Encryption (TLS, KMS, Secrets Manager)
-        - CC7.1: Threat detection (WAF, vulnerability scanning)
-        - CC7.2: System monitoring (CloudWatch, X-Ray)
-        - CC8.1: Change management (CI/CD, blue/green)
-        - A1.2: Availability (Auto Scaling, Multi-AZ ALB)
-
-        **Cost Breakdown:** approx. $150-400/month
-        - ALB: $16/month
-        - Fargate tasks: $50-200/month (depends on size/count)
-        - RDS: $30-100/month (db.t3.micro to db.t3.small)
-        - ECR: $0.10/GB/month (approx. $5/month)
-        - CloudWatch: $10-20/month
-        - WAF: $10/month
-        - VPC endpoints: $7.50/month per endpoint (optional)
-        - X-Ray: $5/month
-
-        **Terraform Modules Needed:**
-        - VPC with public/private subnets
-        - ALB with HTTPS listener and ACM certificate
-        - ECS cluster
-        - ECS task definitions (with secrets)
-        - ECS services with auto-scaling
-        - IAM roles for tasks
-        - ECR repository with scanning
-        - Security groups (ALB, tasks, RDS)
-        - RDS instance
-        - Secrets Manager secrets
-        - CloudWatch log groups and alarms
-        - WAF WebACL
-        - X-Ray sampling rules
-        - CodePipeline (optional)
-
-        **Pros:**
-        - Production-ready
-        - SOC 2 compliant
-        - Serverless containers
-        - Auto-scaling
-        - Blue/green deployments
-
-        **Cons:**
-        - More complex than Lambda
-        - Higher cost than EC2-based ECS
-
-        **When to use:** All production containerized applications
-        """
-    },
-    recommendation="Full stack with ALB, Fargate, monitoring, and CI/CD",
-    tradeoffs="No tradeoffs - this is the complete, production-ready setup",
-    related_controls=["CC6.1", "CC6.7", "CC7.1", "CC7.2", "CC8.1", "A1.2"],
-    aws_services=["ecs", "ecr", "elasticloadbalancing", "waf", "rds", "elasticache", "cloudwatch", "xray", "secretsmanager", "codepipeline"],
-    estimated_cost="$150-400/month"
+    All components are managed services with built-in compliance features.
+    """,
+    common_mistakes=[
+        "Skipping WAF (critical for rate limiting and DDoS protection)",
+        "Not enabling ECR vulnerability scanning (miss security issues)",
+        "Storing secrets in environment variables instead of Secrets Manager",
+        "Not setting up CloudWatch alarms (no visibility into failures)",
+        "Not implementing blue/green deployments (risky production deployments)",
+        "Using NAT Gateway instead of VPC endpoints (unnecessary cost)",
+    ],
 )
 
 EKS_KUBERNETES = ArchitectureDecision(
-    name="EKS Kubernetes Cluster",
-    context="""
-    Need Kubernetes with:
-    - Container orchestration at scale
-    - Multi-tenant workloads
-    - Advanced networking (service mesh)
-    - Existing Kubernetes workloads to migrate
-    - GitOps workflows
+    question="Should I use EKS Kubernetes or ECS for containerized applications?",
+    options=[
+        DecisionOption(
+            name="ECS Fargate (Recommended - Simpler)",
+            description="AWS-native container service without Kubernetes complexity - saves $72/month on control plane",
+            when_to_use=[
+                "New to containers",
+                "AWS-only deployment",
+                "Don't need Kubernetes ecosystem",
+                "Want simplicity and lower cost",
+                "Team doesn't have Kubernetes expertise",
+            ],
+            when_not_to_use=[
+                "Migrating existing Kubernetes workloads",
+                "Need Helm charts and Kubernetes operators",
+                "Multi-cloud strategy",
+                "Advanced networking (service mesh)",
+            ],
+            pros=[
+                "No control plane cost (save $72/month vs EKS)",
+                "Simpler than Kubernetes",
+                "AWS-native integrations",
+                "Faster to learn",
+                "Lower operational overhead",
+            ],
+            cons=[
+                "No Kubernetes ecosystem (Helm, operators)",
+                "AWS-specific (not portable to other clouds)",
+                "Less advanced networking features",
+            ],
+            monthly_cost_range=(50.0, 200.0),
+            cost_drivers=[
+                "Fargate tasks only (no control plane cost)",
+                "Example: 3 tasks (1 vCPU, 2GB) = $150/month",
+                "$72/month cheaper than EKS for same workload",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
+            implementation_complexity="low",
+            operational_overhead="low",
+        ),
+        DecisionOption(
+            name="EKS with Fargate (Serverless Kubernetes)",
+            description="Managed Kubernetes with serverless nodes - no EC2 management but with Kubernetes ecosystem",
+            when_to_use=[
+                "Need Kubernetes but want serverless",
+                "Migrating from on-prem Kubernetes",
+                "Need Helm charts and operators",
+                "Multi-cloud portability important",
+            ],
+            when_not_to_use=[
+                "New to containers (ECS is simpler)",
+                "Cost-sensitive (control plane costs $72/month)",
+                "Don't need Kubernetes features",
+            ],
+            pros=[
+                "No node management (serverless)",
+                "Kubernetes ecosystem (Helm, operators)",
+                "Multi-cloud portable",
+                "Pod-level isolation",
+            ],
+            cons=[
+                "Control plane: $72/month always-on cost",
+                "More expensive than ECS",
+                "Longer pod startup time",
+                "Limited features (no DaemonSets on Fargate)",
+                "More complex than ECS",
+            ],
+            monthly_cost_range=(100.0, 300.0),
+            cost_drivers=[
+                "EKS control plane: $72/month",
+                "Fargate pods: $0.04/vCPU-hour + $0.004/GB-hour",
+                "Example: 3 pods (0.25 vCPU, 0.5GB) = $100/month total",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
+            implementation_complexity="high",
+            operational_overhead="medium",
+        ),
+        DecisionOption(
+            name="EKS with EC2 Node Groups",
+            description="Managed Kubernetes with EC2 nodes - full Kubernetes features with Spot instance support",
+            when_to_use=[
+                "Standard Kubernetes workloads",
+                "Need full Kubernetes features (DaemonSets, HostPath)",
+                "High utilization (>70%)",
+                "Need Spot instances for cost savings",
+                "GPU workloads",
+            ],
+            when_not_to_use=[
+                "Want serverless (use ECS or EKS Fargate)",
+                "New to containers (steep learning curve)",
+                "Low utilization (<50%)",
+            ],
+            pros=[
+                "Full Kubernetes feature set",
+                "Spot instance support (70% savings)",
+                "GPU support",
+                "More control over nodes",
+                "Cheaper per compute hour than Fargate",
+            ],
+            cons=[
+                "Control plane: $72/month",
+                "Must manage EC2 nodes",
+                "Most complex option",
+                "Higher operational overhead",
+            ],
+            monthly_cost_range=(130.0, 500.0),
+            cost_drivers=[
+                "EKS control plane: $72/month",
+                "EC2 nodes: $30/month per t3.medium",
+                "Example: 2 t3.medium nodes = $132/month total",
+                "Spot instances: $79/month (2 nodes) = 40% savings",
+            ],
+            soc2_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
+            implementation_complexity="high",
+            operational_overhead="high",
+        ),
+    ],
+    recommendation_logic="""
+    **Decision Tree:**
+
+    IF kubernetes_expertise AND (migrating_k8s OR need_helm_charts):
+        → EKS (use Kubernetes)
+
+    ELIF new_to_containers OR aws_only:
+        → ECS Fargate (simpler, cheaper)
+
+    ELIF need_spot_instances OR gpu_workloads:
+        → EKS with EC2 (full features)
+
+    ELSE:
+        → ECS Fargate (default choice)
+
+    **Cost Comparison (3 tasks/pods, 1 vCPU, 2GB each):**
+    - ECS Fargate: $150/month (no control plane cost)
+    - EKS Fargate: $222/month ($72 control plane + $150 pods)
+    - EKS EC2: $132/month ($72 control plane + $60 for 2 t3.medium)
+
+    **When to Use EKS:**
+    1. Migrating existing Kubernetes workloads
+    2. Need Helm charts or Kubernetes operators
+    3. Multi-cloud portability required
+    4. Team has Kubernetes expertise
+
+    **When to Use ECS:**
+    1. New to containers
+    2. AWS-only deployment
+    3. Want simplicity
+    4. Save $72/month on control plane
+
+    **Default recommendation:** Start with ECS Fargate. Only use EKS if you specifically need Kubernetes features.
     """,
-    options={
-        "EKS with Fargate (Serverless Kubernetes)": """
-        **Architecture:**
-        - EKS control plane (managed)
-        - Fargate profiles (serverless nodes)
-        - ALB Ingress Controller
-        - ECR for images
-        - VPC with private subnets
+    soc2_relevance="""
+    Both EKS and ECS support SOC 2 compliance:
 
-        **Features:**
-        - Serverless nodes (no EC2)
-        - Pay per pod
-        - Managed control plane
-        - Kubernetes 1.28+
+    **CC6.1 (Access Controls):** IAM roles for service accounts (EKS) or tasks (ECS)
+    **CC6.7 (Encryption):** Encryption at rest and in transit supported by both
+    **CC7.2 (Monitoring):** CloudWatch Container Insights for both
+    **CC8.1 (Change Management):** CI/CD and GitOps workflows
 
-        **Cost:** approx. $72/month + pod costs
-        - EKS control plane: $0.10/hour = approx. $72/month
-        - Fargate pods: approx. $0.04/vCPU-hour + $0.004/GB-hour
-        - Example: 3 pods (0.25vCPU, 0.5GB each) = approx. $100/month total
-
-        **Pros:**
-        - No node management
-        - Pay per pod
-        - Secure (pod-level isolation)
-
-        **Cons:**
-        - More expensive than ECS Fargate
-        - Longer pod startup time
-        - Limited Kubernetes features (no DaemonSets on Fargate)
-
-        **When to use:** Need Kubernetes but want serverless nodes
-        """,
-
-        "EKS with EC2 Node Groups": """
-        **Architecture:**
-        - EKS control plane
-        - EC2 node groups (managed or self-managed)
-        - Cluster Autoscaler or Karpenter
-        - VPC CNI for networking
-
-        **Features:**
-        - Full Kubernetes support
-        - Spot instance support
-        - GPU support
-        - DaemonSets, HostPath, etc.
-
-        **Cost:** approx. $72/month + EC2 costs
-        - EKS control plane: approx. $72/month
-        - EC2 nodes: approx. $30/month per t3.medium
-        - Example: 2 t3.medium nodes = approx. $132/month total
-
-        **Pros:**
-        - Full Kubernetes features
-        - Cheaper per compute hour
-        - Spot instance support (70% savings)
-        - More control
-
-        **Cons:**
-        - Must manage nodes
-        - More complex
-
-        **When to use:** Standard Kubernetes workloads, need full features
-        """,
-
-        "ECS Fargate (Simpler Alternative)": """
-        **Cost:** approx. $50/month (no control plane cost)
-
-        **When to consider ECS instead:**
-        - Don't need Kubernetes features
-        - Want simpler operations
-        - Save $72/month on control plane
-
-        **ECS is often sufficient** unless you specifically need:
-        - Kubernetes ecosystem (Helm, operators)
-        - Multi-cloud portability
-        - Advanced networking (service mesh)
-        """
-    },
-    recommendation="ECS Fargate unless you specifically need Kubernetes",
-    tradeoffs="""
-    **EKS vs ECS:**
-    - EKS: Kubernetes ecosystem, $72/mo control plane, more complex
-    - ECS: AWS-native, no control plane cost, simpler
-
-    **When to use EKS:**
-    - Migrating from on-prem Kubernetes
-    - Need Helm charts, operators
-    - Multi-cloud strategy
-    - Team has Kubernetes expertise
-
-    **When to use ECS:**
-    - New to containers
-    - AWS-only
-    - Want simplicity
-    - Save $72/month
-
-    **Default choice:** Start with ECS Fargate, only use EKS if you need Kubernetes features
+    EKS adds Kubernetes RBAC for additional access controls.
     """,
-    related_controls=["CC6.1", "CC6.7", "CC7.2", "CC8.1"],
-    aws_services=["eks", "ec2", "ecr", "elasticloadbalancing", "cloudwatch"],
-    estimated_cost="$130-500/month"
+    common_mistakes=[
+        "Using EKS when ECS would be simpler and cheaper (no K8s requirement)",
+        "Not using Spot instances with EKS EC2 (missing 70% cost savings)",
+        "Paying $72/month for EKS control plane unnecessarily",
+        "Starting with Kubernetes without team expertise (steep learning curve)",
+        "Not considering operational overhead of managing Kubernetes",
+    ],
 )
 
 # Export patterns
