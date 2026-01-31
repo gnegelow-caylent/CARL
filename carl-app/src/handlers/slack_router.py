@@ -2605,18 +2605,18 @@ def handle_patterns_command(
 
         # VPC patterns
         vpc_patterns = get_vpc_patterns()
-        for i, pattern in enumerate(vpc_patterns):
-            patterns[f"vpc_{i}"] = pattern
+        for key, pattern in vpc_patterns.items():
+            patterns[f"vpc_{key}"] = pattern
 
         # Identity patterns
         identity_patterns = get_identity_patterns()
-        for i, pattern in enumerate(identity_patterns):
-            patterns[f"identity_{i}"] = pattern
+        for key, pattern in identity_patterns.items():
+            patterns[f"identity_{key}"] = pattern
 
         # Security patterns
         security_patterns = get_security_tooling_patterns()
-        for i, pattern in enumerate(security_patterns):
-            patterns[f"security_{i}"] = pattern
+        for key, pattern in security_patterns.items():
+            patterns[f"security_{key}"] = pattern
 
         # ETL patterns
         for i, pattern in enumerate(ETL_PATTERNS):
