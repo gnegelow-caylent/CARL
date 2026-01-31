@@ -1586,14 +1586,14 @@ class EvidenceCollector:
                 finding_id = item.get('finding_id')
                 status = item.get('status')
 
-                if finding_id not in expected_finding_ids and status != FindingStatus.RESOLVED.value:
-                    # Issue no longer exists in current evidence - mark as resolved
+                if finding_id not in expected_finding_ids and status != FindingStatus.REMEDIATED.value:
+                    # Issue no longer exists in current evidence - mark as remediated
                     title = item.get('title', 'Unknown')
                     findings_service.update_finding(
                         finding_id=finding_id,
                         account_id=item.get('account_id'),
-                        status=FindingStatus.RESOLVED.value,
-                        resolved_at=datetime.now(timezone.utc).isoformat()
+                        status=FindingStatus.REMEDIATED.value,
+                        remediated_at=datetime.now(timezone.utc).isoformat()
                     )
                     resolved += 1
                     logger.info(f"Resolved finding {finding_id}: {title} (issue fixed)")
