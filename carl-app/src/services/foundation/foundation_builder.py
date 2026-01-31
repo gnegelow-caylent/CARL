@@ -28,6 +28,19 @@ class TerraformModule:
     description: str
     estimated_monthly_cost: float
 
+    # Framework-aware additions (NEW)
+    compliance_controls: list[str] = None  # e.g., ["CC7.2", "A1.3"]
+    why_required: str = ""  # Business explanation
+    audit_evidence: list[str] = None  # What auditors check
+    gap_status: str = ""  # "missing", "misconfigured", or empty for pattern-based
+
+    def __post_init__(self):
+        """Initialize default values for list fields."""
+        if self.compliance_controls is None:
+            self.compliance_controls = []
+        if self.audit_evidence is None:
+            self.audit_evidence = []
+
 
 class FoundationBuilder:
     """
@@ -72,6 +85,7 @@ class FoundationBuilder:
     ) -> TerraformModule | None:
         """Generate Terraform module for a specific decision."""
 
+        # Pattern-based generators (networking, VPN)
         generators = {
             "egress": self._generate_egress_module,
             "ingress": self._generate_ingress_module,
@@ -80,9 +94,23 @@ class FoundationBuilder:
             "client_vpn": self._generate_client_vpn_module,
         }
 
-        generator = generators.get(decision.category)
-        if generator:
-            return generator(decision, session)
+        # Check if this is a pattern-based decision
+        if decision.category in generators:
+            module = generators[decision.category](decision, session)
+            # Add compliance metadata if available
+            if module and decision.compliance_controls:
+                module.compliance_controls = decision.compliance_controls
+                module.why_required = decision.why_required
+                module.audit_evidence = decision.audit_evidence
+                module.gap_status = decision.gap_status
+                # Prepend compliance header to content
+                module.content = self._add_compliance_header(module.content, decision)
+            return module
+
+        # Framework mode: Handle compliance services (cloudtrail, guardduty, etc.)
+        if session.framework_mode:
+            return self._generate_compliance_service_module(decision, session)
+
         return None
 
     def _generate_egress_module(
@@ -2208,6 +2236,450 @@ output "config_recorder_id" {
 }
 '''
 
+    def _add_compliance_header(self, content: str, decision: DecisionResult) -> str:
+        """
+        Add compliance metadata header to Terraform content (NEW).
+
+        Generates comments at top of file with control mappings and audit evidence.
+        """
+        if not decision.compliance_controls:
+            return content
+
+        header_lines = []
+
+        # Control mappings
+        if decision.compliance_controls:
+            controls_str = ", ".join(decision.compliance_controls)
+            header_lines.append(f"# Compliance Controls: {controls_str}")
+
+        # Why required
+        if decision.why_required:
+            # Wrap long lines
+            import textwrap
+            wrapped = textwrap.fill(
+                decision.why_required,
+                width=75,
+                initial_indent="# Why Required: ",
+                subsequent_indent="#               "
+            )
+            header_lines.append(wrapped)
+
+        # Audit evidence
+        if decision.audit_evidence:
+            header_lines.append("#")
+            header_lines.append("# Auditor Evidence:")
+            for evidence in decision.audit_evidence:
+                header_lines.append(f"#   - {evidence}")
+
+        # Gap status
+        if decision.gap_status:
+            header_lines.append("#")
+            header_lines.append(f"# Gap Status: {decision.gap_status.upper()}")
+
+        header_lines.append("")
+
+        return "\n".join(header_lines) + "\n" + content
+
+    def _generate_compliance_service_module(
+        self,
+        decision: DecisionResult,
+        session: DecisionSession
+    ) -> TerraformModule:
+        """
+        Generate Terraform for compliance services (NEW).
+
+        Handles CloudTrail, GuardDuty, Config, Security Hub, Inspector, etc.
+        These services don't map to architecture patterns but are required by framework.
+        """
+        service_name = decision.category
+        config = decision.custom_configuration
+
+        # Map service names to Terraform generators
+        service_generators = {
+            "cloudtrail": self._generate_cloudtrail_terraform,
+            "guardduty": self._generate_guardduty_terraform,
+            "config": self._generate_config_terraform,
+            "security_hub": self._generate_security_hub_terraform,
+            "inspector": self._generate_inspector_terraform,
+            "vpc_flow_logs": self._generate_vpc_flow_logs_terraform,
+            "iam_password_policy": self._generate_iam_password_policy_terraform,
+            "kms": self._generate_kms_terraform,
+        }
+
+        generator = service_generators.get(service_name)
+        if not generator:
+            # Fallback: Create minimal module
+            return TerraformModule(
+                name=service_name,
+                path=f"modules/compliance/{service_name}",
+                content=f"# {service_name} - TODO: Implement Terraform\n",
+                variables={},
+                description=f"Compliance service: {service_name}",
+                estimated_monthly_cost=decision.selected_option.estimated_monthly_cost,
+                compliance_controls=decision.compliance_controls,
+                why_required=decision.why_required,
+                audit_evidence=decision.audit_evidence,
+                gap_status=decision.gap_status
+            )
+
+        # Generate Terraform content
+        content = generator(config, session)
+
+        # Add compliance header
+        content = self._add_compliance_header(content, decision)
+
+        return TerraformModule(
+            name=service_name,
+            path=f"modules/compliance/{service_name}",
+            content=content,
+            variables=config,
+            description=decision.selected_option.description,
+            estimated_monthly_cost=decision.selected_option.estimated_monthly_cost,
+            compliance_controls=decision.compliance_controls,
+            why_required=decision.why_required,
+            audit_evidence=decision.audit_evidence,
+            gap_status=decision.gap_status
+        )
+
+    def _generate_cloudtrail_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate CloudTrail Terraform with SOC 2 configuration."""
+        retention_days = config.get("retention_days", 2555)
+
+        return f'''# CloudTrail Configuration with SOC 2 Compliance
+
+resource "aws_cloudtrail" "main" {{
+  name                          = "soc2-audit-trail"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail.id
+  include_global_service_events = true
+  is_multi_region_trail         = {str(config.get("multi_region", True)).lower()}
+  enable_log_file_validation    = {str(config.get("log_validation", True)).lower()}
+
+  event_selector {{
+    read_write_type           = "All"
+    include_management_events = true
+  }}
+
+  tags = {{
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }}
+}}
+
+# S3 bucket for CloudTrail logs
+resource "aws_s3_bucket" "cloudtrail" {{
+  bucket = "cloudtrail-logs-${{data.aws_caller_identity.current.account_id}}"
+
+  tags = {{
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }}
+}}
+
+# Enable versioning (required for compliance)
+resource "aws_s3_bucket_versioning" "cloudtrail" {{
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  versioning_configuration {{
+    status = "Enabled"
+  }}
+}}
+
+# Encryption (required for compliance)
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {{
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  rule {{
+    apply_server_side_encryption_by_default {{
+      sse_algorithm = "aws:kms"
+      kms_master_key_id = aws_kms_key.cloudtrail.arn
+    }}
+  }}
+}}
+
+# {retention_days}-day retention (SOC 2 requirement: 7 years)
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {{
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  rule {{
+    id     = "soc2-retention"
+    status = "Enabled"
+
+    expiration {{
+      days = {retention_days}
+    }}
+  }}
+}}
+
+# KMS key for encryption
+resource "aws_kms_key" "cloudtrail" {{
+  description             = "KMS key for CloudTrail log encryption"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  tags = {{
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }}
+}}
+
+resource "aws_kms_alias" "cloudtrail" {{
+  name          = "alias/cloudtrail"
+  target_key_id = aws_kms_key.cloudtrail.key_id
+}}
+
+data "aws_caller_identity" "current" {{}}
+'''
+
+    def _generate_guardduty_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate GuardDuty Terraform."""
+        return '''# GuardDuty Configuration
+
+resource "aws_guardduty_detector" "main" {
+  enable = true
+
+  datasources {
+    s3_logs {
+      enable = true
+    }
+    kubernetes {
+      audit_logs {
+        enable = true
+      }
+    }
+    malware_protection {
+      scan_ec2_instance_with_findings {
+        ebs_volumes {
+          enable = true
+        }
+      }
+    }
+  }
+
+  finding_publishing_frequency = "FIFTEEN_MINUTES"
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+output "guardduty_detector_id" {
+  value = aws_guardduty_detector.main.id
+}
+'''
+
+    def _generate_config_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate AWS Config Terraform."""
+        return '''# AWS Config Configuration
+
+resource "aws_config_configuration_recorder" "main" {
+  name     = "soc2-config-recorder"
+  role_arn = aws_iam_role.config.arn
+
+  recording_group {
+    all_supported = true
+    include_global_resource_types = true
+  }
+}
+
+resource "aws_config_configuration_recorder_status" "main" {
+  name       = aws_config_configuration_recorder.main.name
+  is_enabled = true
+
+  depends_on = [aws_config_delivery_channel.main]
+}
+
+resource "aws_config_delivery_channel" "main" {
+  name           = "soc2-delivery-channel"
+  s3_bucket_name = aws_s3_bucket.config.id
+
+  snapshot_delivery_properties {
+    delivery_frequency = "TwentyFour_Hours"
+  }
+
+  depends_on = [aws_config_configuration_recorder.main]
+}
+
+# S3 bucket for Config snapshots
+resource "aws_s3_bucket" "config" {
+  bucket = "config-snapshots-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+# IAM role for Config
+resource "aws_iam_role" "config" {
+  name = "aws-config-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "config.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "config" {
+  role       = aws_iam_role.config.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
+}
+
+data "aws_caller_identity" "current" {}
+'''
+
+    def _generate_security_hub_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate Security Hub Terraform."""
+        return '''# Security Hub Configuration
+
+resource "aws_securityhub_account" "main" {
+  enable_default_standards     = true
+  control_finding_generator    = "SECURITY_CONTROL"
+  auto_enable_controls         = true
+}
+
+# Enable CIS AWS Foundations Benchmark
+resource "aws_securityhub_standards_subscription" "cis" {
+  standards_arn = "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.4.0"
+  depends_on    = [aws_securityhub_account.main]
+}
+
+# Enable AWS Foundational Security Best Practices
+resource "aws_securityhub_standards_subscription" "aws_foundational" {
+  standards_arn = "arn:aws:securityhub:${data.aws_region.current.name}::standards/aws-foundational-security-best-practices/v/1.0.0"
+  depends_on    = [aws_securityhub_account.main]
+}
+
+data "aws_region" "current" {}
+'''
+
+    def _generate_inspector_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate Inspector Terraform."""
+        return '''# Amazon Inspector Configuration
+
+resource "aws_inspector2_enabler" "main" {
+  account_ids   = [data.aws_caller_identity.current.account_id]
+  resource_types = ["EC2", "ECR", "LAMBDA"]
+}
+
+data "aws_caller_identity" "current" {}
+'''
+
+    def _generate_vpc_flow_logs_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate VPC Flow Logs Terraform."""
+        return '''# VPC Flow Logs Configuration
+
+# Note: Apply this to each VPC in your account
+
+resource "aws_flow_log" "vpc" {
+  for_each = toset(var.vpc_ids)
+
+  iam_role_arn    = aws_iam_role.flow_logs.arn
+  log_destination = aws_s3_bucket.flow_logs.arn
+  traffic_type    = "ALL"
+  vpc_id          = each.value
+
+  destination_options {
+    file_format        = "parquet"
+    per_hour_partition = true
+  }
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+# S3 bucket for flow logs
+resource "aws_s3_bucket" "flow_logs" {
+  bucket = "vpc-flow-logs-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+# IAM role for flow logs
+resource "aws_iam_role" "flow_logs" {
+  name = "vpc-flow-logs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "vpc-flow-logs.amazonaws.com"
+      }
+    }]
+  })
+}
+
+variable "vpc_ids" {
+  description = "List of VPC IDs to enable flow logs on"
+  type        = list(string)
+}
+
+data "aws_caller_identity" "current" {}
+'''
+
+    def _generate_iam_password_policy_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate IAM Password Policy Terraform."""
+        min_length = config.get("minimum_length", 14)
+        max_age = config.get("max_age_days", 90)
+        reuse_prevention = config.get("reuse_prevention", 24)
+
+        return f'''# IAM Password Policy Configuration
+
+resource "aws_iam_account_password_policy" "soc2" {{
+  minimum_password_length        = {min_length}
+  require_uppercase_characters   = true
+  require_lowercase_characters   = true
+  require_numbers                = true
+  require_symbols                = true
+  allow_users_to_change_password = true
+  max_password_age               = {max_age}
+  password_reuse_prevention      = {reuse_prevention}
+}}
+'''
+
+    def _generate_kms_terraform(self, config: dict, session: DecisionSession) -> str:
+        """Generate KMS key Terraform."""
+        return '''# KMS Customer Managed Key
+
+resource "aws_kms_key" "main" {
+  description             = "KMS key for data encryption"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  tags = {
+    Compliance = "SOC2"
+    ManagedBy  = "CARL"
+  }
+}
+
+resource "aws_kms_alias" "main" {
+  name          = "alias/soc2-encryption"
+  target_key_id = aws_kms_key.main.key_id
+}
+
+output "kms_key_arn" {
+  value = aws_kms_key.main.arn
+}
+'''
+
     def format_generated_code_summary(
         self,
         modules: list[TerraformModule],
@@ -2216,25 +2688,60 @@ output "config_recorder_id" {
         """Format summary of generated code for Slack."""
         total_cost = sum(m.estimated_monthly_cost for m in modules)
 
-        lines = [
-            "*Generated Terraform Modules*",
-            "",
-            f"Based on your selections, CARL has generated {len(modules)} Terraform modules:",
-            "",
-        ]
+        # Framework mode: Different header
+        if session.framework_mode and session.framework:
+            lines = [
+                f"*Generated {session.framework.name} Compliance Modules*",
+                "",
+                f"CARL has generated {len(modules)} Terraform modules to fix compliance gaps:",
+                "",
+            ]
+        else:
+            lines = [
+                "*Generated Terraform Modules*",
+                "",
+                f"Based on your selections, CARL has generated {len(modules)} Terraform modules:",
+                "",
+            ]
 
         for module in modules:
+            # Basic info
             lines.extend([
                 f"*{module.name}*",
                 f"   Path: `{module.path}/`",
                 f"   {module.description}",
-                f"   Est. Cost: ${module.estimated_monthly_cost:.0f}/mo",
-                "",
             ])
 
-        lines.extend([
-            "---",
-            f"*Total Estimated Monthly Cost:* ${total_cost:.0f}",
+            # Compliance metadata (if available)
+            if module.compliance_controls:
+                controls_str = ", ".join(module.compliance_controls)
+                lines.append(f"   Controls: {controls_str}")
+
+            # Gap status
+            if module.gap_status:
+                status_emoji = "❌" if module.gap_status == "missing" else "⚠️"
+                lines.append(f"   Status: {status_emoji} {module.gap_status.upper()}")
+
+            # Cost
+            if module.estimated_monthly_cost > 0:
+                lines.append(f"   Est. Cost: ${module.estimated_monthly_cost:.2f}/mo")
+            else:
+                lines.append(f"   Est. Cost: $0 (config change only)")
+
+            lines.append("")
+
+        # Framework mode: Show compliance percentage
+        if session.framework_mode and session.gap_analysis:
+            lines.extend([
+                "---",
+                f"*Compliance Status:* {session.gap_analysis.compliance_percentage:.1f}% → 100%",
+                f"*Modules Generated:* {len(modules)}",
+                f"*Total Estimated Monthly Cost:* ${total_cost:.2f}",
+            ])
+        else:
+            lines.extend([
+                "---",
+                f"*Total Estimated Monthly Cost:* ${total_cost:.0f}",
             "",
             "_The code has been generated with sensible defaults._",
             "_Review and customize variables before deploying._",

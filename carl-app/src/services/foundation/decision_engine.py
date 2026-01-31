@@ -29,6 +29,13 @@ from knowledge.aws_pricing import (
     calculate_monthly_cost,
     Region,
 )
+from services.framework_loader import ComplianceFramework, get_framework_loader
+from services.framework_gap_analyzer import (
+    FrameworkGapAnalysis,
+    ComplianceGap,
+    GapStatus,
+    get_gap_analyzer
+)
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -61,6 +68,12 @@ class DecisionResult:
     user_confirmed: bool = False
     custom_configuration: dict[str, Any] = field(default_factory=dict)
 
+    # Framework-aware additions
+    compliance_controls: list[str] = field(default_factory=list)  # e.g., ["CC7.2", "A1.3"]
+    why_required: str = ""  # Business explanation from framework
+    audit_evidence: list[str] = field(default_factory=list)  # What auditors check
+    gap_status: Optional[str] = None  # "missing", "misconfigured", or None for pattern-based
+
 
 @dataclass
 class DecisionSession:
@@ -92,6 +105,11 @@ class DecisionSession:
     # Generated outputs
     estimated_monthly_cost: float = 0.0
     terraform_modules: list[str] = field(default_factory=list)
+
+    # Framework-aware additions (NEW)
+    framework: Optional[ComplianceFramework] = None  # Selected compliance framework
+    gap_analysis: Optional[FrameworkGapAnalysis] = None  # Gap analysis results
+    framework_mode: bool = False  # True if using framework-driven flow
 
     @classmethod
     def create(cls, user_id: str, channel_id: str) -> "DecisionSession":
@@ -393,11 +411,79 @@ class DecisionEngine:
                 return session
         return None
 
+    def create_framework_session(
+        self,
+        user_id: str,
+        channel_id: str,
+        framework_id: str,
+        account_id: str = "unknown",
+        region: str = "us-east-1"
+    ) -> tuple[DecisionSession, FrameworkGapAnalysis]:
+        """
+        Create a new framework-driven session (NEW).
+
+        Loads framework, scans AWS environment, performs gap analysis.
+
+        Returns:
+            (session, gap_analysis) tuple
+        """
+        logger.info(f"Creating framework session for {framework_id}")
+
+        # Load framework
+        loader = get_framework_loader()
+        framework = loader.load(framework_id)
+
+        # Create session
+        session = DecisionSession.create(user_id, channel_id)
+        session.framework = framework
+        session.framework_mode = True
+        session.state = SessionState.GATHERING_REQUIREMENTS
+
+        # Scan AWS environment and perform gap analysis
+        analyzer = get_gap_analyzer()
+        gap_analysis = analyzer.analyze(framework, account_id, region)
+        session.gap_analysis = gap_analysis
+
+        # Store session
+        self.sessions[session.session_id] = session
+
+        logger.info(
+            f"Framework session created: {framework.name}, "
+            f"{gap_analysis.compliance_percentage:.1f}% compliant, "
+            f"{gap_analysis.missing_count} missing, "
+            f"{gap_analysis.misconfigured_count} misconfigured"
+        )
+
+        return session, gap_analysis
+
     def get_next_question(self, session: DecisionSession) -> dict | None:
         """Get the next requirement question for a session."""
         if session.current_phase != "requirements":
             return None
 
+        # Framework mode: Use framework-defined questions
+        if session.framework_mode and session.framework:
+            questions = session.framework.questions
+            if session.current_question_index >= len(questions):
+                return None
+
+            # Convert FrameworkQuestion to dict format expected by UI
+            fw_q = questions[session.current_question_index]
+            return {
+                "id": fw_q.id,
+                "question": fw_q.question,
+                "description": fw_q.description,
+                "input_type": fw_q.input_type,
+                "options": fw_q.options,
+                "default": fw_q.default,
+                "required": fw_q.required,
+                "depends_on": fw_q.depends_on,
+                "validation": fw_q.validation,
+                "min": fw_q.min,
+                "max": fw_q.max
+            }
+
+        # Original pattern mode: Use static REQUIREMENT_QUESTIONS
         if session.current_question_index >= len(REQUIREMENT_QUESTIONS):
             return None
 
@@ -414,11 +500,21 @@ class DecisionEngine:
 
         Returns the next action (next_question, show_summary, etc.)
         """
+        # Determine which question list to use
+        if session.framework_mode and session.framework:
+            questions = session.framework.questions
+            current_q_text = questions[session.current_question_index].question
+            total_questions = len(questions)
+        else:
+            questions = REQUIREMENT_QUESTIONS
+            current_q_text = REQUIREMENT_QUESTIONS[session.current_question_index]["question"]
+            total_questions = len(REQUIREMENT_QUESTIONS)
+
         # Store the answer
         session.requirements[question_id] = answer
         session.requirement_inputs.append(RequirementInput(
             question_id=question_id,
-            question=REQUIREMENT_QUESTIONS[session.current_question_index]["question"],
+            question=current_q_text,
             answer=answer,
         ))
 
@@ -426,7 +522,7 @@ class DecisionEngine:
         session.current_question_index += 1
 
         # Check if we have all requirements
-        if session.current_question_index >= len(REQUIREMENT_QUESTIONS):
+        if session.current_question_index >= total_questions:
             session.current_phase = "decisions"
             session.state = SessionState.REVIEWING_DECISIONS
 
@@ -439,17 +535,24 @@ class DecisionEngine:
             }
 
         # Return next question
-        next_q = REQUIREMENT_QUESTIONS[session.current_question_index]
+        next_q = self.get_next_question(session)
         return {
             "action": "ask_question",
             "question": next_q,
-            "progress": f"{session.current_question_index + 1}/{len(REQUIREMENT_QUESTIONS)}",
+            "progress": f"{session.current_question_index + 1}/{total_questions}",
         }
 
     def _generate_recommendations(self, session: DecisionSession) -> None:
         """Generate architecture recommendations based on requirements."""
         req = session.requirements
 
+        # NEW: Framework-driven flow (compliance-first)
+        if session.framework_mode and session.framework:
+            logger.info(f"Using framework-driven flow for {session.framework.name}")
+            self._generate_framework_recommendations(session)
+            return
+
+        # Original pattern-based flow
         # Try AI-driven recommendations first
         if self.use_ai and self.ai_architect:
             try:
@@ -636,6 +739,106 @@ class DecisionEngine:
 
         # Calculate total estimated cost
         self._calculate_total_cost(session)
+
+    def _generate_framework_recommendations(self, session: DecisionSession) -> None:
+        """
+        Generate recommendations from framework gap analysis (NEW).
+
+        This is the compliance-first flow where framework requirements
+        dictate what services are needed.
+        """
+        if not session.framework or not session.gap_analysis:
+            logger.error("Framework mode enabled but framework/gap_analysis missing")
+            # Fallback to static recommendations
+            self._generate_static_recommendations(session)
+            return
+
+        logger.info(
+            f"Generating recommendations from {session.framework.name} gap analysis: "
+            f"{session.gap_analysis.missing_count} missing, "
+            f"{session.gap_analysis.misconfigured_count} misconfigured"
+        )
+
+        # Create decisions from gaps (not patterns)
+        for gap in session.gap_analysis.gaps:
+            # Only create decisions for non-compliant services
+            if gap.status == GapStatus.COMPLIANT:
+                continue
+
+            # Create a mock decision for this gap
+            # (We'll refine this to actual patterns if available)
+            decision = self._gap_to_decision(gap, session)
+            if decision:
+                session.decisions.append(decision)
+
+        # Calculate total cost
+        session.estimated_monthly_cost = session.gap_analysis.estimated_cost_to_fix
+
+        logger.info(f"Generated {len(session.decisions)} decisions from framework gaps")
+
+    def _gap_to_decision(
+        self,
+        gap: ComplianceGap,
+        session: DecisionSession
+    ) -> Optional[DecisionResult]:
+        """
+        Convert a compliance gap to a decision result.
+
+        For services that map to existing patterns (egress, transit, ingress),
+        we use those patterns. For compliance services (cloudtrail, guardduty),
+        we create synthetic decisions.
+        """
+        # Map gap service to existing patterns (if available)
+        pattern_mappings = {
+            # These gaps map to existing architecture patterns
+            "nat_gateway": ("egress", EGRESS_PATTERNS, 0),  # Distributed NAT
+            "network_firewall": ("egress", EGRESS_PATTERNS, 2),  # Network Firewall
+            "vpc_peering": ("transit", TRANSIT_PATTERNS, 1),  # VPC Peering
+            "transit_gateway": ("transit", TRANSIT_PATTERNS, 2),  # Transit Gateway
+            "alb": ("ingress", INGRESS_PATTERNS, 0),  # Distributed ALB
+            "cloudfront": ("ingress", INGRESS_PATTERNS, 2),  # CloudFront
+        }
+
+        if gap.service in pattern_mappings:
+            category, pattern, option_index = pattern_mappings[gap.service]
+            return DecisionResult(
+                category=category,
+                decision=pattern,
+                selected_option=pattern.options[option_index],
+                compliance_controls=gap.controls,
+                why_required=gap.why_required,
+                audit_evidence=gap.audit_evidence,
+                gap_status=gap.status.value
+            )
+
+        # For compliance services without patterns, create synthetic decision
+        # (cloudtrail, guardduty, config, security_hub, etc.)
+        # These will be handled specially in foundation_builder
+        synthetic_decision = ArchitectureDecision(
+            category=gap.category,
+            question=f"Enable {gap.service} for compliance",
+            options=[
+                DecisionOption(
+                    name=f"Enable {gap.service}",
+                    description=gap.why_required,
+                    pros=[f"Satisfies controls: {', '.join(gap.controls)}"],
+                    cons=[],
+                    estimated_monthly_cost=gap.estimated_monthly_cost,
+                    use_cases=[gap.category]
+                )
+            ]
+        )
+
+        return DecisionResult(
+            category=gap.service,  # Use service name as category
+            decision=synthetic_decision,
+            selected_option=synthetic_decision.options[0],
+            compliance_controls=gap.controls,
+            why_required=gap.why_required,
+            audit_evidence=gap.audit_evidence,
+            gap_status=gap.status.value,
+            custom_configuration=gap.required_config  # Pass required config
+        )
 
     def get_ai_explanation(self, session: DecisionSession, decision_index: int) -> str:
         """Get AI-powered detailed explanation for a specific decision."""

@@ -2500,28 +2500,24 @@ def handle_foundation_command(
             )
             return {"statusCode": 200, "body": ""}
 
-        # Create new session
-        session = engine.create_session(user_id, channel_id)
-        first_question = engine.get_next_question(session)
+        # NEW: First ask for framework selection
+        from services.framework_loader import get_framework_loader
+        loader = get_framework_loader()
+        available_frameworks = loader.list_available_frameworks()
 
         blocks = [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": "AWS Foundation Builder"},
+                "text": {"type": "plain_text", "text": "CARL Foundation Builder"},
             },
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "Welcome to the CARL Foundation Builder. "
-                        "I'll guide you through a series of questions to understand your requirements, "
-                        "then recommend the best architecture with accurate cost estimates.\n\n"
-                        "Each recommendation includes:\n"
-                        "• *Pros and cons* for informed decisions\n"
-                        "• *Accurate AWS pricing* (no wild assumptions)\n"
-                        "• *SOC 2 control mappings*\n"
-                        "• *Ready-to-deploy Terraform code*"
+                        "Welcome to the CARL Foundation Builder!\n\n"
+                        "I'll help you build a compliant AWS foundation. "
+                        "First, let's determine if you need compliance framework support."
                     ),
                 },
             },
@@ -2530,35 +2526,47 @@ def handle_foundation_command(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Question 1:* {first_question['question']}\n\n_{first_question['description']}_",
+                    "text": "*Do you need compliance framework support?*\n\nIf you select a framework, CARL will:\n"
+                           "• Scan your AWS environment\n"
+                           "• Identify compliance gaps\n"
+                           "• Generate only what you need\n"
+                           "• Include control mappings and audit evidence\n"
+                           "• Ask fewer questions (5-6 vs 10)"
                 },
             },
         ]
 
-        # Add options as buttons or dropdown
-        if "options" in first_question:
-            elements = []
-            for opt in first_question["options"]:
-                elements.append({
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": opt["label"][:75]},
-                    "value": opt["value"],
-                    "action_id": f"foundation_answer_{session.session_id}_{first_question['id']}_{opt['value']}",
-                })
-            blocks.append({
-                "type": "actions",
-                "elements": elements[:5],  # Max 5 buttons per action block
+        # Framework selection buttons
+        framework_elements = []
+
+        # Add available frameworks
+        for fw_id in available_frameworks:
+            metadata = loader.get_framework_metadata(fw_id)
+            framework_elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": metadata.get('name', fw_id)[:75]},
+                "value": fw_id,
+                "action_id": f"foundation_select_framework_{fw_id}",
+                "style": "primary" if fw_id == "soc2" else None
             })
-            if len(elements) > 5:
-                blocks.append({
-                    "type": "actions",
-                    "elements": elements[5:],
-                })
+
+        # Add "Best Practices" option (no framework)
+        framework_elements.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Best Practices Only"},
+            "value": "none",
+            "action_id": "foundation_select_framework_none",
+        })
+
+        blocks.append({
+            "type": "actions",
+            "elements": framework_elements[:5],  # Max 5 buttons per action block
+        })
 
         blocks.append({
             "type": "context",
             "elements": [
-                {"type": "mrkdwn", "text": f"Session ID: {session.session_id[:8]}... | Use /carl foundation cancel` to exit"}
+                {"type": "mrkdwn", "text": "Tip: Select SOC 2 if selling to enterprises | Use Best Practices for general setup"}
             ],
         })
 
@@ -6022,6 +6030,8 @@ def handle_interaction(payload: dict) -> dict:
             elif action_id.startswith("deny_remediation_"):
                 remediation_id = action_id.replace("deny_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, False)
+            elif action_id.startswith("foundation_select_framework_"):
+                return handle_foundation_framework_selection(payload, action)
             elif action_id.startswith("foundation_answer_"):
                 return handle_foundation_answer(payload, action)
             elif action_id.startswith("foundation_accept_"):
@@ -6066,6 +6076,103 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_drift_suppress_button(payload, drift_id)
 
     return {"statusCode": 200, "body": "OK"}
+
+
+def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
+    """Handle framework selection for foundation builder (NEW)."""
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+    engine = get_decision_engine()
+
+    # Parse framework selection
+    action_id = action.get("action_id", "")
+    framework_id = action_id.replace("foundation_select_framework_", "")
+
+    # Remove existing message
+    message_ts = payload.get("message", {}).get("ts", "")
+    if message_ts:
+        try:
+            slack.client.chat_delete(channel=channel, ts=message_ts)
+        except Exception as e:
+            logger.warning(f"Failed to delete message: {e}")
+
+    if framework_id == "none":
+        # Best practices mode (original 10-question flow)
+        session = engine.create_session(user, channel)
+        first_question = engine.get_next_question(session)
+
+        slack.post_message(
+            channel,
+            text=(
+                f"*AWS Foundation Builder - Best Practices Mode*\n\n"
+                f"Question 1/{len(engine.patterns)}: {first_question['question']}\n\n"
+                f"_{first_question['description']}_"
+            )
+        )
+        # Continue with original question flow...
+        return {"statusCode": 200, "body": ""}
+
+    # Framework mode: Load framework and perform gap analysis
+    slack.post_message(
+        channel,
+        text=f"🔍 Loading {framework_id.upper()} framework and scanning your AWS environment..."
+    )
+
+    try:
+        from services.framework_loader import get_framework_loader
+        loader = get_framework_loader()
+        framework = loader.load(framework_id)
+
+        # Get AWS account ID and region
+        import boto3
+        sts = boto3.client('sts')
+        account_id = sts.get_caller_identity()['Account']
+        region = boto3.Session().region_name or "us-east-1"
+
+        # Create framework session with gap analysis
+        session, gap_analysis = engine.create_framework_session(
+            user,
+            channel,
+            framework_id,
+            account_id,
+            region
+        )
+
+        # Show gap analysis results
+        slack.post_message(
+            channel,
+            text=(
+                f"*{framework.name} Gap Analysis Complete*\n\n"
+                f"Your environment: *{gap_analysis.compliance_percentage:.1f}% compliant*\n\n"
+                f"✅ Compliant: {gap_analysis.compliant_count}\n"
+                f"❌ Missing: {gap_analysis.missing_count}\n"
+                f"⚠️ Misconfigured: {gap_analysis.misconfigured_count}\n"
+                f"💰 Est. cost to fix: ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
+                f"I'll ask you {len(framework.questions)} configuration questions, then generate Terraform to fix the gaps."
+            )
+        )
+
+        # Start asking framework questions
+        first_question = engine.get_next_question(session)
+        if first_question:
+            slack.post_message(
+                channel,
+                text=(
+                    f"*Question 1/{len(framework.questions)}:* {first_question['question']}\n\n"
+                    f"_{first_question['description']}_"
+                )
+            )
+        # TODO: Add button options for question
+
+    except Exception as e:
+        logger.error(f"Framework selection failed: {e}", exc_info=True)
+        slack.post_message(
+            channel,
+            text=f"❌ Error loading framework: {str(e)}\n\nPlease try again or contact support."
+        )
+
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_foundation_answer(payload: dict, action: dict) -> dict:

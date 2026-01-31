@@ -1,0 +1,470 @@
+# SOC 2 Type II Compliance Framework
+# Trust Services Criteria (2017 version)
+#
+# This framework definition drives both:
+# - CARL Foundation (single account setup)
+# - CARL Account Factory (multi-account organization)
+
+framework:
+  id: soc2
+  name: "SOC 2 Type II"
+  version: "2017 Trust Services Criteria"
+  description: "Service Organization Control 2 - Trust Services Criteria for security, availability, processing integrity, confidentiality, and privacy"
+
+  # Industry use case
+  typical_use_cases:
+    - "SaaS companies selling to enterprises"
+    - "Cloud service providers"
+    - "Data processing services"
+    - "Financial technology platforms"
+
+  # What auditors will check
+  audit_frequency: "Annual (Type II requires 6-12 month observation period)"
+  audit_cost_estimate: "$15,000 - $50,000 (depends on org size)"
+
+  # Required AWS services with specific configurations
+  required_services:
+
+    # Logging & Monitoring (CC7.2, CC7.1, A1.3)
+    logging_monitoring:
+      - service: cloudtrail
+        config:
+          enabled: true
+          multi_region: true
+          log_validation: true
+          retention_days: 2555  # 7 years (SOC 2 requirement)
+          encryption: required
+          log_to_s3: true
+          s3_lifecycle_enforced: true
+        controls:
+          - CC7.2  # System Monitoring
+          - A1.3   # Risk Mitigation
+        why_required: "SOC 2 CC7.2 requires 7 years of audit logs. Auditors verify all API calls are logged, retention is enforced, and logs are tamper-proof (validation enabled)."
+        audit_evidence:
+          - "CloudTrail configuration showing multi-region enabled"
+          - "S3 bucket lifecycle policy showing 2555-day retention"
+          - "CloudTrail logs for sample period"
+          - "Log validation status (aws cloudtrail describe-trails)"
+        validation_checks:
+          - check: "retention >= 2555 days"
+            failure: "Retention too short - SOC 2 requires 7 years minimum"
+          - check: "multi_region == true"
+            failure: "Multi-region must be enabled to capture all API calls"
+          - check: "log_file_validation == true"
+            failure: "Log validation required for tamper-proof audit trail"
+
+      - service: vpc_flow_logs
+        config:
+          all_vpcs: true
+          retention_days: 2555  # 7 years
+          log_destination_type: "s3"  # or cloud-watch-logs
+        controls:
+          - CC7.2  # System Monitoring
+        why_required: "Network traffic monitoring required for security event detection and incident response (CC7.2)."
+        audit_evidence:
+          - "VPC Flow Logs configuration for all VPCs"
+          - "Sample flow logs showing traffic patterns"
+        validation_checks:
+          - check: "enabled for all VPCs"
+            failure: "All VPCs must have flow logs enabled"
+
+      - service: guardduty
+        config:
+          enabled: true
+          enable_s3_protection: true
+          enable_eks_protection: true
+          enable_malware_protection: true
+          enable_rds_protection: true
+          finding_publishing_frequency: "FIFTEEN_MINUTES"
+        controls:
+          - CC7.1  # Detection of Security Events
+        why_required: "Continuous threat detection required (CC7.1). Auditors verify GuardDuty is enabled and findings are reviewed regularly."
+        audit_evidence:
+          - "GuardDuty detector status (enabled)"
+          - "Finding review logs (monthly high/critical finding reviews)"
+          - "Response procedures for findings"
+        validation_checks:
+          - check: "detector enabled"
+            failure: "GuardDuty must be enabled for threat detection"
+          - check: "all data sources enabled"
+            failure: "S3, EKS, Malware, RDS protection must all be enabled"
+
+    # Configuration Management (CC8.1)
+    configuration_management:
+      - service: config
+        config:
+          enabled: true
+          all_supported_resources: true
+          retention_days: 2555  # 7 years
+          snapshot_delivery_frequency: "TwentyFour_Hours"
+          required_rules:
+            - "cloudtrail-enabled"
+            - "guardduty-enabled-centralized"
+            - "s3-bucket-public-read-prohibited"
+            - "s3-bucket-public-write-prohibited"
+            - "s3-bucket-server-side-encryption-enabled"
+            - "vpc-flow-logs-enabled"
+            - "iam-password-policy"
+            - "iam-user-mfa-enabled"
+            - "rds-storage-encrypted"
+            - "encrypted-volumes"
+        controls:
+          - CC8.1  # Configuration Management
+        why_required: "Track configuration changes over time. Auditors check Config is recording all resource types and has historical snapshots."
+        audit_evidence:
+          - "Config recorder status (recording all resources)"
+          - "Sample configuration snapshots"
+          - "Config rules compliance reports"
+        validation_checks:
+          - check: "recorder enabled"
+            failure: "Config recorder must be enabled"
+          - check: "all_supported_resources == true"
+            failure: "Must record all supported resource types"
+
+      - service: security_hub
+        config:
+          enabled: true
+          auto_enable_controls: true
+          enable_default_standards: true
+          standards:
+            - "cis-aws-foundations-benchmark/v/1.4.0"
+            - "aws-foundational-security-best-practices/v/1.0.0"
+        controls:
+          - CC8.1  # Configuration Management
+          - CC6.1  # Logical Access Controls
+        why_required: "Centralized security findings and compliance checks. Auditors review Security Hub score and remediation tracking."
+        audit_evidence:
+          - "Security Hub compliance score (target: 80+/100)"
+          - "Monthly security findings reports"
+          - "Remediation tracking for failed controls"
+        validation_checks:
+          - check: "hub enabled"
+            failure: "Security Hub must be enabled"
+          - check: "standards enabled"
+            failure: "CIS + AWS Foundational standards required"
+
+    # Access Control (CC6.1, CC6.2)
+    access_control:
+      - service: iam_password_policy
+        config:
+          minimum_length: 14
+          require_uppercase: true
+          require_lowercase: true
+          require_numbers: true
+          require_symbols: true
+          max_age_days: 90
+          reuse_prevention: 24
+          allow_users_to_change: true
+        controls:
+          - CC6.1  # Logical Access - Authentication
+        why_required: "Strong password policy required for user authentication (CC6.1). Auditors verify policy settings meet complexity requirements."
+        audit_evidence:
+          - "IAM password policy configuration"
+          - "IAM credential report (quarterly)"
+        validation_checks:
+          - check: "minimum_length >= 14"
+            failure: "Password length must be 14+ characters"
+          - check: "max_age_days <= 90"
+            failure: "Password rotation required every 90 days"
+
+      - service: iam_mfa
+        config:
+          enforcement: "required_for_console"
+          mfa_required_for_all_users: true
+        controls:
+          - CC6.1  # Logical Access - MFA
+        why_required: "Multi-factor authentication required for all console access (CC6.1). Auditors verify all users have MFA devices."
+        audit_evidence:
+          - "IAM credential report showing MFA enabled for all users"
+          - "List of MFA devices (aws iam list-virtual-mfa-devices)"
+        validation_checks:
+          - check: "all console users have MFA"
+            failure: "All users with console access must have MFA enabled"
+
+    # Encryption (CC6.1, C1.1)
+    encryption:
+      - service: kms
+        config:
+          create_customer_managed_key: true
+          key_rotation_enabled: true
+          key_policy_requires_mfa_for_deletion: true
+        controls:
+          - CC6.1  # Encryption at Rest
+          - C1.1   # Confidentiality
+        why_required: "Customer-managed KMS keys required for encryption at rest. Auditors verify key rotation and access policies."
+        audit_evidence:
+          - "KMS key list with rotation status"
+          - "Key policies showing restricted access"
+        validation_checks:
+          - check: "rotation enabled"
+            failure: "KMS key rotation must be enabled"
+
+      - service: s3_encryption
+        config:
+          default_encryption: "required"
+          encryption_type: "aws:kms"  # Use KMS, not AES256
+          block_public_access: true
+        controls:
+          - CC6.1  # Encryption at Rest
+        why_required: "All S3 buckets must have encryption enabled. Auditors check bucket policies and encryption settings."
+        audit_evidence:
+          - "S3 bucket encryption configuration"
+          - "Bucket policy blocking public access"
+        validation_checks:
+          - check: "encryption enabled on all buckets"
+            failure: "All S3 buckets must have default encryption"
+
+      - service: ebs_encryption
+        config:
+          encryption_by_default: true
+        controls:
+          - CC6.1  # Encryption at Rest
+        why_required: "All EBS volumes must be encrypted. Auditors verify encryption by default is enabled."
+        audit_evidence:
+          - "EBS encryption by default setting"
+          - "Sample EBS volumes showing encryption status"
+        validation_checks:
+          - check: "encryption_by_default == true"
+            failure: "EBS encryption by default must be enabled"
+
+      - service: rds_encryption
+        config:
+          storage_encrypted: true
+          require_ssl_connections: true
+        controls:
+          - CC6.1  # Encryption at Rest/Transit
+        why_required: "Database encryption required. Auditors verify RDS instances are encrypted and enforce SSL."
+        audit_evidence:
+          - "RDS instance encryption status"
+          - "Parameter groups requiring SSL connections"
+        validation_checks:
+          - check: "all RDS instances encrypted"
+            failure: "All RDS instances must have storage encryption enabled"
+
+    # Vulnerability Management (CC7.1)
+    vulnerability_management:
+      - service: inspector
+        config:
+          enabled: true
+          scan_ec2: true
+          scan_ecr: true
+          scan_lambda: true
+          continuous_scanning: true
+        controls:
+          - CC7.1  # Vulnerability Detection
+        why_required: "Continuous vulnerability scanning for EC2, containers, and Lambda (CC7.1). Auditors verify Inspector is enabled and findings are remediated."
+        audit_evidence:
+          - "Inspector activation status"
+          - "Monthly vulnerability scan reports"
+          - "Remediation tracking for critical/high findings"
+        validation_checks:
+          - check: "inspector enabled"
+            failure: "Inspector must be enabled for vulnerability scanning"
+
+  # Questions to ask user (configuration details, not "should we enable X?")
+  # Framework already knows what services are required
+  questions:
+    - id: primary_region
+      question: "Which AWS region is your primary region?"
+      description: "CloudTrail logs, Config aggregator, and centralized logging will be stored here"
+      input_type: select
+      options:
+        - value: us-east-1
+          label: "US East (N. Virginia) - us-east-1"
+          description: "Recommended - lowest cost, most services available"
+        - value: us-west-2
+          label: "US West (Oregon) - us-west-2"
+          description: "Good alternative, slightly lower latency for west coast"
+        - value: eu-west-1
+          label: "Europe (Ireland) - eu-west-1"
+          description: "GDPR compliance, European data residency"
+        - value: eu-central-1
+          label: "Europe (Frankfurt) - eu-central-1"
+          description: "German data residency requirements"
+      default: us-east-1
+      required: true
+
+    - id: multi_region
+      question: "Do you need multi-region compliance monitoring?"
+      description: "GuardDuty, Security Hub, and Config will be enabled in all selected regions. CloudTrail is always multi-region."
+      input_type: select
+      options:
+        - value: single
+          label: "Single region (primary only)"
+          description: "Lower cost, suitable for single-region deployments"
+        - value: multi
+          label: "Multi-region monitoring"
+          description: "Security services enabled in multiple regions (enter region list)"
+      default: single
+      required: true
+
+    - id: additional_regions
+      question: "Which additional regions do you operate in?"
+      description: "GuardDuty and Security Hub will be enabled in these regions"
+      input_type: multi_select
+      options:
+        - value: us-east-1
+          label: "us-east-1"
+        - value: us-west-2
+          label: "us-west-2"
+        - value: eu-west-1
+          label: "eu-west-1"
+        - value: eu-central-1
+          label: "eu-central-1"
+        - value: ap-southeast-1
+          label: "ap-southeast-1"
+      depends_on:
+        multi_region: multi
+      required: false
+
+    - id: account_name
+      question: "What should we name this AWS account?"
+      description: "Used for tagging and identification (e.g., 'production', 'prod-main', 'company-prod')"
+      input_type: text
+      default: "production"
+      validation:
+        pattern: "^[a-z0-9-]+$"
+        message: "Account name must be lowercase alphanumeric with hyphens"
+      required: true
+
+    - id: vpc_count
+      question: "How many VPCs do you have or plan to have?"
+      description: "Helps determine VPC Flow Logs configuration and network architecture"
+      input_type: number
+      min: 1
+      max: 100
+      default: 1
+      required: true
+
+    - id: output_method
+      question: "How should CARL deliver the Terraform code?"
+      description: "Choose how you want to receive the generated compliance modules"
+      input_type: select
+      options:
+        - value: slack_files
+          label: "Upload files to Slack"
+          description: "Download .tf files directly from Slack"
+        - value: github_pr
+          label: "Create GitHub Pull Request"
+          description: "CARL creates PR in your infrastructure repo"
+        - value: both
+          label: "Both Slack + GitHub PR"
+          description: "Files in Slack and PR for version control"
+      default: slack_files
+      required: true
+
+  # Organizational structure (used by Account Factory, ignored by Foundation)
+  organizational_structure:
+    - ou_name: Security
+      purpose: "Security team and centralized security services"
+      accounts:
+        - name: security-audit
+          purpose: "Security Hub delegated admin, GuardDuty admin"
+        - name: security-logging
+          purpose: "Centralized CloudTrail, Config, VPC Flow Logs"
+
+    - ou_name: Infrastructure
+      purpose: "Shared services and networking"
+      accounts:
+        - name: network
+          purpose: "Transit Gateway, centralized networking"
+        - name: shared-services
+          purpose: "DNS, monitoring, backup"
+
+    - ou_name: Workloads
+      purpose: "Application workloads"
+      accounts:
+        - name: production
+          purpose: "Production workloads"
+        - name: staging
+          purpose: "Staging environment"
+        - name: development
+          purpose: "Development environment"
+
+  # Service Control Policies (used by Account Factory, ignored by Foundation)
+  scps:
+    - name: deny_security_service_disable
+      description: "Prevent disabling GuardDuty, Security Hub, Config, CloudTrail"
+      target_ous:
+        - Security
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - guardduty:DeleteDetector
+          - guardduty:DisassociateFromMasterAccount
+          - securityhub:DisableSecurityHub
+          - config:DeleteConfigurationRecorder
+          - config:StopConfigurationRecorder
+          - cloudtrail:DeleteTrail
+          - cloudtrail:StopLogging
+        Resource: "*"
+
+    - name: require_mfa
+      description: "All console access requires MFA"
+      target_ous:
+        - Security
+        - Infrastructure
+        - Workloads
+      statement:
+        Effect: Deny
+        Action: "*"
+        Resource: "*"
+        Condition:
+          BoolIfExists:
+            aws:MultiFactorAuthPresent: "false"
+
+    - name: require_encryption
+      description: "All S3 buckets and EBS volumes must be encrypted"
+      target_ous:
+        - Workloads
+      statement:
+        - Effect: Deny
+          Action:
+            - s3:PutObject
+          Resource: "*"
+          Condition:
+            StringNotEquals:
+              s3:x-amz-server-side-encryption:
+                - aws:kms
+                - AES256
+        - Effect: Deny
+          Action:
+            - ec2:RunInstances
+          Resource: "arn:aws:ec2:*:*:volume/*"
+          Condition:
+            Bool:
+              ec2:Encrypted: "false"
+
+  # Cost estimates for SOC 2 compliance
+  estimated_monthly_costs:
+    cloudtrail: 0  # Free for management events
+    cloudtrail_s3_storage: 5  # ~$5/month for 7 years of logs
+    vpc_flow_logs: 10  # Depends on traffic volume
+    guardduty: 1  # ~$0.50-2/month per account
+    config: 2  # ~$2/month for recorder + rules
+    security_hub: 0  # No charge for Security Hub itself
+    inspector: 0  # Pay per scan, ~$1-5/month
+    kms: 1  # $1/month per customer-managed key
+    total_baseline: 20  # Approximate baseline for small account
+
+  # Evidence collection schedule
+  evidence_collection:
+    monthly:
+      - "CloudTrail logs (download sample from S3)"
+      - "GuardDuty findings report (high/critical findings)"
+      - "Security Hub compliance score"
+      - "Config compliance dashboard screenshots"
+
+    quarterly:
+      - "IAM credential report (all users)"
+      - "MFA device audit"
+      - "Access review documentation"
+      - "Security group audit"
+      - "Encryption validation (S3, EBS, RDS)"
+
+    annually:
+      - "Full SOC 2 Type II audit (engage auditor)"
+      - "Penetration testing report"
+      - "Disaster recovery testing documentation"
+      - "Incident response plan review"
