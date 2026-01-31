@@ -7412,7 +7412,7 @@ def handle_report_command_sync(
     # Post initial status message and get timestamp for updates
     status_response = slack.post_message(
         channel_id,
-        text=f"📊 **Generating {report_type} report...**\n\n🔄 Loading evidence and findings..."
+        text=f"📊 Generating {report_type} report...\n\n🔄 Loading evidence and findings..."
     )
     status_ts = status_response.get("ts") if status_response else None
 
@@ -7423,7 +7423,7 @@ def handle_report_command_sync(
                 slack.update_message(
                     channel_id,
                     status_ts,
-                    text=f"📊 **Generating {report_type} report...**\n\n{status}"
+                    text=f"📊 Generating {report_type} report...\n\n{status}"
                 )
             except Exception as e:
                 logger.warning(f"Failed to update progress: {e}")
@@ -7509,15 +7509,15 @@ def handle_report_command_sync(
             s3_key = generator.save_report(report, report_type_enum)
             download_url = generator.generate_presigned_url(s3_key, expiration=86400)
 
-            summary_text = f"""📊 **Control Report Generated Successfully**
+            summary_text = f"""📊 Control Report Generated Successfully
 
-**Control ID:** {control_id.upper()}
-**Audit Period:** {start_date} to {end_date}
+Control ID: {control_id.upper()}
+Audit Period: {start_date} to {end_date}
 
-📥 **Download Report (Markdown):**
+📥 Download Report (Markdown):
 {download_url}
 
-_Link expires in 24 hours. PDF format coming soon!_"""
+Link expires in 24 hours. PDF format coming soon!"""
 
             slack.post_message(channel_id, text=summary_text)
             return {"statusCode": 200, "body": "Control report generated"}
@@ -7539,7 +7539,7 @@ _Link expires in 24 hours. PDF format coming soon!_"""
                 file_content=pdf_bytes,
                 filename=filename,
                 title=f"{report_type.title()} Compliance Report",
-                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n\n**Environment:** {scan_summary}\n\nProfessional PDF report attached below ⬇️"
+                initial_comment=f"📊 {report_type.title()} Report Generated\n\nAudit Period: {start_date} to {end_date}\n\nEnvironment: {scan_summary}\n\nProfessional PDF report attached below ⬇️"
             )
         except Exception as e:
             logger.error(f"Failed to upload PDF to Slack: {e}")
@@ -7557,18 +7557,18 @@ _Link expires in 24 hours. PDF format coming soon!_"""
                 return {"statusCode": 500, "body": "Failed to generate download URL"}
 
             # Use plain URL format (not markdown) to avoid Slack formatting issues
-            summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
+            summary_text = f"""📊 {report_type.title()} Report Generated Successfully
 
-**Audit Period:** {start_date} to {end_date}
+Audit Period: {start_date} to {end_date}
 
-**Environment:** {scan_summary}
+Environment: {scan_summary}
 
 ⚠️ Could not upload directly to Slack.
 
-📥 **Download PDF Report:**
+📥 Download PDF Report:
 {download_url}
 
-_Link expires in 24 hours_"""
+Link expires in 24 hours"""
 
             slack.post_message(channel_id, text=summary_text)
             return {"statusCode": 200, "body": "Report generated (S3 fallback)"}
