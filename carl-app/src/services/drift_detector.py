@@ -135,7 +135,12 @@ class DriftItem:
     remediated_at: str = ""
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        """Convert to dict with DynamoDB keys (pk, sk)."""
+        data = asdict(self)
+        # Add DynamoDB composite key
+        data['pk'] = f"DRIFT#{self.account_id}"
+        data['sk'] = self.drift_id
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "DriftItem":
@@ -749,11 +754,15 @@ class DriftDetector:
             logger.exception("Error getting drift summary")
             return {"error": str(e)}
 
-    def acknowledge_drift(self, drift_id: str, user_id: str, notes: str = "") -> bool:
+    def acknowledge_drift(self, drift_id: str, user_id: str, notes: str = "", account_id: str = None) -> bool:
         """Acknowledge a drift item (mark as reviewed)."""
         try:
+            # Get account_id if not provided
+            if not account_id:
+                account_id = self.account_id
+
             self.table.update_item(
-                Key={"drift_id": drift_id},
+                Key={"pk": f"DRIFT#{account_id}", "sk": drift_id},
                 UpdateExpression="SET acknowledged = :ack, acknowledged_by = :user, acknowledged_at = :time, notes = :notes",
                 ExpressionAttributeValues={
                     ":ack": True,
@@ -767,11 +776,15 @@ class DriftDetector:
             logger.exception(f"Error acknowledging drift {drift_id}")
             return False
 
-    def mark_remediated(self, drift_id: str) -> bool:
+    def mark_remediated(self, drift_id: str, account_id: str = None) -> bool:
         """Mark a drift item as remediated."""
         try:
+            # Get account_id if not provided
+            if not account_id:
+                account_id = self.account_id
+
             self.table.update_item(
-                Key={"drift_id": drift_id},
+                Key={"pk": f"DRIFT#{account_id}", "sk": drift_id},
                 UpdateExpression="SET remediated = :rem, remediated_at = :time",
                 ExpressionAttributeValues={
                     ":rem": True,
