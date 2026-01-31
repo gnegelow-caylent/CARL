@@ -53,7 +53,7 @@ class RemediationService:
             RemediationGuidance with commands and steps, or None if no remediation available
         """
         finding_id = finding.get('id', 'unknown')
-        resource_type = finding.get('resource_type', '')
+        resource_type = finding.get('resource_type', '').upper()  # Normalize to uppercase for matching
         resource_id = finding.get('resource_id', '')
         title = finding.get('title', '')
         description = finding.get('description', '')

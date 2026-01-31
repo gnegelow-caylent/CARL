@@ -7857,56 +7857,65 @@ def handle_drift_acknowledge_button(payload: dict, drift_id: str) -> dict:
 def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
     """Handle Show Fix button click for drift items."""
     import os
+    import threading
     from services.drift_detector import DriftDetector
     from services.remediation_service import RemediationService
 
     slack = get_slack_service()
     channel = payload.get("channel", {}).get("id", "")
-
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
-    try:
-        logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
-        detector = DriftDetector(drift_table=drift_table)
+    # Process in background thread to avoid 3-second timeout
+    def process_show_fix():
+        try:
+            logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
+            detector = DriftDetector(drift_table=drift_table)
 
-        # Get drift item details
-        drift_item = detector.get_drift_item(drift_id)
+            # Get drift item details
+            drift_item = detector.get_drift_item(drift_id)
 
-        if not drift_item:
-            logger.error(f"Drift item not found in DynamoDB: {drift_id}")
-            slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
-            return {"statusCode": 200, "body": ""}
+            if not drift_item:
+                logger.error(f"Drift item not found in DynamoDB: {drift_id}")
+                slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
+                return
 
-        # Convert drift item to finding format for remediation service
-        finding = {
-            "id": drift_item.drift_id,
-            "title": f"{drift_item.resource_type} Configuration Drift",
-            "resource_type": drift_item.resource_type,
-            "resource_id": drift_item.resource_id,
-            "severity": drift_item.severity.upper(),
-            "description": drift_item.description
-        }
+            # Convert drift item to finding format for remediation service
+            # Use description as title so remediation service can match keywords like "encryption", "public", etc.
+            finding = {
+                "id": drift_item.drift_id,
+                "title": drift_item.description,  # Use actual description with keywords
+                "resource_type": drift_item.resource_type,
+                "resource_id": drift_item.resource_id,
+                "severity": drift_item.severity.upper(),
+                "description": drift_item.description
+            }
 
-        # Generate remediation guidance
-        remediation_service = RemediationService()
-        guidance = remediation_service.generate_remediation(finding)
+            # Generate remediation guidance
+            remediation_service = RemediationService()
+            guidance = remediation_service.generate_remediation(finding)
 
-        if guidance:
-            # Format for Slack
-            guidance_blocks = remediation_service.format_for_slack(guidance)
-            slack.post_message(channel, blocks=guidance_blocks['blocks'])
-        else:
-            slack.post_message(
-                channel,
-                text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
-                     f"*Drift Details:*\n{drift_item.description}\n\n"
-                     f"Please review and fix manually or run `/carl drift terraform` to compare with state."
-            )
+            if guidance:
+                # Format for Slack
+                guidance_blocks = remediation_service.format_for_slack(guidance)
+                slack.post_message(channel, blocks=guidance_blocks['blocks'])
+            else:
+                # No automatic guidance - show manual instructions
+                slack.post_message(
+                    channel,
+                    text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
+                         f"*Drift Details:*\n{drift_item.description}\n\n"
+                         f"Please review and fix manually or run `/carl drift terraform` to compare with state."
+                )
 
-    except Exception as e:
-        logger.exception(f"Error showing fix for drift {drift_id}")
-        slack.post_message(channel, text=f"❌ Error: {str(e)}")
+        except Exception as e:
+            logger.exception(f"Error showing fix for drift {drift_id}")
+            slack.post_message(channel, text=f"❌ Error: {str(e)}")
 
+    # Start background thread
+    thread = threading.Thread(target=process_show_fix)
+    thread.start()
+
+    # Return immediate 200 OK to Slack (prevents timeout)
     return {"statusCode": 200, "body": ""}
 
 
