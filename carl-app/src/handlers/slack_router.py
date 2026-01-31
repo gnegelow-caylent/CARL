@@ -1519,6 +1519,17 @@ def handle_findings_list_command(
         # Add divider between findings
         blocks.append({"type": "divider"})
 
+    # Add reminder to refresh evidence
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "💡 _To refresh findings with latest AWS state, run `/carl evidence collect`_"
+            }
+        ]
+    })
+
     slack.post_message(channel_id, blocks=blocks)
 
     return {"statusCode": 200, "body": ""}
@@ -6869,11 +6880,49 @@ def handle_evidence_command(
     import os
     import json
     import boto3
-    from services.evidence_collector import EvidenceCollector
 
     parts = args.split() if args else []
     subcommand = parts[0].lower() if parts else "status"
 
+    # For "collect" command, invoke async immediately without initializing heavy resources
+    if subcommand == "collect":
+        # Invoke async processing in background FIRST (before any Slack API calls or heavy init)
+        try:
+            lambda_client = boto3.client('lambda')
+            lambda_client.invoke(
+                FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+                InvocationType='Event',  # Async invocation
+                Payload=json.dumps({
+                    'action': 'process_evidence_collect_async',
+                    'channel_id': channel_id,
+                    'user_id': user_id
+                })
+            )
+        except Exception as e:
+            logger.error(f"Failed to invoke async evidence collection: {e}")
+            # Fallback to synchronous if async fails
+            from services.evidence_collector import EvidenceCollector
+            evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
+            evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
+            collector = EvidenceCollector(
+                evidence_bucket=evidence_bucket,
+                evidence_table=evidence_table
+            )
+            return handle_evidence_collect_sync(slack, channel_id, user_id)
+
+        # Return immediate response in body (shows to user without additional API call)
+        # This is MUCH faster than slack.post_message() and prevents timeout
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "response_type": "ephemeral",
+                "text": "🔍 *Starting evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
+            })
+        }
+
+    # For other subcommands, initialize collector as needed
+    from services.evidence_collector import EvidenceCollector
     evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
     evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
 
@@ -6882,35 +6931,6 @@ def handle_evidence_command(
             evidence_bucket=evidence_bucket,
             evidence_table=evidence_table
         )
-
-        if subcommand == "collect":
-            # Invoke async processing in background FIRST (before any Slack API calls)
-            try:
-                lambda_client = boto3.client('lambda')
-                lambda_client.invoke(
-                    FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
-                    InvocationType='Event',  # Async invocation
-                    Payload=json.dumps({
-                        'action': 'process_evidence_collect_async',
-                        'channel_id': channel_id,
-                        'user_id': user_id
-                    })
-                )
-            except Exception as e:
-                logger.error(f"Failed to invoke async evidence collection: {e}")
-                # Fallback to synchronous if async fails
-                return handle_evidence_collect_sync(slack, channel_id, user_id)
-
-            # Return immediate response in body (shows to user without additional API call)
-            # This is MUCH faster than slack.post_message() and prevents timeout
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({
-                    "response_type": "ephemeral",
-                    "text": "🔍 *Starting evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
-                })
-            }
 
         elif subcommand == "list":
             # Parse optional type filter (e.g., /carl evidence list IAM)
