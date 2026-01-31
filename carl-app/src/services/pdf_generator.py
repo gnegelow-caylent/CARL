@@ -415,11 +415,11 @@ class PDFReportGenerator:
         </div>
     </div>
 
-    <!-- Executive Summary -->
-    <h1>Executive Summary</h1>
+    <!-- Summary Section (Executive Summary for executive reports, Summary for full reports) -->
+    <h1>{('Executive Summary' if report_data.get('is_executive') else 'Summary')}</h1>
 
     <div class="executive-summary">
-        <p><strong>Overview:</strong> {report_data.get('executive_summary', 'This report provides a comprehensive assessment of compliance controls.')}</p>
+        <p><strong>Overview:</strong> {report_data.get('executive_summary') or report_data.get('summary', 'This report provides a comprehensive assessment of compliance controls.')}</p>
     </div>
 
     <div class="chart-container">
@@ -445,6 +445,9 @@ class PDFReportGenerator:
         <img src="data:image/png;base64,{findings_chart}" alt="Findings by Severity">
     </div>
 
+    <!-- AI-Generated Insights (full reports only) -->
+    {self._generate_insights_section(report_data)}
+
     <!-- AI-Generated Recommendations (if available) -->
     {self._generate_recommendations_section(report_data)}
 
@@ -458,6 +461,26 @@ class PDFReportGenerator:
 </html>
 """
         return html
+
+    def _generate_insights_section(self, report_data: dict) -> str:
+        """Generate AI insights section if available (full reports only)."""
+        insights = report_data.get('ai_insights', '')
+        is_executive = report_data.get('is_executive', False)
+
+        # Only show insights in full reports
+        if is_executive or not insights or len(insights.strip()) < 20:
+            return ""
+
+        # Format insights with proper HTML
+        formatted_insights = insights.replace('\n', '<br>')
+
+        return f"""
+    <div class="page-break"></div>
+    <h2>Key Insights</h2>
+    <div class="executive-summary">
+        <p style="white-space: pre-wrap;">{formatted_insights}</p>
+    </div>
+"""
 
     def _generate_recommendations_section(self, report_data: dict) -> str:
         """Generate AI recommendations section if available."""
@@ -484,6 +507,7 @@ class PDFReportGenerator:
         is_executive = report_data.get('is_executive', False)
         show_controls = report_data.get('show_controls_table', True)
         has_recommendations = report_data.get('ai_recommendations', '') and len(report_data.get('ai_recommendations', '').strip()) >= 20
+        has_insights = report_data.get('ai_insights', '') and len(report_data.get('ai_insights', '').strip()) >= 20
 
         # Controls section (only for full audit report)
         if show_controls and 'controls' in report_data and report_data['controls']:
@@ -514,6 +538,9 @@ class PDFReportGenerator:
                 sections.append('<div class="page-break"></div>')
             # For executive: only add page break if we DON'T have recommendations (to avoid double page break)
             elif is_executive and not has_recommendations:
+                sections.append('<div class="page-break"></div>')
+            # For full reports: don't add page break if insights or recommendations exist (they already added one)
+            elif not is_executive and not (has_insights or has_recommendations):
                 sections.append('<div class="page-break"></div>')
 
             # Title depends on report type

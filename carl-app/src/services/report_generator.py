@@ -1030,8 +1030,9 @@ requiring attention.
 
         score_penalty_applied = findings_summary["total"] > 0
 
-        # Generate AI-enhanced executive summary and recommendations
-        ai_summary = self._generate_ai_executive_summary(coverage, findings_summary, base_coverage, compliance_score)
+        # Generate AI-enhanced summary (more detailed for full report), insights, and recommendations
+        ai_summary = self._generate_ai_full_summary(coverage, findings_summary, base_coverage, compliance_score)
+        ai_insights = self._generate_ai_insights(findings_summary, coverage)
         ai_recommendations = self._generate_ai_recommendations(findings_summary, coverage)
 
         # Structure comprehensive data for PDF - FULL AUDIT (everything)
@@ -1043,7 +1044,8 @@ requiring attention.
             'compliance_score': compliance_score,
             'base_coverage': base_coverage,
             'score_penalty_applied': score_penalty_applied,
-            'executive_summary': ai_summary,  # AI-enhanced summary
+            'summary': ai_summary,  # More detailed summary for full report (5-7 sentences)
+            'ai_insights': ai_insights,  # AI-generated insights
             'ai_recommendations': ai_recommendations,  # AI-generated recommendations
             'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
             'controls_passed': len(coverage["covered"]),
@@ -1162,6 +1164,122 @@ Generate the executive summary:"""
             logger.error(f"Failed to generate AI executive summary: {e}")
             # Fallback to templated summary
             return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+    def _generate_ai_full_summary(self, coverage: dict, findings_summary: dict, base_coverage: float = None, compliance_score: float = 100.0) -> str:
+        """Generate more detailed summary for full report (5-7 sentences)."""
+        if not self.bedrock:
+            return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+        try:
+            total_controls = len(coverage["covered"]) + len(coverage["missing"])
+            controls_covered = len(coverage["covered"])
+            coverage_pct = base_coverage if base_coverage is not None else coverage["coverage_percent"]
+
+            findings_details = []
+            for finding in findings_summary.get('items', [])[:15]:
+                findings_details.append({
+                    'severity': finding.get('severity', 'UNKNOWN'),
+                    'title': finding.get('title', 'No title'),
+                    'resource_type': finding.get('resource_type', 'Unknown'),
+                    'control_ids': finding.get('control_ids', [])
+                })
+
+            prompt = f"""You are a compliance and security expert writing a summary for a full SOC 2 audit report.
+
+**Current Compliance Data:**
+- Control Coverage: {controls_covered}/{total_controls} ({coverage_pct:.0f}%)
+- Compliance Score: {compliance_score:.0f}% (based on findings severity)
+- Total Findings: {findings_summary['total']}
+  - Critical: {findings_summary['critical']}
+  - High: {findings_summary['high']}
+  - Medium: {findings_summary['medium']}
+  - Low: {findings_summary['low']}
+
+**Top Findings:**
+{json.dumps(findings_details, indent=2)}
+
+**Task:**
+Write a concise summary (5-7 sentences) for a full audit report that:
+1. Opens with overall compliance posture and coverage status
+2. Highlights key findings by severity with brief context
+3. Mentions any patterns or systemic issues observed
+4. Notes areas of strength (if applicable)
+5. Concludes with primary remediation focus areas
+
+**Requirements:**
+- 5-7 sentences total
+- More detailed than executive summary but still concise
+- Technical context is OK (this is for implementers)
+- Direct and actionable
+- No bold or italic formatting
+
+Generate the summary:"""
+
+            response = self.bedrock.invoke_model(prompt, max_tokens=600)
+
+            if not response or len(response.strip()) < 50:
+                return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+            return response.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to generate AI full summary: {e}")
+            return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+    def _generate_ai_insights(self, findings_summary: dict, coverage: dict) -> str:
+        """Generate AI-powered insights section for full report."""
+        if not self.bedrock:
+            return ""
+
+        try:
+            findings_by_type = {}
+            for finding in findings_summary.get('items', []):
+                resource_type = finding.get('resource_type', 'Unknown')
+                if resource_type not in findings_by_type:
+                    findings_by_type[resource_type] = []
+                findings_by_type[resource_type].append(finding.get('severity'))
+
+            prompt = f"""You are a cloud security expert analyzing compliance findings to identify patterns and insights.
+
+**Findings Distribution:**
+- Total Findings: {findings_summary['total']}
+- By Severity: Critical={findings_summary['critical']}, High={findings_summary['high']}, Medium={findings_summary['medium']}, Low={findings_summary['low']}
+- Controls Assessed: {len(coverage['covered'])}/{len(coverage['covered']) + len(coverage['missing'])}
+
+**Findings by Resource Type:**
+{json.dumps(findings_by_type, indent=2)}
+
+**Task:**
+Generate 2-3 key insights that help understand the compliance posture:
+1. Identify any patterns (e.g., "Most findings relate to encryption", "IAM issues across multiple services")
+2. Highlight systemic vs. isolated issues
+3. Note any surprising gaps or areas of strength
+
+**Format:**
+Insight 1: [One sentence observation]
+
+Insight 2: [One sentence observation]
+
+Insight 3: [One sentence observation] (optional)
+
+**Requirements:**
+- Maximum 3 insights
+- Each insight is 1-2 sentences
+- Focus on actionable patterns
+- No bold or italic formatting
+
+Generate insights:"""
+
+            response = self.bedrock.invoke_model(prompt, max_tokens=400)
+
+            if not response or len(response.strip()) < 20:
+                return ""
+
+            return response.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to generate AI insights: {e}")
+            return ""
 
     def _generate_ai_recommendations(self, findings_summary: dict, coverage: dict) -> str:
         """Generate AI-powered prioritized remediation recommendations."""
