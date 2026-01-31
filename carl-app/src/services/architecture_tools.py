@@ -18,13 +18,15 @@ from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import get_vpc_patterns
 from knowledge.security_tooling_patterns import get_security_tooling_patterns
 from knowledge.identity_patterns import get_identity_patterns
-# Temporarily disabled - these patterns use wrong ArchitectureDecision API (name/context/options dict)
+# Rewritten patterns (using correct ArchitectureDecision API)
+from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
+from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
+from knowledge.container_patterns import PATTERNS as CONTAINER_PATTERNS
+from knowledge.cicd_patterns import PATTERNS as CICD_PATTERNS
+
+# Temporarily disabled - these patterns still use wrong ArchitectureDecision API (name/context/options dict)
 # TODO: Rewrite these patterns to use correct API (question/options list/recommendation_logic/soc2_relevance)
-# from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
-# from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
-# from knowledge.container_patterns import PATTERNS as CONTAINER_PATTERNS
 # from knowledge.backup_dr_patterns import PATTERNS as BACKUP_DR_PATTERNS
-# from knowledge.cicd_patterns import PATTERNS as CICD_PATTERNS
 # from knowledge.file_storage_patterns import PATTERNS as FILE_STORAGE_PATTERNS
 # from knowledge.streaming_patterns import PATTERNS as STREAMING_PATTERNS
 # from knowledge.additional_service_patterns import PATTERNS as ADDITIONAL_SERVICE_PATTERNS
@@ -127,18 +129,19 @@ def create_architecture_tools() -> list[Tool]:
                 "vpc": get_vpc_patterns(),
                 "security": get_security_tooling_patterns(),
                 "identity": get_identity_patterns(),
-                # Temporarily disabled patterns with wrong API - TODO: Fix these
-                # "etl": ETL_PATTERNS,
-                # "data-processing": ETL_PATTERNS,
-                # "serverless": SERVERLESS_PATTERNS,
-                # "api": SERVERLESS_PATTERNS,
-                # "containers": CONTAINER_PATTERNS,
-                # "ecs": CONTAINER_PATTERNS,
+                # Rewritten patterns (using correct API)
+                "etl": ETL_PATTERNS,
+                "data-processing": ETL_PATTERNS,
+                "serverless": SERVERLESS_PATTERNS,
+                "api": SERVERLESS_PATTERNS,
+                "containers": CONTAINER_PATTERNS,
+                "ecs": CONTAINER_PATTERNS,
+                "cicd": CICD_PATTERNS,
+                "deployment": CICD_PATTERNS,
+                # Temporarily disabled patterns with wrong API - TODO: Rewrite these
                 # "backup": BACKUP_DR_PATTERNS,
                 # "disaster-recovery": BACKUP_DR_PATTERNS,
                 # "dr": BACKUP_DR_PATTERNS,
-                # "cicd": CICD_PATTERNS,
-                # "deployment": CICD_PATTERNS,
                 # "storage": FILE_STORAGE_PATTERNS,
                 # "file-storage": FILE_STORAGE_PATTERNS,
                 # "streaming": STREAMING_PATTERNS,
