@@ -188,11 +188,17 @@ DRIFT_CONTROL_MAPPING = {
 
 
 class DriftDetector:
-    """Service for detecting infrastructure drift."""
+    """
+    Service for detecting infrastructure drift.
+
+    Uses EvidenceCollector for comprehensive AWS scanning across 50+ services.
+    Detects configuration drift, security violations, and compliance changes.
+    """
 
     def __init__(
         self,
         drift_table: str,
+        evidence_collector=None,
         baselines_bucket: str = None,
         terraform_state_bucket: str = None
     ):
@@ -203,15 +209,18 @@ class DriftDetector:
         self.dynamodb = boto3.resource("dynamodb")
         self.table = self.dynamodb.Table(drift_table)
         self.s3 = boto3.client("s3")
-
-        # AWS service clients
-        self.iam = boto3.client("iam")
-        self.s3_client = boto3.client("s3")
-        self.ec2 = boto3.client("ec2")
-        self.rds = boto3.client("rds")
-        self.kms = boto3.client("kms")
         self.sts = boto3.client("sts")
-        self.config = boto3.client("config")
+
+        # Use provided evidence_collector or create one
+        if evidence_collector:
+            self.evidence_collector = evidence_collector
+        else:
+            from services.evidence_collector import EvidenceCollector
+            import os
+            self.evidence_collector = EvidenceCollector(
+                evidence_bucket=os.environ.get("EVIDENCE_BUCKET", "carl-dev-evidence"),
+                evidence_table=os.environ.get("EVIDENCE_TABLE", "carl-dev-evidence")
+            )
 
         self._account_id = None
 
@@ -222,31 +231,39 @@ class DriftDetector:
         return self._account_id
 
     def detect_all_drift(self) -> DriftReport:
-        """Run drift detection across all supported resource types."""
+        """
+        Run comprehensive drift detection across 50+ AWS services.
+
+        Uses EvidenceCollector for complete AWS environment scanning.
+        Detects configuration drift, security violations, and compliance changes.
+        """
         scan_started = datetime.utcnow()
         report_id = f"drift_{scan_started.strftime('%Y%m%d%H%M%S')}"
 
+        logger.info("Starting comprehensive drift detection using EvidenceCollector")
+
+        # Collect current state from ALL AWS services
+        current_evidence = self.evidence_collector.collect_all_evidence()
+
+        # Convert evidence to drift items (security violations, misconfigurations)
         drift_items = []
         total_resources = 0
 
-        # Detect drift for each category
-        logger.info("Starting comprehensive drift detection")
+        for category, evidence_list in current_evidence.items():
+            total_resources += len(evidence_list)
 
-        s3_drift, s3_count = self._detect_s3_drift()
-        drift_items.extend(s3_drift)
-        total_resources += s3_count
+            for evidence in evidence_list:
+                # Check if this evidence represents a security/compliance issue
+                drift_item = self._evidence_to_drift_item(evidence, category)
+                if drift_item:
+                    drift_items.append(drift_item)
 
-        iam_drift, iam_count = self._detect_iam_drift()
-        drift_items.extend(iam_drift)
-        total_resources += iam_count
-
-        vpc_drift, vpc_count = self._detect_vpc_drift()
-        drift_items.extend(vpc_drift)
-        total_resources += vpc_count
-
-        # Store drift items
+        # Store drift items in DynamoDB
         for item in drift_items:
-            self.table.put_item(Item=item.to_dict())
+            try:
+                self.table.put_item(Item=item.to_dict())
+            except Exception as e:
+                logger.error(f"Error storing drift item {item.drift_id}: {e}")
 
         # Build report
         scan_completed = datetime.utcnow()
@@ -278,8 +295,109 @@ class DriftDetector:
             if item.is_security_relevant:
                 report.security_relevant_drifts.append(item.drift_id)
 
-        logger.info(f"Drift detection complete: {len(drift_items)} drift items found across {total_resources} resources")
+        logger.info(f"Drift detection complete: {len(drift_items)} drift items found across {total_resources} resources scanned from {len(current_evidence)} service categories")
         return report
+
+    def _evidence_to_drift_item(self, evidence, category: str) -> Optional[DriftItem]:
+        """
+        Convert evidence item to drift item if it represents a security/compliance issue.
+
+        Args:
+            evidence: Evidence object from evidence_collector
+            category: Evidence category (iam, s3, vpc, etc.)
+
+        Returns:
+            DriftItem if issue detected, None if compliant
+        """
+        from dataclasses import asdict
+
+        # Convert evidence to dict if it's a dataclass
+        ev_dict = asdict(evidence) if hasattr(evidence, '__dataclass_fields__') else evidence
+
+        title = ev_dict.get('title', '')
+        description = ev_dict.get('description', '')
+        resource_id = ev_dict.get('resource_id', '')
+        resource_type = ev_dict.get('resource_type', '')
+        content = ev_dict.get('content', {})
+
+        # Check for issues in title/description (evidence_collector flags issues)
+        issue_indicators = [
+            'NOT ENABLED', 'NOT CONFIGURED', 'not enabled', 'not configured',
+            'public', 'publicly accessible', 'no encryption', 'encryption disabled',
+            'no mfa', 'without mfa', '0.0.0.0/0', 'flow logs disabled',
+            'not encrypted', 'no backup', 'no logging', 'no rotation'
+        ]
+
+        has_issue = any(indicator in title or indicator in description for indicator in issue_indicators)
+
+        if not has_issue:
+            # Check content for specific issues
+            if isinstance(content, dict):
+                # S3 bucket not encrypted
+                if category == 's3' and content.get('encryption') is None:
+                    has_issue = True
+                    description = f"S3 bucket {content.get('bucket_name', 'unknown')} has no encryption configured"
+
+                # RDS publicly accessible
+                elif category == 'rds' and content.get('publicly_accessible'):
+                    has_issue = True
+                    description = f"RDS database {content.get('db_instance_identifier', 'unknown')} is publicly accessible"
+
+                # IAM user without MFA
+                elif category == 'iam' and resource_type == 'iam_user' and not content.get('mfa_enabled'):
+                    has_issue = True
+                    description = f"IAM user {content.get('user_name', 'unknown')} does not have MFA enabled"
+
+                # Lambda without VPC
+                elif category == 'lambda' and not content.get('vpc_config'):
+                    # This is informational, not critical
+                    pass
+
+                # GuardDuty/Inspector/Macie findings are always issues
+                elif category in ['guardduty', 'inspector', 'macie']:
+                    has_issue = True
+
+        if not has_issue:
+            return None
+
+        # Determine severity
+        severity = DriftSeverity.MEDIUM
+        if any(word in title.lower() or word in description.lower() for word in ['critical', 'public', '0.0.0.0/0', 'not enabled']):
+            severity = DriftSeverity.CRITICAL
+        elif any(word in title.lower() or word in description.lower() for word in ['high', 'encryption', 'mfa', 'backup']):
+            severity = DriftSeverity.HIGH
+        elif any(word in title.lower() or word in description.lower() for word in ['medium', 'logging', 'monitoring']):
+            severity = DriftSeverity.MEDIUM
+        else:
+            severity = DriftSeverity.LOW
+
+        # Create drift item
+        timestamp = datetime.utcnow()
+        drift_id = f"drift_{timestamp.strftime('%Y%m%d%H%M%S')}_{hashlib.sha256(f'{resource_id}:{title}'.encode()).hexdigest()[:8]}"
+
+        # Determine if security-relevant
+        security_keywords = ['encryption', 'public', 'mfa', 'security', 'access', 'authentication', 'authorization']
+        is_security_relevant = any(keyword in title.lower() or keyword in description.lower() for keyword in security_keywords)
+
+        return DriftItem(
+            drift_id=drift_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            resource_arn=resource_id if resource_id.startswith('arn:') else f"arn:aws:{category}:{boto3.Session().region_name}:{self.account_id}:resource/{resource_id}",
+            drift_type=DriftType.MODIFIED.value,
+            severity=severity.value,
+            account_id=self.account_id,
+            region=boto3.Session().region_name,
+            attribute="configuration",
+            expected_value="compliant",
+            actual_value="non-compliant",
+            description=description,
+            detected_at=timestamp.isoformat(),
+            baseline_source="evidence_collector_scan",
+            baseline_timestamp=timestamp.isoformat(),
+            is_security_relevant=is_security_relevant,
+            soc2_controls=ev_dict.get('controls', [])
+        )
 
     def _detect_s3_drift(self) -> tuple[list[DriftItem], int]:
         """Detect drift in S3 bucket configurations."""
