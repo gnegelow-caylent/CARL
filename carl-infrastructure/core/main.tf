@@ -681,7 +681,7 @@ resource "aws_iam_role_policy" "evidence_collection" {
         Action = [
           # S3 - List buckets and get configurations
           "s3:ListAllMyBuckets",
-          "s3:GetBucketEncryption",
+          "s3:GetEncryptionConfiguration",
           "s3:GetBucketVersioning",
           "s3:GetBucketPublicAccessBlock",
           "s3:GetBucketLogging",
