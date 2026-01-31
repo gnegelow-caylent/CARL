@@ -7554,12 +7554,23 @@ _Link expires in 24 hours. PDF format coming soon!_"""
             s3_key = generator.save_pdf_report(pdf_bytes, report_type_enum)
             download_url = generator.generate_presigned_url(s3_key, expiration=86400)
 
+            if not download_url:
+                logger.error("Failed to generate presigned URL for S3 fallback")
+                slack.post_message(
+                    channel_id,
+                    text=f"❌ Error: Could not upload to Slack or generate S3 download link. S3 key: {s3_key}"
+                )
+                return {"statusCode": 500, "body": "Failed to generate download URL"}
+
+            # Use plain URL format (not markdown) to avoid Slack formatting issues
             summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
 
 **Audit Period:** {start_date} to {end_date}
 **Environment Scan:** {scan_summary}
 
-⚠️ Could not upload directly to Slack. Download from S3:
+⚠️ Could not upload directly to Slack.
+
+📥 **Download PDF Report:**
 {download_url}
 
 _Link expires in 24 hours_"""
