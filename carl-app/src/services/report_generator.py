@@ -953,11 +953,11 @@ requiring attention.
                 'medium': findings_summary["medium"],
                 'low': findings_summary["low"]
             },
-            # Executive report: NO detailed control table, only top critical/high findings
+            # Executive report: NO detailed control table, only top critical/high/medium findings
             'findings': self._format_findings_for_pdf(
                 [f for f in findings_summary.get('items', [])
-                 if f.get('severity') in ['CRITICAL', 'HIGH']]
-            )[:5],  # Top 5 critical/high findings only
+                 if f.get('severity') in ['CRITICAL', 'HIGH', 'MEDIUM']]
+            )[:10],  # Top 10 critical/high/medium findings
             'is_executive': True,  # Flag for template
             'show_controls_table': False  # Don't show detailed control table
         }

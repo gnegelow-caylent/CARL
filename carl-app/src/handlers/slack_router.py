@@ -7371,13 +7371,7 @@ def handle_report_command(
         )
         return {"statusCode": 200, "body": ""}
 
-    # Post initial message
-    slack.post_message(
-        channel_id,
-        text=f"📊 **Generating {report_type} report...**\n\n_Loading evidence from database..._"
-    )
-
-    # Invoke async processing in background
+    # Invoke async processing in background (sync handler will post status message)
     try:
         lambda_client = boto3.client('lambda')
         lambda_client.invoke(
@@ -7531,10 +7525,7 @@ _Link expires in 24 hours. PDF format coming soon!_"""
         else:
             raise ValueError(f"Unknown report type: {report_type}")
 
-        # Upload PDF directly to Slack
-        update_progress("📤 Uploading PDF to Slack...")
-
-        # Delete the status message (cleanup)
+        # Delete the status message before uploading (cleaner UX)
         if status_ts:
             try:
                 slack.delete_message(channel_id, status_ts)
@@ -7548,7 +7539,7 @@ _Link expires in 24 hours. PDF format coming soon!_"""
                 file_content=pdf_bytes,
                 filename=filename,
                 title=f"{report_type.title()} Compliance Report",
-                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n**Environment:** {scan_summary}\n\nProfessional PDF report attached below ⬇️"
+                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n\n**Environment:** {scan_summary}\n\nProfessional PDF report attached below ⬇️"
             )
         except Exception as e:
             logger.error(f"Failed to upload PDF to Slack: {e}")
@@ -7569,7 +7560,8 @@ _Link expires in 24 hours. PDF format coming soon!_"""
             summary_text = f"""📊 **{report_type.title()} Report Generated Successfully**
 
 **Audit Period:** {start_date} to {end_date}
-**Environment Scan:** {scan_summary}
+
+**Environment:** {scan_summary}
 
 ⚠️ Could not upload directly to Slack.
 
