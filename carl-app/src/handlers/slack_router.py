@@ -537,7 +537,7 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"```{code_text}```"
+                            "text": f"```{code_text}``"
                         }
                     })
                 code_block_lines = []
@@ -843,7 +843,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Post confirmation message
         slack.post_message(
             channel_id,
-            text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{config.get('cidr')}`..."
+            text=f"✅ Configuration received! Generating {blueprint_name} with CIDR {config.get('cidr')}..."
         )
 
         # Generate the Terraform code
@@ -860,7 +860,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Post confirmation message
         slack.post_message(
             channel_id,
-            text=f"✅ Configuration received! Generating {blueprint_name} with bucket name `{config.get('name')}`..."
+            text=f"✅ Configuration received! Generating {blueprint_name} with bucket name {config.get('name')}..."
         )
 
         # Generate the Terraform code
@@ -889,9 +889,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         vpc_display = f"Create New ({terraform_config.get('vpc_cidr')})" if terraform_config.get('vpc_cidr') else f"Use Existing ({terraform_config.get('vpc_id')})"
         slack.post_message(
             channel_id,
-            text=f"✅ *Configuration Validated!*\n\n"
+            text=f"✅ Configuration Validated!\n\n"
                  f"• VPC: {vpc_display}\n"
-                 f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                 f"• Prefix: `{terraform_config.get('prefix')}\n"
                  f"• Environment: {terraform_config.get('environment')}\n"
                  f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
                  f"⏳ Generating Terraform code with AI..."
@@ -947,9 +947,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 slack.update_message(
                     channel_id,
                     initial_msg.get('ts'),
-                    text=f"✅ *Configuration Validated!*\n\n"
+                    text=f"✅ Configuration Validated!\n\n"
                          f"• VPC: {vpc_display}\n"
-                         f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                         f"• Prefix: `{terraform_config.get('prefix')}\n"
                          f"• Environment: {terraform_config.get('environment')}\n"
                          f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
                          f"✅ Terraform code generated! Uploading to GitHub..."
@@ -976,9 +976,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 slack.update_message(
                     channel_id,
                     initial_msg.get('ts'),
-                    text=f"✅ *Configuration Validated!*\n\n"
+                    text=f"✅ Configuration Validated!\n\n"
                          f"• VPC: {vpc_display}\n"
-                         f"• Prefix: `{terraform_config.get('prefix')}`\n"
+                         f"• Prefix: `{terraform_config.get('prefix')}\n"
                          f"• Environment: {terraform_config.get('environment')}\n"
                          f"• Transit Gateway: {'Yes' if terraform_config.get('use_transit_gateway') else 'No'}\n\n"
                          f"❌ Failed to generate Terraform code"
@@ -1398,9 +1398,9 @@ def handle_status_command_sync(
                     "type": "mrkdwn",
                     "text": "*Next Steps:*\n" +
                            (f"1. Fix {audit_blockers} audit blockers immediately\n" if audit_blockers > 0 else "") +
-                           f"2. Run `/carl findings` to see all issues\n" +
-                           f"3. Run `/carl jira sync` to create tickets\n" +
-                           f"4. Run `/carl evidence collect` to refresh data"
+                           f"2. Run /carl findings` to see all issues\n" +
+                           f"3. Run /carl jira sync` to create tickets\n" +
+                           f"4. Run /carl evidence collect` to refresh data"
                 }
             },
             {
@@ -1460,7 +1460,7 @@ def handle_findings_list_command(
         finding_text = (
             f"*{finding.get('severity', 'UNKNOWN')}* | "
             f"{finding.get('title', 'No title')}\n"
-            f"Resource: `{finding.get('resource_id', 'N/A')}`\n"
+            f"Resource: `{finding.get('resource_id', 'N/A')}\n"
             f"Status: {status}"
         )
 
@@ -1534,7 +1534,7 @@ def handle_findings_list_command(
         "elements": [
             {
                 "type": "mrkdwn",
-                "text": "💡 _To refresh findings with latest AWS state, run `/carl evidence collect`_"
+                "text": "💡 _To refresh findings with latest AWS state, run /carl evidence collect`_"
             }
         ]
     })
@@ -1560,7 +1560,7 @@ def handle_findings_accept_command(
     if not match:
         slack.post_message(
             channel_id,
-            text='Usage: `/carl findings accept <finding_id> "<justification>"`\nExample: `/carl findings accept finding-04a95 "Dev environment, accepted risk"`'
+            text='Usage: /carl findings accept <finding_id> "<justification>"\nExample: /carl findings accept finding-04a95 "Dev environment, accepted risk"`'
         )
         return {"statusCode": 200, "body": ""}
 
@@ -1586,7 +1586,7 @@ def handle_findings_accept_command(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"✅ Risk accepted for finding `{finding_id}`\n\n*Justification:* {justification}\n*Accepted by:* <@{user_id}>"
+                        "text": f"✅ Risk accepted for finding {finding_id}\n\n*Justification:* {justification}\n*Accepted by:* <@{user_id}>"
                     }
                 }
             ]
@@ -1594,7 +1594,7 @@ def handle_findings_accept_command(
     else:
         slack.post_message(
             channel_id,
-            text=f"❌ Failed to accept risk for finding `{finding_id}`. Finding may not exist."
+            text=f"❌ Failed to accept risk for finding {finding_id}. Finding may not exist."
         )
 
     return {"statusCode": 200, "body": ""}
@@ -1611,7 +1611,7 @@ def handle_findings_ignore_command(
     if not args:
         slack.post_message(
             channel_id,
-            text='Usage: `/carl findings ignore <finding_id>`\nExample: `/carl findings ignore finding-04a95`'
+            text='Usage: /carl findings ignore <finding_id>\nExample: /carl findings ignore finding-04a95`'
         )
         return {"statusCode": 200, "body": ""}
 
@@ -1636,7 +1636,7 @@ def handle_findings_ignore_command(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"👁️ Finding `{finding_id}` marked as ignored\n*By:* <@{user_id}>"
+                        "text": f"👁️ Finding {finding_id} marked as ignored\n*By:* <@{user_id}>"
                     }
                 }
             ]
@@ -1644,7 +1644,7 @@ def handle_findings_ignore_command(
     else:
         slack.post_message(
             channel_id,
-            text=f"❌ Failed to ignore finding `{finding_id}`. Finding may not exist."
+            text=f"❌ Failed to ignore finding {finding_id}. Finding may not exist."
         )
 
     return {"statusCode": 200, "body": ""}
@@ -1662,7 +1662,7 @@ def handle_findings_create_ticket_command(
     if not args:
         slack.post_message(
             channel_id,
-            text='Usage: `/carl findings create-ticket <finding_id> [<finding_id> ...]`\nExample: `/carl findings create-ticket finding-04a95 finding-9f705`'
+            text='Usage: /carl findings create-ticket <finding_id> [<finding_id> ...]\nExample: /carl findings create-ticket finding-04a95 finding-9f705`'
         )
         return {"statusCode": 200, "body": ""}
 
@@ -1727,7 +1727,7 @@ def handle_findings_create_ticket_command(
     if created:
         result_text.append(f"✅ Created {len(created)} ticket(s):")
         for fid, ticket_id, ticket_url in created:
-            result_text.append(f"  • `{fid}` → <{ticket_url}|{ticket_id}>")
+            result_text.append(f"  • {fid} → <{ticket_url}|{ticket_id}>")
 
     if failed:
         result_text.append(f"\n❌ Failed {len(failed)} finding(s):")
@@ -1748,7 +1748,7 @@ def handle_ask_command(
             "statusCode": 200,
             "body": json.dumps({
                 "response_type": "ephemeral",
-                "text": "Please provide a question. Example: `/carl ask What is my S3 compliance status?`"
+                "text": "Please provide a question. Example: /carl ask What is my S3 compliance status?"
             })
         }
 
@@ -2193,68 +2193,68 @@ def handle_help_command(
 ) -> dict:
     """Handle /carl help command."""
     help_text = """
-*CARL - Cloud Automated Risk & Compliance Logic*
+CARL - Cloud Automated Risk & Compliance Logic
 
-*Setup & Configuration:*
-- `/carl setup start` - Initial setup wizard (first-time setup)
-- `/carl setup status` - View setup status
-- `/carl settings` - View current configuration
+Setup & Configuration:
+- /carl setup start - Initial setup wizard (first-time setup)
+- /carl setup status - View setup status
+- /carl settings - View current configuration
 
-*Compliance Commands:*
-- `/carl status` - View compliance posture summary
-- `/carl findings list [severity]` - List recent findings with interactive buttons
-- `/carl findings accept <id> '<justification>'` - Accept risk with documented justification
-- `/carl findings ignore <id>` - Ignore a finding (will not create ticket)
-- `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings
-- `/carl ask <question>` - Ask compliance questions
+Compliance Commands:
+- /carl status - View compliance posture summary
+- /carl findings list [severity] - List recent findings with interactive buttons
+- /carl findings accept <id> '<justification>' - Accept risk with documented justification
+- /carl findings ignore <id> - Ignore a finding (will not create ticket)
+- /carl findings create-ticket <id> [<id> ...] - Create Jira tickets for specific findings
+- /carl ask <question> - Ask compliance questions
 
-*Architecture & Build Commands:*
-- `/carl recommend <requirement>` - **Smart:** AI analyzes needs, scans environment, recommends with costs
-- `/carl build <blueprint>` - **Quick:** Pick from templates, fill params, generate code & PR instantly
-- `/carl blueprints` - List all quick-build templates
-- `/carl estimate <component>` - Get cost estimates
+Architecture & Build Commands:
+- /carl recommend <requirement> - Smart: AI analyzes needs, scans environment, recommends with costs
+- /carl build <blueprint> - Quick: Pick from templates, fill params, generate code & PR instantly
+- /carl blueprints - List all quick-build templates
+- /carl estimate <component> - Get cost estimates
 
-*Foundation Builder:*
-- `/carl foundation start` - Start guided foundation building wizard
-- `/carl foundation status` - Check current foundation session
-- `/carl patterns [category]` - View architecture patterns with pros/cons
+Foundation Builder:
+- /carl foundation start - Start guided foundation building wizard
+- /carl foundation status - Check current foundation session
+- /carl patterns [category] - View architecture patterns with pros/cons
 
-*AI Architecture Advisor:*
-- `/carl architect <question>` - Ask AI for architecture recommendations (learns from feedback)
+AI Architecture Advisor:
+- /carl architect <question> - Ask AI for architecture recommendations (learns from feedback)
 
-*Audit & Evidence:*
-- `/carl evidence collect` - Collect audit evidence across all resources
-- `/carl evidence list [type]` - View all collected evidence items
-- `/carl evidence status` - View evidence collection status
-- `/carl report executive` - Generate executive compliance summary
-- `/carl report full` - Generate full audit report
-- `/carl report control <control-id>` - Generate control-specific report
+Audit & Evidence:
+- /carl evidence collect - Collect audit evidence across all resources
+- /carl evidence list [type] - View all collected evidence items
+- /carl evidence status - View evidence collection status
+- /carl report executive - Generate executive compliance summary
+- /carl report full - Generate full audit report
+- /carl report control <control-id> - Generate control-specific report
 
-*Risk Management:*
-- `/carl exception request` - Request a risk exception
-- `/carl exception list` - View pending/active exceptions
-- `/carl exception approve <id>` - Approve an exception (requires permission)
+Risk Management:
+- /carl exception request - Request a risk exception
+- /carl exception list - View pending/active exceptions
+- /carl exception approve <id> - Approve an exception (requires permission)
 
-*Drift Detection:*
-- `/carl drift scan` - Run drift detection scan
-- `/carl drift status` - View current drift summary
-- `/carl drift details <drift-id>` - View drift item details
-- `/carl drift jira-sync` - Create Jira tickets for drift items
+Drift Detection:
+- /carl drift scan - Run drift detection scan
+- /carl drift status - View current drift summary
+- /carl drift details <drift-id> - View drift item details
+- /carl drift jira-sync - Create Jira tickets for drift items
 
-*Jira Integration:*
-- `/carl jira test` - Test Jira connection and permissions
-- `/carl jira sync` - Sync findings to Jira tickets
-- `/carl jira status` - View Jira integration statistics
+Jira Integration:
+- /carl jira test - Test Jira connection and permissions
+- /carl jira sync - Sync findings to Jira tickets
+- /carl jira status - View Jira integration statistics
 
-*Coming Soon:*
-- `/carl remediate <finding-id>` - Request auto-remediation
+Coming Soon:
+- /carl remediate <finding-id> - Request auto-remediation
 
-*Examples:*
-- `/carl foundation start` - Build your AWS foundation from scratch
-- `/carl patterns egress` - See egress architecture options
-- `/carl recommend compliant VPC with firewall`
-- `/carl build networking/standard-vpc`
-- `/carl estimate rds multi-az db.r5.large`
+Examples:
+- /carl foundation start - Build your AWS foundation from scratch
+- /carl patterns egress - See egress architecture options
+- /carl recommend compliant VPC with firewall
+- /carl build networking/standard-vpc
+- /carl estimate rds multi-az db.r5.large
 """
 
     slack.post_message(channel_id, text=help_text)
@@ -2280,7 +2280,7 @@ def handle_setup_command(
             workspace_id = team_info["team"]["id"]
         except Exception as e:
             logger.error(f"Failed to get workspace ID: {e}")
-            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the `team:read` OAuth scope.")
+            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the team:read OAuth scope.")
             return {"statusCode": 500, "body": str(e)}
 
     if subcommand == "start":
@@ -2288,14 +2288,14 @@ def handle_setup_command(
         if setup.is_setup_complete(workspace_id):
             slack.post_message(
                 channel_id,
-                text="✅ *CARL is already set up!*\n\n"
-                     "Use `/carl settings` to view or update your configuration.\n"
-                     "Use `/carl setup reset` to run the setup wizard again."
+                text="✅ CARL is already set up!\n\n"
+                     "Use /carl settings` to view or update your configuration.\n"
+                     "Use /carl setup reset` to run the setup wizard again."
             )
             return {"statusCode": 200, "body": ""}
 
         # Run connectivity validation
-        slack.post_message(channel_id, text="🔍 *Welcome to CARL Setup!*\n\nValidating connectivity...")
+        slack.post_message(channel_id, text="🔍 Welcome to CARL Setup!\n\nValidating connectivity...")
 
         validation_results = setup.validate_connectivity()
         validation_text = setup.format_validation_results(validation_results)
@@ -2306,7 +2306,7 @@ def handle_setup_command(
         if has_errors:
             slack.post_message(
                 channel_id,
-                text=f"❌ *Setup Validation Failed*\n\n{validation_text}\n\n"
+                text=f"❌ Setup Validation Failed\n\n{validation_text}\n\n"
                      "Please fix the connectivity issues before proceeding with setup.\n"
                      "Contact your administrator if you need help."
             )
@@ -2315,14 +2315,14 @@ def handle_setup_command(
         # Validation passed, show success and start wizard
         slack.post_message(
             channel_id,
-            text=f"✅ *Validation Complete!*\n\n{validation_text}\n\n"
+            text=f"✅ Validation Complete!\n\n{validation_text}\n\n"
                  "Ready to configure CARL for your team!"
         )
 
         # Enable critical security services if not already enabled
         slack.post_message(
             channel_id,
-            text="🔧 *Enabling Critical Security Services*\n\nChecking and enabling Security Hub and AWS Config..."
+            text="🔧 Enabling Critical Security Services\n\nChecking and enabling Security Hub and AWS Config..."
         )
 
         try:
@@ -2335,7 +2335,7 @@ def handle_setup_command(
             sh_status = security_results["security_hub"]["status"]
             config_status = security_results["config"]["status"]
 
-            security_text = "*Security Services Status:*\n\n"
+            security_text = "Security Services Status:\n\n"
 
             if sh_status == "already_enabled":
                 security_text += "✅ *Security Hub:* Already enabled\n"
@@ -2359,7 +2359,7 @@ def handle_setup_command(
             logger.error(f"Failed to enable security services: {e}", exc_info=True)
             slack.post_message(
                 channel_id,
-                text=f"⚠️ *Warning:* Could not enable security services automatically.\n\n"
+                text=f"⚠️ Warning: Could not enable security services automatically.\n\n"
                      f"Error: {str(e)}\n\n"
                      f"You can enable them manually:\n"
                      f"• Security Hub: https://console.aws.amazon.com/securityhub/\n"
@@ -2372,7 +2372,7 @@ def handle_setup_command(
         else:
             slack.post_message(
                 channel_id,
-                text="⚠️ Please run `/carl setup start` again to open the configuration wizard."
+                text="⚠️ Please run /carl setup start` again to open the configuration wizard."
             )
             return {"statusCode": 200, "body": ""}
 
@@ -2381,7 +2381,7 @@ def handle_setup_command(
         setup.update_workspace_config(workspace_id, {"setup_complete": False})
         slack.post_message(
             channel_id,
-            text="✅ Setup has been reset. Run `/carl setup start` to begin again."
+            text="✅ Setup has been reset. Run /carl setup start` to begin again."
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2391,7 +2391,7 @@ def handle_setup_command(
         if not config:
             slack.post_message(
                 channel_id,
-                text="⚠️ CARL has not been set up yet. Run `/carl setup start` to begin."
+                text="⚠️ CARL has not been set up yet. Run /carl setup start` to begin."
             )
         else:
             status_text = f"""*CARL Setup Status*
@@ -2403,7 +2403,7 @@ def handle_setup_command(
 *Auto-scan on Deploy:* {"✅ Enabled" if config.get('auto_scan_on_deploy') else "❌ Disabled"}
 *Compliance Frameworks:* {', '.join(config.get('compliance_frameworks', [])) or 'Not set'}
 
-Run `/carl settings` to update configuration."""
+Run /carl settings` to update configuration."""
             slack.post_message(channel_id, text=status_text)
         return {"statusCode": 200, "body": ""}
 
@@ -2412,9 +2412,9 @@ Run `/carl settings` to update configuration."""
             channel_id,
             text="❌ Unknown setup command.\n\n"
                  "*Available commands:*\n"
-                 "• `/carl setup start` - Start setup wizard\n"
-                 "• `/carl setup status` - View setup status\n"
-                 "• `/carl setup reset` - Reset and re-run setup"
+                 "• /carl setup start` - Start setup wizard\n"
+                 "• /carl setup status` - View setup status\n"
+                 "• /carl setup reset` - Reset and re-run setup"
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2435,7 +2435,7 @@ def handle_settings_command(
             workspace_id = team_info["team"]["id"]
         except Exception as e:
             logger.error(f"Failed to get workspace ID: {e}")
-            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the `team:read` OAuth scope.")
+            slack.post_message(channel_id, text="❌ Failed to get workspace information.\n\nPlease ensure the CARL bot has the team:read OAuth scope.")
             return {"statusCode": 500, "body": str(e)}
 
     config = setup.get_workspace_config(workspace_id)
@@ -2443,7 +2443,7 @@ def handle_settings_command(
     if not config or not config.get("setup_complete"):
         slack.post_message(
             channel_id,
-            text="⚠️ CARL has not been set up yet. Run `/carl setup start` to begin."
+            text="⚠️ CARL has not been set up yet. Run /carl setup start` to begin."
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2473,7 +2473,7 @@ def handle_settings_command(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Need to update settings?*\nRun `/carl setup start` to re-configure."
+                "text": "*Need to update settings?*\nRun /carl setup start` to re-configure."
             }
         }
     ]
@@ -2496,7 +2496,7 @@ def handle_foundation_command(
         if existing:
             slack.post_message(
                 channel_id,
-                text="You already have a foundation session in progress. Use `/carl foundation status` to continue or `/carl foundation cancel` to start over.",
+                text="You already have a foundation session in progress. Use /carl foundation status to continue or /carl foundation cancel to start over.",
             )
             return {"statusCode": 200, "body": ""}
 
@@ -2558,7 +2558,7 @@ def handle_foundation_command(
         blocks.append({
             "type": "context",
             "elements": [
-                {"type": "mrkdwn", "text": f"Session ID: `{session.session_id[:8]}...` | Use `/carl foundation cancel` to exit"}
+                {"type": "mrkdwn", "text": f"Session ID: {session.session_id[:8]}... | Use /carl foundation cancel` to exit"}
             ],
         })
 
@@ -2570,7 +2570,7 @@ def handle_foundation_command(
         if not session:
             slack.post_message(
                 channel_id,
-                text="No active foundation session. Use `/carl foundation start` to begin.",
+                text="No active foundation session. Use /carl foundation start` to begin.",
             )
             return {"statusCode": 200, "body": ""}
 
@@ -2580,7 +2580,7 @@ def handle_foundation_command(
 
         slack.post_message(
             channel_id,
-            text=f"*Foundation Session Status*\n\nProgress: {progress}\nState: {session.state.value}\n\n*Collected Requirements:*\n{collected or 'None yet'}",
+            text=f"Foundation Session Status\n\nProgress: {progress}\nState: {session.state.value}\n\nCollected Requirements:\n{collected or 'None yet'}",
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2596,7 +2596,7 @@ def handle_foundation_command(
     else:
         slack.post_message(
             channel_id,
-            text="Unknown foundation command. Use `start`, `status`, or `cancel`.",
+            text="Unknown foundation command. Use start, status, or `cancel.",
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2757,7 +2757,7 @@ def handle_patterns_command(
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"💡 Showing {len(patterns)} architecture patterns | Use `/carl recommend <requirement>` for personalized recommendations"
+                "text": f"💡 Showing {len(patterns)} architecture patterns | Use /carl recommend <requirement>` for personalized recommendations"
             }]
         })
 
@@ -2768,7 +2768,7 @@ def handle_patterns_command(
     if not pattern:
         slack.post_message(
             channel_id,
-            text=f"Unknown category: `{category}`. Use `/carl patterns` to see available categories.",
+            text=f"Unknown category: {category}. Use /carl patterns` to see available categories.",
         )
         return {"statusCode": 200, "body": ""}
 
@@ -2857,7 +2857,7 @@ def handle_patterns_command(
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": f"*💡 Decision Framework:*\n```{logic_preview}```",
+            "text": f"*💡 Decision Framework:*\n```{logic_preview}``",
         },
     })
 
@@ -2886,12 +2886,12 @@ def handle_recommend_command(
     if not requirement:
         slack.post_message(
             channel_id,
-            text="Please describe what you need. Example: `/carl recommend I need a compliant VPC with WAF`",
+            text="Please describe what you need. Example: /carl recommend I need a compliant VPC with WAF",
         )
         return {"statusCode": 200, "body": ""}
 
     # Post "Analyzing..." message
-    slack.post_message(channel_id, text=f"🔍 Analyzing architecture options for: _{requirement}_...")
+    slack.post_message(channel_id, text=f"🔍 Analyzing architecture options for: {requirement}...")
 
     # Invoke async processing in background
     try:
@@ -3116,7 +3116,7 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "_Click below to generate Terraform code. Have questions? Use `/carl ask`_"
+                        "text": "_Click below to generate Terraform code. Have questions? Use /carl ask`_"
                     }
                 },
                 {
@@ -3146,7 +3146,7 @@ IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will forma
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "_Click below to generate Terraform code. Have questions? Use `/carl ask`_"
+                        "text": "_Click below to generate Terraform code. Have questions? Use /carl ask`_"
                     }
                 },
                 {
@@ -3288,7 +3288,7 @@ def handle_build_command(
             return {"statusCode": 500, "body": str(e)}
 
     except ValueError as e:
-        slack.post_message(channel_id, text=f"Error: {str(e)}. Use `/carl blueprints` to see available options.")
+        slack.post_message(channel_id, text=f"Error: {str(e)}. Use /carl blueprints` to see available options.")
 
     return {"statusCode": 200, "body": ""}
 
@@ -3572,7 +3572,7 @@ def show_s3_config_modal(slack: SlackService, trigger_id: str, channel_id: str, 
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "ℹ️ *Note:* Your AWS account ID will be automatically appended to ensure global uniqueness.\n\n*Example:* `my-data-bucket` → `my-data-bucket-123456789012`"
+                        "text": "ℹ️ *Note:* Your AWS account ID will be automatically appended to ensure global uniqueness.\n\n*Example:* my-data-bucket → `my-data-bucket-123456789012"
                     }
                 ]
             }
@@ -4000,7 +4000,7 @@ def handle_vpc_config_submission(payload: dict) -> dict:
         logger.error(f"Failed to invoke async processing: {e}")
         # Fallback to synchronous if async fails
         try:
-            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR `{vpc_cidr}`...")
+            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with CIDR {vpc_cidr}...")
             handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
         except Exception as e2:
             logger.error(f"Error processing VPC config: {e2}")
@@ -4234,7 +4234,7 @@ variable "environment" {{
     error_message = "Environment must be dev, staging, or prod"
   }}
 }}
-```
+``"
 
 Return ONLY the Terraform variables.tf file content following the format above. No markers, no extra text."""
 
@@ -4699,7 +4699,7 @@ def handle_s3_config_submission(payload: dict) -> dict:
         logger.error(f"Failed to invoke async processing: {e}")
         # Fallback to synchronous if async fails
         try:
-            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with bucket name `{bucket_name}`...")
+            slack.post_message(channel_id, text=f"✅ Configuration received! Generating {blueprint_name} with bucket name {bucket_name}...")
             handle_build_command(slack, channel_id, user_id, blueprint_name, config, trigger_id=None)
         except Exception as e2:
             logger.error(f"Error processing S3 config: {e2}")
@@ -4776,14 +4776,14 @@ def handle_setup_submission(payload: dict) -> dict:
 • Evidence collection: ✅ Enabled
 
 *Next Steps:*
-1. Run `/carl status` to see your compliance posture
-2. Try `/carl build networking/standard-vpc` to generate infrastructure
-3. Use `/carl ask <question>` for compliance help
+1. Run /carl status` to see your compliance posture
+2. Try /carl build networking/standard-vpc` to generate infrastructure
+3. Use /carl ask <question>` for compliance help
 
 *Useful Commands:*
-• `/carl help` - View all commands
-• `/carl settings` - View current configuration
-• `/carl setup reset` - Re-run setup wizard
+• /carl help` - View all commands
+• /carl settings` - View current configuration
+• /carl setup reset` - Re-run setup wizard
 
 Ready to help you build compliant infrastructure! 🚀"""
     )
@@ -4797,9 +4797,9 @@ def handle_deploy_review(payload: dict, action: dict) -> dict:
     channel_id = payload["channel"]["id"]
     slack.post_message(
         channel_id,
-        text="⚠️ *Direct deployment has been removed.*\n\n"
+        text="⚠️ Direct deployment has been removed.\n\n"
              "All infrastructure changes now go through GitHub for proper review and approval.\n\n"
-             "Use `/carl build <blueprint>` to generate code and create a Pull Request."
+             "Use /carl build <blueprint>` to generate code and create a Pull Request."
     )
     return {"statusCode": 200, "body": ""}
 
@@ -5040,13 +5040,13 @@ READY: <explain what you'll build with specific details>
                 logger.warning(f"Failed to parse AI response. Question: {question_text}, Options: {options}")
                 slack.post_message(
                     channel_id,
-                    text=f"⚠️ I'm having trouble formatting my questions properly. Let me try rephrasing...\n\nRaw response:\n```{questions_response[:500]}```\n\nPlease describe your requirements in more detail and I'll help build your infrastructure."
+                    text=f"⚠️ I'm having trouble formatting my questions properly. Let me try rephrasing...\n\nRaw response:\n```{questions_response[:500]}``\n\nPlease describe your requirements in more detail and I'll help build your infrastructure."
                 )
         else:
             # Unexpected format - no question found
             slack.post_message(
                 channel_id,
-                text=f"🤔 I analyzed your environment but couldn't determine what questions to ask.\n\nCould you provide more details about your requirements?\n\nWhat I found:\n```{questions_response[:500]}```"
+                text=f"🤔 I analyzed your environment but couldn't determine what questions to ask.\n\nCould you provide more details about your requirements?\n\nWhat I found:\n```{questions_response[:500]}``"
             )
 
         return {"statusCode": 200, "body": ""}
@@ -5110,7 +5110,7 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
         # Acknowledge answer with progress indicator
         slack.post_message(
             channel_id,
-            text=f"✓ Recorded: *{answer_option}*"
+            text=f"✓ Recorded: {answer_option}"
         )
 
         slack.post_message(
@@ -5203,7 +5203,7 @@ READY: <detailed build plan with specific resources and configurations>
 
             slack.post_message(
                 channel_id,
-                text=f"✅ *I have everything I need to design your infrastructure!*\n\n{ready_text[:500]}..."
+                text=f"✅ I have everything I need to design your infrastructure!\n\n{ready_text[:500]}..."
             )
 
             # Open modal for exact configuration values
@@ -5242,7 +5242,7 @@ READY: <detailed build plan with specific resources and configurations>
 
             slack.post_message(
                 channel_id,
-                text=f"✅ *I have everything needed!*\n\n{ready_text}\n\n🏗️ Generating Terraform code..."
+                text=f"✅ I have everything needed!\n\n{ready_text}\n\n🏗️ Generating Terraform code..."
             )
 
             # Generate and push infrastructure code
@@ -5301,7 +5301,7 @@ Generate complete Terraform code including:
 
                 slack.post_message(
                     channel_id,
-                    text=f"🎉 *Infrastructure code generated!*\n\nPull Request: {result.get('pr_url', 'N/A')}\n\nReview the code and merge when ready."
+                    text=f"🎉 Infrastructure code generated!\n\nPull Request: {result.get('pr_url', 'N/A')}\n\nReview the code and merge when ready."
                 )
 
             except Exception as e:
@@ -5407,13 +5407,13 @@ Generate complete Terraform code including:
                 logger.warning(f"Failed to parse AI next question. Question: {question_text}, Options: {options}")
                 slack.post_message(
                     channel_id,
-                    text=f"⚠️ I'm having trouble formatting my next question. Let me provide the information I need:\n\n```{next_response[:500]}```\n\nPlease provide additional details and I'll continue building your infrastructure."
+                    text=f"⚠️ I'm having trouble formatting my next question. Let me provide the information I need:\n\n```{next_response[:500]}``\n\nPlease provide additional details and I'll continue building your infrastructure."
                 )
         else:
             # Unexpected response - no question or READY found
             slack.post_message(
                 channel_id,
-                text=f"🤔 I'm analyzing your requirements but need clarification.\n\nWhat I found:\n```{next_response[:500]}```\n\nPlease provide more details about your requirements."
+                text=f"🤔 I'm analyzing your requirements but need clarification.\n\nWhat I found:\n```{next_response[:500]}``\n\nPlease provide more details about your requirements."
             )
 
         return {"statusCode": 200, "body": ""}
@@ -5433,7 +5433,7 @@ Generate complete Terraform code including:
                     f"**What we know so far:**\n{len(session.conversation_history)} questions answered\n\n"
                     "**Options:**\n"
                     "• Reply with additional details and I'll continue\n"
-                    "• Or use `/carl build <blueprint>` with a standard blueprint\n\n"
+                    "• Or use /carl build <blueprint>` with a standard blueprint\n\n"
                     "_Tip: For complex requirements, break them into smaller pieces_"
                 )
             )
@@ -5466,7 +5466,7 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
         rec_session = session_service.get_session(session_id, user_id)
 
         if not rec_session:
-            slack.post_message(channel_id, text="❌ Recommendation session expired. Please run `/carl recommend` again.")
+            slack.post_message(channel_id, text="❌ Recommendation session expired. Please run /carl recommend` again.")
             return {"statusCode": 200, "body": ""}
 
         # Extract recommendation text
@@ -5532,7 +5532,7 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
         else:
             # Couldn't parse options, fall back to generic build
             requirement = rec_session.requirement
-            slack.post_message(channel_id, text=f"🏗️ Starting build for: _{requirement}_")
+            slack.post_message(channel_id, text=f"🏗️ Starting build for: {requirement}")
 
             # Proceed with intelligent build
             lambda_client = boto3.client('lambda')
@@ -5705,7 +5705,7 @@ def handle_architecture_build_button(payload: dict, action: dict) -> dict:
         # 4. Generate Terraform code
         slack.post_message(
             channel_id,
-            text=f"🏗️ Analyzing your AWS environment and determining what's needed for: _{requirement}_\n\nThis may take a moment..."
+            text=f"🏗️ Analyzing your AWS environment and determining what's needed for: {requirement}\n\nThis may take a moment..."
         )
 
         try:
@@ -5757,7 +5757,7 @@ def handle_estimate_option_button(payload: dict, action: dict) -> dict:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"💰 *Cost Estimate Details*\n\nFor a detailed cost breakdown of *{option_name}*, use the `/carl estimate` command with your specific requirements.\n\n*Example:*\n`/carl estimate {option_name.lower().replace(' ', '-')}`"
+                    "text": f"💰 *Cost Estimate Details*\n\nFor a detailed cost breakdown of *{option_name}*, use the /carl estimate` command with your specific requirements.\n\n*Example:*\n/carl estimate {option_name.lower().replace(' ', '-')}"
                 }
             },
             {
@@ -5765,7 +5765,7 @@ def handle_estimate_option_button(payload: dict, action: dict) -> dict:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "💡 The `/carl estimate` command provides itemized cost breakdowns based on your specific configuration needs."
+                        "text": "💡 The /carl estimate` command provides itemized cost breakdowns based on your specific configuration needs."
                     }
                 ]
             }
@@ -5782,7 +5782,7 @@ def handle_estimate_command(
     if not component:
         slack.post_message(
             channel_id,
-            text="Please specify a component. Example: `/carl estimate rds multi-az 100gb`",
+            text="Please specify a component. Example: /carl estimate rds multi-az 100gb",
         )
         return {"statusCode": 200, "body": ""}
 
@@ -5882,14 +5882,14 @@ def handle_blueprints_command(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "Use `/carl build <blueprint-name>` to generate Terraform code.",
+                "text": "Use /carl build <blueprint-name>` to generate Terraform code.",
             },
         },
         {"type": "divider"},
     ]
 
     for category, bps in categories.items():
-        bp_list = "\n".join([f"• `{bp['name']}` - {bp['description']}" for bp in bps])
+        bp_list = "\n".join([f"• {bp['name']} - {bp['description']}" for bp in bps])
         blocks.append({
             "type": "section",
             "text": {
@@ -6331,7 +6331,7 @@ def handle_finding_details_sync(channel: str, user: str, finding_id: str, accoun
             "fields": [
                 {"type": "mrkdwn", "text": f"*Severity:* {finding.get('severity', 'N/A')}"},
                 {"type": "mrkdwn", "text": f"*Source:* {finding.get('source', 'N/A')}"},
-                {"type": "mrkdwn", "text": f"*Resource:* `{finding.get('resource_id', 'N/A')}`"},
+                {"type": "mrkdwn", "text": f"*Resource:* `{finding.get('resource_id', 'N/A')}"},
                 {"type": "mrkdwn", "text": f"*Status:* {finding.get('status', 'N/A')}"},
             ],
         },
@@ -6394,14 +6394,14 @@ def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
     # Get finding
     finding = findings_service.get_finding(finding_id, account_id)
     if not finding:
-        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found.")
+        slack.post_message(channel, text=f"❌ Finding {finding_id} not found.")
         return {"statusCode": 200, "body": ""}
 
     # Check if already has ticket
     if finding.get('jira_ticket_id'):
         slack.post_message(
             channel,
-            text=f"ℹ️ Finding `{finding_id}` already has Jira ticket: {finding['jira_ticket_id']}"
+            text=f"ℹ️ Finding {finding_id} already has Jira ticket: {finding['jira_ticket_id']}"
         )
         return {"statusCode": 200, "body": ""}
 
@@ -6431,7 +6431,7 @@ def handle_finding_create_ticket_button(payload: dict, finding_id: str) -> dict:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"✅ Created Jira ticket for finding `{finding_id}`\n🔗 <{result['jira_url']}|{result['jira_key']}>"
+                            "text": f"✅ Created Jira ticket for finding {finding_id}\n🔗 <{result['jira_url']}|{result['jira_key']}>"
                         }
                     }
                 ]
@@ -6464,7 +6464,7 @@ def handle_finding_request_exception_button(payload: dict, finding_id: str) -> d
     # Get finding
     finding = findings_service.get_finding(finding_id, account_id)
     if not finding:
-        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found.")
+        slack.post_message(channel, text=f"❌ Finding {finding_id} not found.")
         return {"statusCode": 200, "body": ""}
 
     # Open modal for exception request details
@@ -6485,7 +6485,7 @@ def handle_finding_request_exception_button(payload: dict, finding_id: str) -> d
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*Finding:* {finding.get('title')}\n*Severity:* {finding.get('severity')}\n*Resource:* `{finding.get('resource_id')}`"
+                        "text": f"*Finding:* {finding.get('title')}\n*Severity:* {finding.get('severity')}\n*Resource:* `{finding.get('resource_id')}"
                     }
                 },
                 {
@@ -6587,13 +6587,13 @@ def handle_finding_ignore_button(payload: dict, finding_id: str) -> dict:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"👁️ Finding `{finding_id}` marked as ignored\n*By:* <@{user}>"
+                        "text": f"👁️ Finding {finding_id} marked as ignored\n*By:* <@{user}>"
                     }
                 }
             ]
         )
     else:
-        slack.post_message(channel, text=f"❌ Failed to ignore finding `{finding_id}`")
+        slack.post_message(channel, text=f"❌ Failed to ignore finding {finding_id}")
 
     return {"statusCode": 200, "body": ""}
 
@@ -6618,7 +6618,7 @@ def handle_finding_show_fix(payload: dict, finding_id: str) -> dict:
     finding = findings_service.get_finding(finding_id, account_id)
 
     if not finding:
-        slack.post_message(channel, text=f"❌ Finding `{finding_id}` not found")
+        slack.post_message(channel, text=f"❌ Finding {finding_id} not found")
         return {"statusCode": 404, "body": "Finding not found"}
 
     # Generate remediation guidance
@@ -6688,11 +6688,11 @@ def handle_architect_command(
             channel_id,
             text=(
                 "Ask me any AWS architecture question. I'll scan your environment and provide personalized recommendations. Examples:\n"
-                "• `/carl architect How should I design my VPC for a multi-region deployment?`\n"
-                "• `/carl architect Compare Transit Gateway vs VPC Peering for 10 VPCs`\n"
-                "• `/carl architect What's the best egress pattern for SOC 2 compliance?`\n"
-                "• `/carl architect Design a complete AWS foundation for my startup`\n\n"
-                "_Note: `/carl architect` and `/carl recommend` are equivalent - use whichever you prefer!_"
+                "• /carl architect How should I design my VPC for a multi-region deployment?\n"
+                "• /carl architect Compare Transit Gateway vs VPC Peering for 10 VPCs\n"
+                "• /carl architect What's the best egress pattern for SOC 2 compliance?\n"
+                "• /carl architect Design a complete AWS foundation for my startup\n\n"
+                "_Note: /carl architect and /carl recommend are equivalent - use whichever you prefer!_"
             ),
         )
         return {"statusCode": 200, "body": ""}
@@ -6983,7 +6983,7 @@ def handle_evidence_command(
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "💡 Run `/carl evidence collect` to gather evidence for missing controls"
+                        "text": "💡 Run /carl evidence collect` to gather evidence for missing controls"
                     }
                 ]
             })
@@ -6993,7 +6993,7 @@ def handle_evidence_command(
         else:
             slack.post_message(
                 channel_id,
-                text="Unknown evidence command. Use `collect` or `status`."
+                text="Unknown evidence command. Use collect or `status."
             )
 
     except Exception as e:
@@ -7058,8 +7058,8 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
             try:
                 slack.post_message(
                     channel_id,
-                    text=f"✅ Created *{stored_count}* new findings from evidence analysis.\n\n"
-                         f"Run `/carl jira sync` to create Jira tickets for these issues."
+                    text=f"✅ Created {stored_count} new findings from evidence analysis.\n\n"
+                         f"Run /carl jira sync` to create Jira tickets for these issues."
                 )
                 logger.info("Successfully posted new findings message")
             except Exception as slack_err:
@@ -7105,7 +7105,7 @@ def handle_evidence_list_command(
             slack.post_message(
                 channel_id,
                 text=f"No evidence items found{' for type: ' + evidence_type_filter if evidence_type_filter else ''}.\n\n"
-                     f"Run `/carl evidence collect` to gather evidence."
+                     f"Run /carl evidence collect` to gather evidence."
             )
             return {"statusCode": 200, "body": ""}
 
@@ -7202,12 +7202,12 @@ def handle_evidence_list_command(
                     'INFORMATIONAL': 'ℹ️'
                 }.get(severity, '⚠️')
 
-                status_text = f"{severity_emoji} *{severity}*"
+                status_text = f"{severity_emoji} {severity}"
                 if jira_ticket_id and jira_url:
                     status_text += f" | <{jira_url}|{jira_ticket_id}>"
 
             else:
-                status_text = "✅ *Compliant*"
+                status_text = "✅ Compliant"
                 finding_id = None
                 jira_ticket_id = None
                 status = None
@@ -7217,7 +7217,7 @@ def handle_evidence_list_command(
                 f"{status_text}\n"
                 f"*{evidence.title}*\n"
                 f"{evidence.description[:150]}{'...' if len(evidence.description) > 150 else ''}\n"
-                f"Resource: `{evidence.resource_id}`"
+                f"Resource: `{evidence.resource_id}"
             )
 
             # Add section with optional accessory button for compliant items
@@ -7303,7 +7303,7 @@ def handle_evidence_list_command(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"{severity_emoji} *{severity}* | {finding.get('title', 'Unknown')}\nResource: `{finding.get('resource_id', 'N/A')}`"
+                        "text": f"{severity_emoji} *{severity}* | {finding.get('title', 'Unknown')}\nResource: `{finding.get('resource_id', 'N/A')}"
                     }
                 })
                 blocks.append({
@@ -7330,7 +7330,7 @@ def handle_evidence_list_command(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💡 Showing 10 most recent items | Run `/carl evidence collect` to refresh | `/carl jira sync` to sync all findings"
+                    "text": "💡 Showing 10 most recent items | Run /carl evidence collect to refresh | /carl jira sync to sync all findings"
                 }
             ]
         })
@@ -7360,14 +7360,14 @@ def handle_report_command(
     if report_type not in ["executive", "full", "control"]:
         slack.post_message(
             channel_id,
-            text="Usage: `/carl report executive|full|control <control-id>`"
+            text="Usage: /carl report executive|full|control <control-id>"
         )
         return {"statusCode": 200, "body": ""}
 
     if report_type == "control" and not control_id:
         slack.post_message(
             channel_id,
-            text="Error: Control report requires a control ID. Usage: `/carl report control CC6.1`"
+            text="Error: Control report requires a control ID. Usage: /carl report control CC6.1"
         )
         return {"statusCode": 200, "body": ""}
 
@@ -7651,7 +7651,7 @@ def handle_exception_command(
                 for exc in pending[:5]:
                     blocks.append({
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"• `{exc.exception_id[:12]}` - {exc.title[:50]}"},
+                        "text": {"type": "mrkdwn", "text": f"• {exc.exception_id[:12]} - {exc.title[:50]}"},
                         "accessory": {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Review"},
@@ -7667,7 +7667,7 @@ def handle_exception_command(
                 for exc in expiring[:5]:
                     blocks.append({
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"• `{exc.exception_id[:12]}` - {exc.title[:50]} (expires {exc.expires_at[:10]})"}
+                        "text": {"type": "mrkdwn", "text": f"• {exc.exception_id[:12]} - {exc.title[:50]} (expires {exc.expires_at[:10]})"}
                     })
 
             slack.post_message(channel_id, blocks=blocks)
@@ -7683,7 +7683,7 @@ def handle_exception_command(
                     "3. SOC 2 Controls affected\n"
                     "4. Business justification\n"
                     "5. Duration requested (days)\n\n"
-                    "Example: `/carl exception create \"API key rotation exception\" finding-123 CC6.1,CC6.5 \"Legacy system requires 180-day keys\" 90`\n\n"
+                    "Example: /carl exception create \"API key rotation exception\" finding-123 CC6.1,CC6.5 \"Legacy system requires 180-day keys\" 90\n\n"
                     "_Or use the interactive form:_ Click the button below."
                 ),
             )
@@ -7696,7 +7696,7 @@ def handle_exception_command(
             exc = manager.approve_exception(exception_id, user_id, notes)
             slack.post_message(
                 channel_id,
-                text=f"✅ Exception `{exception_id}` approved. Expires: {exc.expires_at[:10]}"
+                text=f"✅ Exception {exception_id} approved. Expires: {exc.expires_at[:10]}"
             )
 
         elif subcommand == "deny" and extra_args:
@@ -7706,7 +7706,7 @@ def handle_exception_command(
             manager.deny_exception(exception_id, user_id, reason)
             slack.post_message(
                 channel_id,
-                text=f"❌ Exception `{exception_id}` denied. Reason: {reason}"
+                text=f"❌ Exception {exception_id} denied. Reason: {reason}"
             )
 
         elif subcommand == "stats":
@@ -7736,7 +7736,7 @@ def handle_exception_command(
         else:
             slack.post_message(
                 channel_id,
-                text="Usage: `/carl exception list|request|approve <id>|deny <id> <reason>|stats`"
+                text="Usage: /carl exception list|request|approve <id>|deny <id> <reason>|stats"
             )
 
     except Exception as e:
@@ -7862,9 +7862,9 @@ def handle_drift_command(
             notes = " ".join(extra_args[1:]) if len(extra_args) > 1 else ""
 
             if detector.acknowledge_drift(drift_id, user_id, notes):
-                slack.post_message(channel_id, text=f"✓ Drift item `{drift_id}` acknowledged.")
+                slack.post_message(channel_id, text=f"✓ Drift item {drift_id} acknowledged.")
             else:
-                slack.post_message(channel_id, text=f"Failed to acknowledge drift item `{drift_id}`.")
+                slack.post_message(channel_id, text=f"Failed to acknowledge drift item {drift_id}.")
 
         elif subcommand == "terraform" and extra_args:
             # Compare with Terraform state
@@ -7876,12 +7876,12 @@ def handle_drift_command(
             if drift_items:
                 slack.post_message(
                     channel_id,
-                    text=f"Found *{len(drift_items)}* drift items compared to Terraform state."
+                    text=f"Found {len(drift_items)} drift items compared to Terraform state."
                 )
                 for item in drift_items[:5]:
                     slack.post_message(
                         channel_id,
-                        text=f"• `{item.resource_id}` - {item.description}"
+                        text=f"• {item.resource_id} - {item.description}"
                     )
             else:
                 slack.post_message(channel_id, text="✓ No drift detected compared to Terraform state.")
@@ -7893,7 +7893,7 @@ def handle_drift_command(
         else:
             slack.post_message(
                 channel_id,
-                text="Usage: `/carl drift scan|status|acknowledge <drift-id>|terraform <state-key>|jira-sync`"
+                text="Usage: /carl drift scan|status|acknowledge <drift-id>|terraform <state-key>|jira-sync"
             )
 
     except Exception as e:
@@ -7927,7 +7927,7 @@ def handle_drift_scan_sync(slack: SlackService, channel_id: str, user_id: str) -
         if report.critical_drifts:
             slack.post_message(
                 channel_id,
-                text=f"⚠️ *{len(report.critical_drifts)} critical drift items require immediate attention!*"
+                text=f"⚠️ {len(report.critical_drifts)} critical drift items require immediate attention!"
             )
 
     except Exception as e:
@@ -7962,12 +7962,12 @@ def handle_drift_acknowledge_button(payload: dict, drift_id: str) -> dict:
         if success:
             slack.post_message(
                 channel,
-                text=f"✓ Drift item `{drift_id}` acknowledged by <@{user_id}>"
+                text=f"✓ Drift item {drift_id} acknowledged by <@{user_id}>"
             )
         else:
             slack.post_message(
                 channel,
-                text=f"❌ Failed to acknowledge drift item `{drift_id}`"
+                text=f"❌ Failed to acknowledge drift item {drift_id}"
             )
 
     except Exception as e:
@@ -8032,7 +8032,7 @@ def handle_drift_show_fix_sync(slack: SlackService, channel_id: str, drift_id: s
 
         if not drift_item:
             logger.error(f"Drift item not found in DynamoDB: {drift_id}")
-            slack.post_message(channel_id, text=f"❌ Drift item `{drift_id}` not found")
+            slack.post_message(channel_id, text=f"❌ Drift item {drift_id} not found")
             return {"statusCode": 200, "body": ""}
 
         # Convert drift item to finding format for remediation service
@@ -8063,7 +8063,7 @@ def handle_drift_show_fix_sync(slack: SlackService, channel_id: str, drift_id: s
                      f"*Next Steps:*\n"
                      f"1. Review the drift details above\n"
                      f"2. Fix manually in AWS Console or via AWS CLI\n"
-                     f"3. Run `/carl drift scan` to verify the fix"
+                     f"3. Run /carl drift scan` to verify the fix"
             )
 
         return {"statusCode": 200, "body": ""}
@@ -8095,13 +8095,13 @@ def handle_drift_suppress_button(payload: dict, drift_id: str) -> dict:
         if success:
             slack.post_message(
                 channel,
-                text=f"🙈 Drift item `{drift_id}` suppressed by <@{user_id}>\n\n"
-                     f"_This drift will be hidden from future reports. Re-run `/carl drift scan` to detect if it recurs._"
+                text=f"🙈 Drift item {drift_id} suppressed by <@{user_id}>\n\n"
+                     f"_This drift will be hidden from future reports. Re-run /carl drift scan` to detect if it recurs._"
             )
         else:
             slack.post_message(
                 channel,
-                text=f"❌ Failed to suppress drift item `{drift_id}`"
+                text=f"❌ Failed to suppress drift item {drift_id}"
             )
 
     except Exception as e:
@@ -8135,7 +8135,7 @@ def handle_drift_create_ticket_button(payload: dict, drift_id: str) -> dict:
         if not drift_item:
             slack.post_message(
                 channel,
-                text=f"❌ Drift item `{drift_id}` not found"
+                text=f"❌ Drift item {drift_id} not found"
             )
             return {"statusCode": 200, "body": ""}
 
@@ -8186,7 +8186,7 @@ def handle_drift_create_ticket_button(payload: dict, drift_id: str) -> dict:
         else:
             slack.post_message(
                 channel,
-                text=f"❌ Failed to create Jira ticket for drift `{drift_id}`"
+                text=f"❌ Failed to create Jira ticket for drift {drift_id}"
             )
 
     except Exception as e:
@@ -8224,7 +8224,7 @@ def handle_jira_command(
     else:
         slack.post_message(
             channel_id,
-            text="Unknown Jira subcommand. Use: `test`, `sync`, or `status`"
+            text="Unknown Jira subcommand. Use: test, sync, or `status"
         )
         return {"statusCode": 200, "body": ""}
 
@@ -8409,7 +8409,7 @@ def handle_jira_sync_sync(
                     )
 
         # Report results
-        result_text = f"✅ *Jira Sync Complete*\n\n"
+        result_text = f"✅ Jira Sync Complete\n\n"
         result_text += f"• Synced: {synced_count} new tickets\n"
         result_text += f"• Skipped: {skipped_count} (tickets already exist)\n"
 
@@ -8586,7 +8586,7 @@ def handle_drift_jira_sync_sync(
                     )
 
         # Report results
-        result_text = f"✅ *Drift Jira Sync Complete*\n\n"
+        result_text = f"✅ Drift Jira Sync Complete\n\n"
         result_text += f"• Synced: {synced_count} new tickets\n"
         result_text += f"• Skipped: {skipped_count} (tickets already exist)\n"
 
@@ -8670,7 +8670,7 @@ def handle_jira_status(
                 {
                     "type": "context",
                     "elements": [
-                        {"type": "mrkdwn", "text": "Run `/carl jira sync` to sync remaining findings"}
+                        {"type": "mrkdwn", "text": "Run /carl jira sync` to sync remaining findings"}
                     ]
                 }
             ]
@@ -8707,7 +8707,7 @@ def handle_compliance_command(
     else:
         slack.post_message(
             channel_id,
-            text="Unknown compliance subcommand. Use: `assess` or `status`"
+            text="Unknown compliance subcommand. Use: assess or `status"
         )
 
     return {"statusCode": 200, "body": ""}
@@ -8769,7 +8769,7 @@ def handle_compliance_assess_sync(
     """Synchronous version - compliance assessment (not yet implemented)."""
     slack.post_message(
         channel_id,
-        text="⚠️ Autonomous compliance assessment is planned for a future release.\n\nFor now, you can use:\n• `/carl evidence collect` - Collect compliance evidence\n• `/carl jira sync` - Create Jira tickets for findings\n• `/carl drift scan` - Check for infrastructure drift\n• `/carl status` - View compliance posture summary"
+        text="⚠️ Autonomous compliance assessment is planned for a future release.\n\nFor now, you can use:\n• /carl evidence collect - Collect compliance evidence\n• /carl jira sync - Create Jira tickets for findings\n• /carl drift scan - Check for infrastructure drift\n• /carl status - View compliance posture summary"
     )
     return {"statusCode": 200, "body": ""}
 
@@ -8816,7 +8816,7 @@ def handle_compliance_status(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "💡 Run `/carl compliance assess` for complete SOC 2 analysis with remediation plan."
+                        "text": "💡 Run /carl compliance assess` for complete SOC 2 analysis with remediation plan."
                     }
                 }
             ]
@@ -8846,7 +8846,7 @@ def handle_create_jira_ticket_action(payload: dict, action: dict) -> dict:
     slack.post_message(
         channel_id,
         thread_ts=payload.get("message", {}).get("ts"),
-        text=f"🔄 Creating Jira ticket for finding `{finding_id}`..."
+        text=f"🔄 Creating Jira ticket for finding {finding_id}..."
     )
 
     try:
@@ -8888,7 +8888,7 @@ def handle_create_jira_ticket_action(payload: dict, action: dict) -> dict:
                             "type": "mrkdwn",
                             "text": f"✅ *Jira Ticket Created*\n\n"
                                    f"Ticket: <{result['jira_url']}|{result['jira_key']}>\n"
-                                   f"Finding: `{finding_id}`"
+                                   f"Finding: `{finding_id}"
                         }
                     }
                 ]
