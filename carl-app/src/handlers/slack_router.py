@@ -6782,29 +6782,37 @@ def handle_learning_feedback(payload: dict, action: dict) -> dict:
             resource_graph_table=os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
         )
 
-        learning_service.record_feedback(interaction_id, was_useful)
+        success = learning_service.record_feedback(interaction_id, was_useful)
 
-        # Update the message to show feedback was recorded
-        if was_useful:
-            response_text = "✅ Thanks! This helps CARL learn what scans are most useful for your environment."
+        # Send ephemeral message to user (visible only to them)
+        if success:
+            if was_useful:
+                response_text = "✅ Thanks! This helps CARL learn what scans are most useful for your environment."
+            else:
+                response_text = "📝 Thanks for the feedback! CARL will adjust its scanning strategy to be more helpful."
         else:
-            response_text = "📝 Thanks for the feedback! CARL will adjust its scanning strategy to be more helpful."
+            response_text = "⚠️ Feedback recorded, but the interaction wasn't found in history (this is normal for architecture questions)."
 
-        # Remove the feedback buttons by updating the message
-        slack.post_message(
+        # Send ephemeral response
+        slack.post_ephemeral(
             channel,
-            text=response_text,
-            replace_original=True  # This removes the buttons
+            user,
+            text=response_text
         )
 
-        logger.info(f"Recorded learning feedback: interaction={interaction_id}, useful={was_useful}, user={user}")
+        logger.info(f"Recorded learning feedback: interaction={interaction_id}, useful={was_useful}, found={success}, user={user}")
 
     except Exception as e:
         logger.error(f"Failed to handle learning feedback: {e}", exc_info=True)
-        slack.post_message(
-            channel,
-            text="⚠️ Failed to record feedback, but I appreciate you trying to help me learn!"
-        )
+        # Send ephemeral error message
+        try:
+            slack.post_ephemeral(
+                channel,
+                user,
+                text="⚠️ Failed to record feedback, but I appreciate you trying to help me learn!"
+            )
+        except:
+            pass
 
     return {"statusCode": 200, "body": ""}
 

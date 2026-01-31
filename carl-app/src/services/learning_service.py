@@ -208,13 +208,16 @@ class LearningService:
             logger.error(f"Failed to log interaction: {e}", exc_info=True)
             return None
 
-    def record_feedback(self, interaction_id: str, was_useful: bool):
+    def record_feedback(self, interaction_id: str, was_useful: bool) -> bool:
         """
         Record user feedback on a scan interaction.
 
         Args:
             interaction_id: ID from log_interaction()
             was_useful: True for thumbs up, False for thumbs down
+
+        Returns:
+            True if feedback was recorded, False if interaction not found
         """
         try:
             # Query to find the interaction
@@ -227,7 +230,7 @@ class LearningService:
 
             if not response.get("Items"):
                 logger.warning(f"Interaction {interaction_id} not found for feedback")
-                return
+                return False
 
             item = response["Items"][0]
 
@@ -239,9 +242,11 @@ class LearningService:
             )
 
             logger.info(f"Recorded feedback for {interaction_id}: {'👍' if was_useful else '👎'}")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to record feedback: {e}", exc_info=True)
+            return False
 
     def update_resource_graph(
         self,
