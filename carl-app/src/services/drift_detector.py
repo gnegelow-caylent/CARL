@@ -989,56 +989,72 @@ class DriftDetector:
             "text": {"type": "mrkdwn", "text": f"*By Severity:* {severity_text}"}
         })
 
-        # Show critical items with action buttons
-        if report.critical_drifts:
+        # Show ALL drift items by severity with action buttons
+        # Group items by severity for better organization
+        severity_order = ["critical", "high", "medium", "low", "info"]
+
+        for severity in severity_order:
+            severity_items = [d for d in report.drift_items if d.severity == severity]
+
+            if not severity_items:
+                continue
+
+            # Section header for this severity level
+            severity_label = {
+                "critical": "🔴 Critical",
+                "high": "🟠 High",
+                "medium": "🟡 Medium",
+                "low": "🟢 Low",
+                "info": "ℹ️ Info"
+            }
+
             blocks.append({
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "*🔴 Critical Drift Items:*"}
+                "text": {"type": "mrkdwn", "text": f"*{severity_label.get(severity, severity.title())} Drift Items:*"}
             })
 
-            # Show ALL critical drift items (removed [:5] limit)
-            for drift_id in report.critical_drifts:
-                item = next((d for d in report.drift_items if d.drift_id == drift_id), None)
-                if item:
-                    # Drift item section
-                    blocks.append({
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{item.resource_type}*: `{item.resource_id}`\n{item.description[:150]}"
-                        }
-                    })
+            # Show all items for this severity
+            for item in severity_items:
+                # Drift item section with severity indicator
+                severity_badge = severity_emoji.get(item.severity, '❓')
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{severity_badge} *{item.severity.upper()}* | *{item.resource_type}*: `{item.resource_id}`\n{item.description[:150]}"
+                    }
+                })
 
-                    # Action buttons for each drift item
-                    action_buttons = []
+                # Action buttons for each drift item
+                action_buttons = []
 
-                    if not item.acknowledged:
-                        action_buttons.append({
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "✓ Acknowledge"},
-                            "action_id": f"drift_acknowledge_{drift_id}",
-                            "style": "primary"
-                        })
-
+                if not item.acknowledged:
                     action_buttons.append({
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "🔧 Show Fix"},
-                        "action_id": f"drift_show_fix_{drift_id}"
+                        "text": {"type": "plain_text", "text": "✓ Acknowledge"},
+                        "action_id": f"drift_acknowledge_{item.drift_id}",
+                        "style": "primary"
                     })
 
-                    action_buttons.append({
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "🙈 Suppress"},
-                        "action_id": f"drift_suppress_{drift_id}",
-                        "style": "danger"
-                    })
+                action_buttons.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🔧 Show Fix"},
+                    "action_id": f"drift_show_fix_{item.drift_id}"
+                })
 
-                    blocks.append({
-                        "type": "actions",
-                        "elements": action_buttons
-                    })
+                action_buttons.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🙈 Suppress"},
+                    "action_id": f"drift_suppress_{item.drift_id}",
+                    "style": "danger"
+                })
 
-                    blocks.append({"type": "divider"})
+                blocks.append({
+                    "type": "actions",
+                    "elements": action_buttons
+                })
+
+                blocks.append({"type": "divider"})
 
         blocks.append({
             "type": "context",
