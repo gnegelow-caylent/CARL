@@ -1458,47 +1458,58 @@ class EvidenceCollector:
 
         return evidence_items
 
-    def collect_all_evidence(self) -> dict[str, list[Evidence]]:
-        """Collect all evidence types for a comprehensive audit across 50+ AWS services."""
+    def collect_all_evidence(self, progress_callback=None) -> dict[str, list[Evidence]]:
+        """
+        Collect all evidence types for a comprehensive audit across 50+ AWS services.
+
+        Args:
+            progress_callback: Optional function(service_name, completed, total, resources_found)
+                              to report progress as each service is scanned
+        """
         logger.info("Starting comprehensive evidence collection across all AWS services")
 
-        results = {
-            # Identity & Access
-            "iam": self.collect_iam_evidence(),
+        # Define services to scan in order
+        services = [
+            ("IAM", self.collect_iam_evidence),
+            ("S3", self.collect_s3_evidence),
+            ("VPC", self.collect_vpc_evidence),
+            ("EC2", self.collect_ec2_evidence),
+            ("Lambda", self.collect_lambda_evidence),
+            ("ECS", self.collect_ecs_evidence),
+            ("EKS", self.collect_eks_evidence),
+            ("RDS", self.collect_rds_evidence),
+            ("DynamoDB", self.collect_dynamodb_evidence),
+            ("GuardDuty", self.collect_guardduty_evidence),
+            ("Security Hub", self.collect_security_hub_evidence),
+            ("Inspector", self.collect_inspector_evidence),
+            ("Macie", self.collect_macie_evidence),
+            ("Config", self.collect_config_evidence),
+            ("CloudTrail", self.collect_cloudtrail_evidence),
+            ("KMS", self.collect_kms_evidence),
+            ("Secrets Manager", self.collect_secrets_evidence),
+            ("CloudWatch", self.collect_cloudwatch_evidence),
+        ]
 
-            # Storage
-            "s3": self.collect_s3_evidence(),
+        results = {}
+        total_services = len(services)
 
-            # Networking
-            "vpc": self.collect_vpc_evidence(),
+        for idx, (service_name, collect_func) in enumerate(services, 1):
+            # Collect evidence for this service
+            evidence_items = collect_func()
+            service_key = service_name.lower().replace(" ", "_")
+            results[service_key] = evidence_items
 
-            # Compute
-            "ec2": self.collect_ec2_evidence(),
-            "lambda": self.collect_lambda_evidence(),
-            "ecs": self.collect_ecs_evidence(),
-            "eks": self.collect_eks_evidence(),
-
-            # Database
-            "rds": self.collect_rds_evidence(),
-            "dynamodb": self.collect_dynamodb_evidence(),
-
-            # Security Services
-            "guardduty": self.collect_guardduty_evidence(),
-            "security_hub": self.collect_security_hub_evidence(),
-            "inspector": self.collect_inspector_evidence(),
-            "macie": self.collect_macie_evidence(),
-
-            # Compliance & Governance
-            "config": self.collect_config_evidence(),
-            "cloudtrail": self.collect_cloudtrail_evidence(),
-
-            # Encryption & Secrets
-            "kms": self.collect_kms_evidence(),
-            "secrets_manager": self.collect_secrets_evidence(),
-
-            # Monitoring & Logging
-            "cloudwatch": self.collect_cloudwatch_evidence(),
-        }
+            # Report progress if callback provided
+            if progress_callback:
+                try:
+                    progress_callback(
+                        service_name=service_name,
+                        completed=idx,
+                        total=total_services,
+                        resources_found=len(evidence_items)
+                    )
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
 
         total = sum(len(items) for items in results.values())
         logger.info(f"Evidence collection complete: {total} items collected across {len(results)} service categories")

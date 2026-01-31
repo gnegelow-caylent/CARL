@@ -1992,8 +1992,26 @@ def handle_ask_command_sync(
             evidence_table=evidence_table
         )
 
-        # Collect comprehensive evidence across all AWS services
-        evidence_results = collector.collect_all_evidence()
+        # Track progress
+        total_resources_scanned = 0
+
+        # Progress callback to post updates
+        def progress_callback(service_name, completed, total, resources_found):
+            nonlocal total_resources_scanned
+            total_resources_scanned += resources_found
+
+            # Post progress updates at milestones: 25%, 50%, 75%, and every 3 services
+            percent = int((completed / total) * 100)
+
+            # Show progress at 25%, 50%, 75% or every 3rd service
+            if completed % 3 == 0 or percent in [25, 50, 75]:
+                slack.post_message(
+                    channel_id,
+                    text=f"⏳ Scanning progress: {completed}/{total} services ({percent}%) - {total_resources_scanned} resources found"
+                )
+
+        # Collect comprehensive evidence across all AWS services with progress updates
+        evidence_results = collector.collect_all_evidence(progress_callback=progress_callback)
 
         # Convert evidence to context summary for AI
         environment_summary = _evidence_to_context_summary(evidence_results)
