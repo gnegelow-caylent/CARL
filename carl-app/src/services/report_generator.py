@@ -26,6 +26,7 @@ from services.evidence_collector import (
     SOC2Control,
     RESOURCE_CONTROL_MAPPING,
 )
+from services.bedrock_service import BedrockService
 
 logger = get_logger(__name__)
 
@@ -147,16 +148,28 @@ class ReportGenerator:
         evidence_collector: EvidenceCollector,
         findings_table: str = None,
         exceptions_table: str = None,
-        reports_bucket: str = None
+        reports_bucket: str = None,
+        use_ai_summaries: bool = True
     ):
         self.evidence_collector = evidence_collector
         self.findings_table = findings_table
         self.exceptions_table = exceptions_table
         self.reports_bucket = reports_bucket
+        self.use_ai_summaries = use_ai_summaries
 
         self.dynamodb = boto3.resource("dynamodb")
         # Use Signature Version 4 for KMS-encrypted S3 buckets
         self.s3 = boto3.client("s3", config=Config(signature_version='s3v4'))
+
+        # Initialize AI service for enhanced summaries and recommendations
+        if use_ai_summaries:
+            try:
+                self.bedrock = BedrockService()
+            except Exception as e:
+                logger.warning(f"Failed to initialize Bedrock service: {e}. Falling back to templated summaries.")
+                self.bedrock = None
+        else:
+            self.bedrock = None
 
         if findings_table:
             self.findings_db = self.dynamodb.Table(findings_table)
@@ -934,6 +947,10 @@ requiring attention.
 
         score_penalty_applied = findings_summary["total"] > 0
 
+        # Generate AI-enhanced executive summary and recommendations
+        ai_summary = self._generate_ai_executive_summary(coverage, findings_summary, base_coverage, compliance_score)
+        ai_recommendations = self._generate_ai_recommendations(findings_summary, coverage)
+
         # Structure data for PDF - EXECUTIVE SUMMARY (high-level only)
         report_data = {
             'report_type': 'SOC 2 Executive Summary',
@@ -943,7 +960,8 @@ requiring attention.
             'compliance_score': compliance_score,
             'base_coverage': base_coverage,
             'score_penalty_applied': score_penalty_applied,
-            'executive_summary': self._generate_executive_text(coverage, findings_summary, base_coverage, score_penalty_applied),
+            'executive_summary': ai_summary,  # AI-enhanced summary
+            'ai_recommendations': ai_recommendations,  # AI-generated recommendations
             'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
             'controls_passed': len(coverage["covered"]),
             'total_findings': findings_summary["total"],
@@ -1012,6 +1030,10 @@ requiring attention.
 
         score_penalty_applied = findings_summary["total"] > 0
 
+        # Generate AI-enhanced executive summary and recommendations
+        ai_summary = self._generate_ai_executive_summary(coverage, findings_summary, base_coverage, compliance_score)
+        ai_recommendations = self._generate_ai_recommendations(findings_summary, coverage)
+
         # Structure comprehensive data for PDF - FULL AUDIT (everything)
         report_data = {
             'report_type': 'SOC 2 Full Audit Report',
@@ -1021,7 +1043,8 @@ requiring attention.
             'compliance_score': compliance_score,
             'base_coverage': base_coverage,
             'score_penalty_applied': score_penalty_applied,
-            'executive_summary': self._generate_executive_text(coverage, findings_summary, base_coverage, score_penalty_applied),
+            'executive_summary': ai_summary,  # AI-enhanced summary
+            'ai_recommendations': ai_recommendations,  # AI-generated recommendations
             'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
             'controls_passed': len(coverage["covered"]),
             'total_findings': findings_summary["total"],
@@ -1072,6 +1095,137 @@ requiring attention.
             summary += " requiring remediation."
 
         return summary
+
+    def _generate_ai_executive_summary(self, coverage: dict, findings_summary: dict, base_coverage: float = None, compliance_score: float = 100.0) -> str:
+        """Generate AI-enhanced executive summary with insights, context, and recommendations."""
+        if not self.bedrock:
+            # Fallback to templated summary
+            return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+        try:
+            total_controls = len(coverage["covered"]) + len(coverage["missing"])
+            controls_covered = len(coverage["covered"])
+            coverage_pct = base_coverage if base_coverage is not None else coverage["coverage_percent"]
+
+            # Prepare findings details for AI context
+            findings_details = []
+            for finding in findings_summary.get('items', [])[:10]:  # Top 10 for context
+                findings_details.append({
+                    'severity': finding.get('severity', 'UNKNOWN'),
+                    'title': finding.get('title', 'No title'),
+                    'resource_type': finding.get('resource_type', 'Unknown'),
+                    'control_ids': finding.get('control_ids', [])
+                })
+
+            # Build AI prompt
+            prompt = f"""You are a compliance and security expert writing an executive summary for a SOC 2 compliance report.
+
+**Current Compliance Data:**
+- Control Coverage: {controls_covered}/{total_controls} ({coverage_pct:.0f}%)
+- Compliance Score: {compliance_score:.0f}% (based on findings severity)
+- Total Findings: {findings_summary['total']}
+  - Critical: {findings_summary['critical']}
+  - High: {findings_summary['high']}
+  - Medium: {findings_summary['medium']}
+  - Low: {findings_summary['low']}
+
+**Top Findings Context:**
+{json.dumps(findings_details, indent=2)}
+
+**Task:**
+Write a concise 2-3 paragraph executive summary that:
+1. Explains the compliance posture in business terms (not just numbers)
+2. Highlights the key risks or achievements
+3. Provides context on what these numbers mean for the organization
+4. If there are critical/high findings, explain the business impact
+5. If compliance is strong, acknowledge the achievement
+
+**Style:**
+- Professional but accessible (not overly technical)
+- Focus on "why this matters" not just "what the data says"
+- 2-3 paragraphs maximum
+- No bullet points - write in narrative form
+- No bold or italic formatting
+
+Generate the executive summary:"""
+
+            # Call AI to generate summary
+            response = self.bedrock.generate_text(prompt, max_tokens=500)
+
+            # Validate response isn't empty
+            if not response or len(response.strip()) < 50:
+                logger.warning("AI-generated summary too short, falling back to templated")
+                return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+            return response.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to generate AI executive summary: {e}")
+            # Fallback to templated summary
+            return self._generate_executive_text(coverage, findings_summary, base_coverage)
+
+    def _generate_ai_recommendations(self, findings_summary: dict, coverage: dict) -> str:
+        """Generate AI-powered prioritized remediation recommendations."""
+        if not self.bedrock:
+            return ""
+
+        try:
+            # Prepare findings for recommendation analysis
+            critical_findings = [f for f in findings_summary.get('items', []) if f.get('severity') == 'CRITICAL']
+            high_findings = [f for f in findings_summary.get('items', []) if f.get('severity') == 'HIGH']
+            medium_findings = [f for f in findings_summary.get('items', []) if f.get('severity') == 'MEDIUM']
+
+            if not (critical_findings or high_findings or medium_findings):
+                return "No remediation recommendations - compliance posture is strong."
+
+            # Build context for AI
+            findings_context = []
+            for finding in (critical_findings + high_findings + medium_findings)[:15]:  # Top 15
+                findings_context.append({
+                    'severity': finding.get('severity'),
+                    'title': finding.get('title'),
+                    'resource_type': finding.get('resource_type'),
+                    'resource_id': finding.get('resource_id'),
+                    'control_ids': finding.get('control_ids', [])
+                })
+
+            prompt = f"""You are a cloud security expert analyzing compliance findings and providing remediation recommendations.
+
+**Findings to Address:**
+{json.dumps(findings_context, indent=2)}
+
+**Coverage Stats:**
+- {len(coverage['covered'])}/{len(coverage['covered']) + len(coverage['missing'])} controls assessed
+
+**Task:**
+Generate a prioritized list of 3-5 high-level remediation recommendations that:
+1. Group related findings (e.g., "encryption issues" not individual S3 buckets)
+2. Prioritize by business impact and ease of implementation
+3. Include specific, actionable next steps
+4. Estimate effort (Quick Win / Moderate / Complex)
+5. Focus on root causes, not symptoms
+
+**Format:**
+For each recommendation:
+Priority [number]: [Title]
+Impact: [High/Medium]
+Effort: [Quick Win/Moderate/Complex]
+Action: [Specific steps to take]
+
+Keep it concise - 3-5 recommendations maximum. No bold or italic formatting.
+
+Generate recommendations:"""
+
+            response = self.bedrock.generate_text(prompt, max_tokens=800)
+
+            if not response or len(response.strip()) < 50:
+                return ""
+
+            return response.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to generate AI recommendations: {e}")
+            return ""
 
     def _format_controls_for_pdf(self, coverage: dict, findings_summary: dict, detailed: bool = False) -> list[dict]:
         """Format control data for PDF table."""

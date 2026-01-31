@@ -445,6 +445,9 @@ class PDFReportGenerator:
         <img src="data:image/png;base64,{findings_chart}" alt="Findings by Severity">
     </div>
 
+    <!-- AI-Generated Recommendations (if available) -->
+    {self._generate_recommendations_section(report_data)}
+
     <!-- Detailed Sections -->
     {self._generate_detailed_sections(report_data)}
 
@@ -455,6 +458,25 @@ class PDFReportGenerator:
 </html>
 """
         return html
+
+    def _generate_recommendations_section(self, report_data: dict) -> str:
+        """Generate AI recommendations section if available."""
+        recommendations = report_data.get('ai_recommendations', '')
+
+        if not recommendations or len(recommendations.strip()) < 20:
+            return ""
+
+        # Format recommendations with proper HTML
+        # Replace line breaks with <br> and wrap in styled div
+        formatted_recs = recommendations.replace('\n', '<br>')
+
+        return f"""
+    <div class="page-break"></div>
+    <h2>Priority Remediation Recommendations</h2>
+    <div class="executive-summary">
+        <p style="white-space: pre-wrap;">{formatted_recs}</p>
+    </div>
+"""
 
     def _generate_detailed_sections(self, report_data: dict) -> str:
         """Generate detailed sections for controls, findings, etc."""
