@@ -1150,7 +1150,7 @@ Write a concise 2-3 paragraph executive summary that:
 Generate the executive summary:"""
 
             # Call AI to generate summary
-            response = self.bedrock.generate_text(prompt, max_tokens=500)
+            response = self.bedrock.invoke_model(prompt, max_tokens=500)
 
             # Validate response isn't empty
             if not response or len(response.strip()) < 50:
@@ -1216,7 +1216,7 @@ Keep it concise - 3-5 recommendations maximum. No bold or italic formatting.
 
 Generate recommendations:"""
 
-            response = self.bedrock.generate_text(prompt, max_tokens=800)
+            response = self.bedrock.invoke_model(prompt, max_tokens=800)
 
             if not response or len(response.strip()) < 50:
                 return ""
