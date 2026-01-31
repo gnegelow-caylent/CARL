@@ -29,5 +29,8 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 # Copy application code
 COPY src/ ${LAMBDA_TASK_ROOT}/
 
+# Copy compliance frameworks (YAML definitions)
+COPY compliance-frameworks/ ${LAMBDA_TASK_ROOT}/compliance-frameworks/
+
 # Set the Lambda handler
 CMD ["handlers.slack_router.lambda_handler"]
