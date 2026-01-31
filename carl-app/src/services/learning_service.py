@@ -220,23 +220,36 @@ class LearningService:
             True if feedback was recorded, False if interaction not found
         """
         try:
-            # Query to find the interaction
+            # Query by pk to get all interactions for this account
+            # sk format: INTERACTION#{timestamp}#{interaction_id}
             response = self.history_table.query(
-                IndexName="AccountIndex",
-                KeyConditionExpression=Key("account_id").eq(self.account_id),
-                FilterExpression=Attr("interaction_id").eq(interaction_id),
-                Limit=1
+                KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{self.account_id}")
             )
 
-            if not response.get("Items"):
-                logger.warning(f"Interaction {interaction_id} not found for feedback")
-                return False
+            items = response.get("Items", [])
 
-            item = response["Items"][0]
+            # Continue scanning if there are more results
+            while "LastEvaluatedKey" in response:
+                response = self.history_table.query(
+                    KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{self.account_id}"),
+                    ExclusiveStartKey=response["LastEvaluatedKey"]
+                )
+                items.extend(response.get("Items", []))
+
+            # Find the interaction by interaction_id attribute
+            matching_item = None
+            for item in items:
+                if item.get("interaction_id") == interaction_id:
+                    matching_item = item
+                    break
+
+            if not matching_item:
+                logger.warning(f"Interaction {interaction_id} not found for feedback (searched {len(items)} interactions)")
+                return False
 
             # Update with feedback
             self.history_table.update_item(
-                Key={"pk": item["pk"], "sk": item["sk"]},
+                Key={"pk": matching_item["pk"], "sk": matching_item["sk"]},
                 UpdateExpression="SET was_useful = :useful",
                 ExpressionAttributeValues={":useful": was_useful}
             )
