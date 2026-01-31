@@ -8059,12 +8059,20 @@ def handle_jira_sync_sync(
         # Get findings that need Jira tickets (excludes accepted/ignored/suppressed)
         findings = findings_service.get_findings_for_ticketing(limit=50)
 
+        total_findings = len(findings)
         synced_count = 0
         failed_count = 0
         skipped_count = 0
         recreated_count = 0
 
-        for finding in findings:
+        # Post initial progress
+        if total_findings > 0:
+            slack.post_message(
+                channel_id,
+                text=f"📋 Processing {total_findings} findings..."
+            )
+
+        for idx, finding in enumerate(findings, 1):
             # Check if already has Jira ticket ID in DynamoDB
             existing_ticket_id = finding.get("jira_ticket_id")
 
@@ -8108,6 +8116,15 @@ def handle_jira_sync_sync(
             else:
                 failed_count += 1
                 logger.error(f"Failed to sync finding {finding['id']}: {result.get('error')}")
+
+            # Post progress updates every 5 findings or at 25%, 50%, 75% milestones
+            if total_findings > 5:
+                if idx % 5 == 0 or idx in [total_findings // 4, total_findings // 2, total_findings * 3 // 4]:
+                    progress_pct = int((idx / total_findings) * 100)
+                    slack.post_message(
+                        channel_id,
+                        text=f"⏳ Progress: {idx}/{total_findings} ({progress_pct}%) - {synced_count} synced, {skipped_count} skipped"
+                    )
 
         # Report results
         result_text = f"✅ *Jira Sync Complete*\n\n"
