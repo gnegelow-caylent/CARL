@@ -12,7 +12,7 @@ Evidence is stored in S3 with metadata in DynamoDB for quick retrieval.
 
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field, asdict
@@ -1530,7 +1530,7 @@ class EvidenceCollector:
         Converts evidence items that represent security problems into Finding objects
         that can be tracked, remediated, and synced to Jira.
 
-        Only creates findings that don't already exist in the findings table.
+        Creates new findings and resolves existing findings when issues are fixed.
 
         Args:
             evidence_results: Dict of evidence items by category from collect_all_evidence()
@@ -1540,16 +1540,21 @@ class EvidenceCollector:
         """
         findings = []
         skipped = 0
+        resolved = 0
 
         # Import here to avoid circular dependency
         from services.findings_service import FindingsService
         findings_service = FindingsService()
+
+        # Track all finding IDs that SHOULD exist based on current evidence
+        expected_finding_ids = set()
 
         for category, evidence_items in evidence_results.items():
             for evidence in evidence_items:
                 # Check if this evidence represents security issues (can return multiple)
                 evidence_findings = self._analyze_evidence_for_findings(evidence, category)
                 for finding in evidence_findings:
+                    expected_finding_ids.add(finding.id)
                     # Check if finding already exists
                     existing = findings_service.get_finding(finding.id, finding.account_id)
                     if existing:
@@ -1558,7 +1563,44 @@ class EvidenceCollector:
                     else:
                         findings.append(finding)
 
-        logger.info(f"Created {len(findings)} new findings from evidence analysis ({skipped} already existed)")
+        # Resolve findings that no longer have evidence (issue has been fixed)
+        # Scan for existing findings from evidence collector source
+        try:
+            # Scan the findings table for CONFIG source findings
+            from boto3.dynamodb.conditions import Attr
+            response = findings_service.table.scan(
+                FilterExpression=Attr('source').eq(FindingSource.CONFIG.value)
+            )
+            existing_items = response.get('Items', [])
+
+            # Continue scanning if there are more results
+            while 'LastEvaluatedKey' in response:
+                response = findings_service.table.scan(
+                    FilterExpression=Attr('source').eq(FindingSource.CONFIG.value),
+                    ExclusiveStartKey=response['LastEvaluatedKey']
+                )
+                existing_items.extend(response.get('Items', []))
+
+            # Check each existing finding
+            for item in existing_items:
+                finding_id = item.get('finding_id')
+                status = item.get('status')
+
+                if finding_id not in expected_finding_ids and status != FindingStatus.RESOLVED.value:
+                    # Issue no longer exists in current evidence - mark as resolved
+                    title = item.get('title', 'Unknown')
+                    findings_service.update_finding(
+                        finding_id=finding_id,
+                        account_id=item.get('account_id'),
+                        status=FindingStatus.RESOLVED.value,
+                        resolved_at=datetime.now(timezone.utc).isoformat()
+                    )
+                    resolved += 1
+                    logger.info(f"Resolved finding {finding_id}: {title} (issue fixed)")
+        except Exception as e:
+            logger.warning(f"Error resolving stale findings: {e}")
+
+        logger.info(f"Created {len(findings)} new findings, {skipped} already existed, {resolved} resolved (issues fixed)")
         return findings
 
     def _analyze_evidence_for_findings(self, evidence: Evidence, category: str) -> list[Finding]:
