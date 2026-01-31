@@ -1,4 +1,5 @@
 name: Deploy CARL Core
+# Updated: ECR permissions now configured for Docker image deployment
 
 on:
   push:
