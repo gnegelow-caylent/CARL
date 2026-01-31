@@ -7824,7 +7824,7 @@ def handle_drift_acknowledge_button(payload: dict, drift_id: str) -> dict:
     slack = get_slack_service()
     user = payload.get("user", {})
     user_id = user.get("id", "unknown")
-    channel = payload.get("container", {}).get("channel_id")
+    channel = payload.get("channel", {}).get("id", "")
 
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
@@ -7859,7 +7859,7 @@ def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
     from services.remediation_service import RemediationService
 
     slack = get_slack_service()
-    channel = payload.get("container", {}).get("channel_id")
+    channel = payload.get("channel", {}).get("id", "")
 
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
@@ -7867,8 +7867,7 @@ def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
         detector = DriftDetector(drift_table=drift_table)
 
         # Get drift item details
-        drift_items = detector.get_drift_items()
-        drift_item = next((d for d in drift_items if d.drift_id == drift_id), None)
+        drift_item = detector.get_drift_item(drift_id)
 
         if not drift_item:
             slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
@@ -7915,7 +7914,7 @@ def handle_drift_suppress_button(payload: dict, drift_id: str) -> dict:
     slack = get_slack_service()
     user = payload.get("user", {})
     user_id = user.get("id", "unknown")
-    channel = payload.get("container", {}).get("channel_id")
+    channel = payload.get("channel", {}).get("id", "")
 
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
