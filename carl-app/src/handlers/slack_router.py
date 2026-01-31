@@ -870,10 +870,18 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                  f"⏳ Generating Terraform code with AI..."
         )
 
-        # Generate Terraform using AI
+        # Generate Terraform using AI with progress updates
         try:
             logger.info("Starting Terraform generation")
-            terraform_files = _generate_terraform_with_ai(terraform_config)
+
+            # Progress callback to update Slack message
+            def post_progress(step: str):
+                try:
+                    slack.post_message(channel_id, text=f"⏳ {step}")
+                except Exception as e:
+                    logger.warning(f"Failed to post progress: {e}")
+
+            terraform_files = _generate_terraform_with_ai(terraform_config, progress_callback=post_progress)
             logger.info("Terraform generation complete")
 
             # Create blueprint name from requirement
@@ -3959,10 +3967,14 @@ def handle_build_config_submission(payload: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
-def _generate_terraform_with_ai(config: dict) -> dict:
+def _generate_terraform_with_ai(config: dict, progress_callback=None) -> dict:
     """Use AI to generate appropriate Terraform based on user's requirement.
 
     Splits generation into multiple Bedrock calls to avoid timeouts on complex infrastructure.
+
+    Args:
+        config: Infrastructure configuration
+        progress_callback: Optional callback function to report progress (e.g., post to Slack)
 
     Returns dict with keys: 'variables', 'main', 'outputs', 'tfvars_example', 'readme' for separate files.
     """
@@ -3994,24 +4006,72 @@ def _generate_terraform_with_ai(config: dict) -> dict:
 
     # Step 1: Generate variables.tf
     logger.info("Step 1/5: Generating variables.tf")
+    if progress_callback:
+        progress_callback("Step 1/5: Generating variables.tf...")
+
     variables_prompt = f"""Generate ONLY the variables.tf file for the following AWS infrastructure requirement.
 {common_context}
 
-**REQUIREMENTS:**
-- All input variables with descriptions, types, defaults, and validation rules
-- Use snake_case naming
-- Group related variables with comments
-- Include variables for: resource prefix, environment, VPC info, and any infrastructure-specific configs
+**CRITICAL REQUIREMENTS - FOLLOW EXACTLY:**
 
-Return ONLY the Terraform variables.tf file content, no markers or extra text."""
+1. **Every variable MUST have ALL of these:**
+   - description (required, clear explanation of what it controls)
+   - type (required, use proper types: string, number, bool, list(string), map(string), object({{...}}))
+   - default value OR validation block (required for production-ready code)
+
+2. **Required Variables (MUST include):**
+   - resource_prefix (string, used for naming all resources)
+   - environment (string, e.g., dev/staging/prod, with validation)
+   - aws_region (string, default to us-east-1)
+   - tags (map(string), common tags for all resources)
+
+3. **Infrastructure-Specific Variables:**
+   Based on the requirement, include relevant variables:
+   - VPC: vpc_cidr, enable_vpc_flow_logs, vpc_id (if using existing)
+   - EC2: instance_type, key_name, ami_id
+   - RDS: db_instance_class, db_engine, db_name, multi_az
+   - S3: bucket_name, enable_versioning, enable_encryption
+   - Lambda: runtime, memory_size, timeout
+   - Static Website: domain_name, create_acm_certificate
+   - API: api_name, api_type (rest/http)
+   - Containers: cluster_name, service_name, task_cpu, task_memory
+
+4. **Validation Blocks (where applicable):**
+   - environment: condition = contains(["dev", "staging", "prod"], var.environment)
+   - instance_type: condition = contains(["t3.micro", "t3.small", "t3.medium"], var.instance_type)
+   - aws_region: condition = can(regex("^[a-z]{2}-[a-z]+-\\\\d{1}$", var.aws_region))
+   - CIDR: condition = can(cidrhost(var.vpc_cidr, 0))
+
+5. **Naming Conventions:**
+   - Use snake_case for all variable names
+   - Group related variables with # comment headers
+   - Order: General → Networking → Compute → Database → Storage → Monitoring
+
+6. **Example Format:**
+```hcl
+variable "environment" {{
+  description = "Environment name (dev, staging, prod)"
+  type        = string
+  default     = "dev"
+
+  validation {{
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be dev, staging, or prod"
+  }}
+}}
+```
+
+Return ONLY the Terraform variables.tf file content following the format above. No markers, no extra text."""
 
     variables_content = bedrock.invoke_model(
         prompt=variables_prompt,
-        max_tokens=3000
+        max_tokens=4000  # Increased for detailed variables with validation
     )
 
     # Step 2: Generate main.tf (the big one - resources)
     logger.info("Step 2/5: Generating main.tf with resources")
+    if progress_callback:
+        progress_callback("Step 2/5: Generating main.tf (infrastructure resources)...")
     main_prompt = f"""Generate ONLY the main.tf file for the following AWS infrastructure requirement.
 {common_context}
 
@@ -4056,6 +4116,8 @@ Return ONLY the main.tf file content (terraform block, provider, locals, data so
 
     # Step 3: Generate outputs.tf
     logger.info("Step 3/5: Generating outputs.tf")
+    if progress_callback:
+        progress_callback("Step 3/5: Generating outputs.tf...")
     outputs_prompt = f"""Generate ONLY the outputs.tf file for the infrastructure described below.
 {common_context}
 
@@ -4079,6 +4141,8 @@ Return ONLY the outputs.tf file content, no markers or extra text."""
 
     # Step 4: Generate terraform.tfvars.example
     logger.info("Step 4/5: Generating terraform.tfvars.example")
+    if progress_callback:
+        progress_callback("Step 4/5: Generating terraform.tfvars.example...")
     tfvars_prompt = f"""Generate ONLY the terraform.tfvars.example file showing example values for all variables.
 {common_context}
 
@@ -4094,6 +4158,8 @@ Return ONLY the terraform.tfvars.example file content, no markers or extra text.
 
     # Step 5: Generate README.md
     logger.info("Step 5/5: Generating README.md")
+    if progress_callback:
+        progress_callback("Step 5/5: Generating README.md (documentation)...")
     readme_prompt = f"""Generate ONLY the README.md documentation file for this infrastructure.
 {common_context}
 
@@ -4117,6 +4183,8 @@ Return ONLY the README.md file content, no markers or extra text."""
     )
 
     logger.info("Terraform generation complete (5/5 steps done)")
+    if progress_callback:
+        progress_callback("✅ All files generated! Creating GitHub Pull Request...")
 
     # Return all files
     return {
