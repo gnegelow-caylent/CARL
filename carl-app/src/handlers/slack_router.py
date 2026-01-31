@@ -6856,14 +6856,7 @@ def handle_evidence_command(
         )
 
         if subcommand == "collect":
-            # Post initial message
-            slack.post_message(
-                channel_id,
-                text="🔍 *Starting evidence collection across all resources...*\n\n"
-                     "_This may take a few minutes. I'll post results when complete._"
-            )
-
-            # Invoke async processing in background
+            # Invoke async processing in background FIRST (before any Slack API calls)
             try:
                 lambda_client = boto3.client('lambda')
                 lambda_client.invoke(
@@ -6880,8 +6873,15 @@ def handle_evidence_command(
                 # Fallback to synchronous if async fails
                 return handle_evidence_collect_sync(slack, channel_id, user_id)
 
-            # Return empty 200 OK immediately to Slack (prevents timeout)
-            return {"statusCode": 200, "body": ""}
+            # Return immediate response in body (shows to user without additional API call)
+            # This is MUCH faster than slack.post_message() and prevents timeout
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "response_type": "ephemeral",
+                    "text": "🔍 *Starting evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
+                })
+            }
 
         elif subcommand == "list":
             # Parse optional type filter (e.g., /carl evidence list IAM)
@@ -7654,14 +7654,7 @@ def handle_drift_command(
         )
 
         if subcommand == "scan":
-            # Post initial message
-            slack.post_message(
-                channel_id,
-                text="🔍 *Starting drift detection scan across all resources...*\n\n"
-                     "_This may take a few minutes. I'll post results when complete._"
-            )
-
-            # Invoke async processing in background
+            # Invoke async processing in background FIRST (before any Slack API calls)
             try:
                 lambda_client = boto3.client('lambda')
                 lambda_client.invoke(
@@ -7678,8 +7671,15 @@ def handle_drift_command(
                 # Fallback to synchronous if async fails
                 return handle_drift_scan_sync(slack, channel_id, user_id)
 
-            # Return empty 200 OK immediately to Slack (prevents timeout)
-            return {"statusCode": 200, "body": ""}
+            # Return immediate response in body (shows to user without additional API call)
+            # This is MUCH faster than slack.post_message() and prevents timeout
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "response_type": "ephemeral",
+                    "text": "🔍 *Starting drift detection scan across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
+                })
+            }
 
         elif subcommand == "status":
             summary = detector.get_drift_summary()
