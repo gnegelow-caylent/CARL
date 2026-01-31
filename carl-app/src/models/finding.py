@@ -77,7 +77,7 @@ class Finding:
             "status": self.status.value,
             "remediation_steps": self.remediation_steps,
             "remediation_id": self.remediation_id,
-            "timestamp": int(self.created_at.timestamp()),
+            "timestamp": str(int(self.created_at.timestamp())),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
