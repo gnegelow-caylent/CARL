@@ -11,6 +11,9 @@ on:
       - 'carl-infrastructure/core/**'
       - 'carl-infrastructure/modules/**'
       - 'carl-app/src/**'
+      - 'carl-app/requirements.txt'
+      - 'carl-app/Dockerfile'
+      - 'carl-app/compliance-frameworks/**'
       - '.github/workflows/deploy-core.yml'
   pull_request:
     branches:
@@ -21,6 +24,9 @@ on:
       - 'carl-infrastructure/core/**'
       - 'carl-infrastructure/modules/**'
       - 'carl-app/src/**'
+      - 'carl-app/requirements.txt'
+      - 'carl-app/Dockerfile'
+      - 'carl-app/compliance-frameworks/**'
   workflow_dispatch:
     inputs:
       environment:
