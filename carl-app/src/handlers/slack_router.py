@@ -796,6 +796,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             event.get("args", "")
         )
 
+    if event.get("action") == "process_drift_show_fix_async":
+        logger.info("Processing async drift show fix")
+        slack = get_slack_service()
+        return handle_drift_show_fix_sync(
+            slack,
+            event.get("channel_id"),
+            event.get("drift_id")
+        )
+
     if event.get("action") == "process_finding_details_async":
         logger.info("Processing async finding details")
         return handle_finding_details_sync(
@@ -7857,76 +7866,98 @@ def handle_drift_acknowledge_button(payload: dict, drift_id: str) -> dict:
 def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
     """Handle Show Fix button click for drift items."""
     import os
-    import threading
+    import json
+    import boto3
+
+    channel = payload.get("channel", {}).get("id", "")
+
+    logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
+
+    # Invoke async Lambda to process in background
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps({
+                'action': 'process_drift_show_fix_async',
+                'channel_id': channel,
+                'drift_id': drift_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async drift show fix: {e}")
+        # Fallback to sync if async fails
+        slack = get_slack_service()
+        return handle_drift_show_fix_sync(slack, channel, drift_id)
+
+    # Return immediate response in body (no API call needed, super fast)
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({
+            "response_type": "ephemeral",
+            "text": "⏳ Generating remediation guidance...\n_This will take a few seconds._"
+        })
+    }
+
+
+def handle_drift_show_fix_sync(slack: SlackService, channel_id: str, drift_id: str) -> dict:
+    """Process drift show fix synchronously - called by async Lambda."""
+    import os
     from services.drift_detector import DriftDetector
     from services.remediation_service import RemediationService
 
-    slack = get_slack_service()
-    channel = payload.get("channel", {}).get("id", "")
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
-    # Process in background thread to avoid 3-second timeout
-    def process_show_fix():
-        try:
-            logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
+    try:
+        detector = DriftDetector(drift_table=drift_table)
 
-            # Post immediate loading message so user knows something is happening
+        # Get drift item details
+        drift_item = detector.get_drift_item(drift_id)
+
+        if not drift_item:
+            logger.error(f"Drift item not found in DynamoDB: {drift_id}")
+            slack.post_message(channel_id, text=f"❌ Drift item `{drift_id}` not found")
+            return {"statusCode": 200, "body": ""}
+
+        # Convert drift item to finding format for remediation service
+        # Use description as title so remediation service can match keywords like "encryption", "public", etc.
+        finding = {
+            "id": drift_item.drift_id,
+            "title": drift_item.description,  # Use actual description with keywords
+            "resource_type": drift_item.resource_type,
+            "resource_id": drift_item.resource_id,
+            "severity": drift_item.severity.upper(),
+            "description": drift_item.description
+        }
+
+        # Generate remediation guidance
+        remediation_service = RemediationService()
+        guidance = remediation_service.generate_remediation(finding)
+
+        if guidance:
+            # Format for Slack
+            guidance_blocks = remediation_service.format_for_slack(guidance)
+            slack.post_message(channel_id, blocks=guidance_blocks['blocks'])
+        else:
+            # No automatic guidance - show manual instructions
             slack.post_message(
-                channel,
-                text=f"⏳ Generating remediation guidance...\n_This will take a few seconds._"
+                channel_id,
+                text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
+                     f"*Drift Details:*\n{drift_item.description}\n\n"
+                     f"*Next Steps:*\n"
+                     f"1. Review the drift details above\n"
+                     f"2. Fix manually in AWS Console or via AWS CLI\n"
+                     f"3. Run `/carl drift scan` to verify the fix"
             )
 
-            detector = DriftDetector(drift_table=drift_table)
+        return {"statusCode": 200, "body": ""}
 
-            # Get drift item details
-            drift_item = detector.get_drift_item(drift_id)
-
-            if not drift_item:
-                logger.error(f"Drift item not found in DynamoDB: {drift_id}")
-                slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
-                return
-
-            # Convert drift item to finding format for remediation service
-            # Use description as title so remediation service can match keywords like "encryption", "public", etc.
-            finding = {
-                "id": drift_item.drift_id,
-                "title": drift_item.description,  # Use actual description with keywords
-                "resource_type": drift_item.resource_type,
-                "resource_id": drift_item.resource_id,
-                "severity": drift_item.severity.upper(),
-                "description": drift_item.description
-            }
-
-            # Generate remediation guidance
-            remediation_service = RemediationService()
-            guidance = remediation_service.generate_remediation(finding)
-
-            if guidance:
-                # Format for Slack
-                guidance_blocks = remediation_service.format_for_slack(guidance)
-                slack.post_message(channel, blocks=guidance_blocks['blocks'])
-            else:
-                # No automatic guidance - show manual instructions
-                slack.post_message(
-                    channel,
-                    text=f"ℹ️ No automatic remediation guidance available for this drift type.\n\n"
-                         f"*Drift Details:*\n{drift_item.description}\n\n"
-                         f"*Next Steps:*\n"
-                         f"1. Review the drift details above\n"
-                         f"2. Fix manually in AWS Console or via AWS CLI\n"
-                         f"3. Run `/carl drift scan` to verify the fix"
-                )
-
-        except Exception as e:
-            logger.exception(f"Error showing fix for drift {drift_id}")
-            slack.post_message(channel, text=f"❌ Error: {str(e)}")
-
-    # Start background thread
-    thread = threading.Thread(target=process_show_fix)
-    thread.start()
-
-    # Return immediate 200 OK to Slack (prevents timeout)
-    return {"statusCode": 200, "body": ""}
+    except Exception as e:
+        logger.exception(f"Error showing fix for drift {drift_id}")
+        slack.post_message(channel_id, text=f"❌ Error: {str(e)}")
+        return {"statusCode": 200, "body": ""}
 
 
 def handle_drift_suppress_button(payload: dict, drift_id: str) -> dict:
