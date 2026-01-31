@@ -7374,7 +7374,7 @@ def handle_report_command(
     # Post initial message
     slack.post_message(
         channel_id,
-        text=f"📊 **Generating {report_type} report...**\n\n_Scanning environment and collecting evidence..._"
+        text=f"📊 **Generating {report_type} report...**\n\n_Loading evidence from database..._"
     )
 
     # Invoke async processing in background
@@ -7403,11 +7403,10 @@ def handle_report_command(
 def handle_report_command_sync(
     slack: SlackService, channel_id: str, user_id: str, report_type: str, control_id: str | None
 ) -> dict:
-    """Synchronous version of report command with environment scanning and progress updates."""
+    """Synchronous version of report command - generates reports from collected evidence."""
     import os
     from services.evidence_collector import EvidenceCollector
     from services.report_generator import ReportGenerator, ReportType
-    from services.aws_scanner import AWSScanner
     from datetime import datetime, timedelta
 
     evidence_bucket = os.environ.get("EVIDENCE_BUCKET", "carl-evidence")
@@ -7419,7 +7418,7 @@ def handle_report_command_sync(
     # Post initial status message and get timestamp for updates
     status_response = slack.post_message(
         channel_id,
-        text=f"📊 **Generating {report_type} report...**\n\n🔄 Scanning AWS environment..."
+        text=f"📊 **Generating {report_type} report...**\n\n🔄 Loading evidence and findings..."
     )
     status_ts = status_response.get("ts") if status_response else None
 
@@ -7436,21 +7435,8 @@ def handle_report_command_sync(
                 logger.warning(f"Failed to update progress: {e}")
 
     try:
-        # Step 1: Scan AWS environment
-        update_progress("🔍 Scanning AWS environment for compliance data...")
-        scanner = AWSScanner()
-        scan_results = scanner.scan_environment()
-
-        scan_summary = (
-            f"Scanned: {scan_results.get('vpcs_count', 0)} VPCs, "
-            f"{scan_results.get('security_groups_count', 0)} security groups, "
-            f"{scan_results.get('iam_users_count', 0)} IAM users, "
-            f"{scan_results.get('encryption_findings', 0)} encryption findings"
-        )
-        logger.info(f"Environment scan complete: {scan_summary}")
-
-        # Step 2: Initialize services
-        update_progress("📋 Collecting audit evidence...")
+        # Step 1: Initialize services
+        update_progress("📋 Loading evidence and findings...")
 
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
@@ -7463,6 +7449,23 @@ def handle_report_command_sync(
             exceptions_table=exceptions_table,
             reports_bucket=reports_bucket
         )
+
+        # Step 2: Get evidence and findings summary from DynamoDB
+        coverage = collector.get_control_coverage()
+        findings_summary = generator._get_findings_summary()
+
+        total_evidence = sum(len(evidence_list) for evidence_list in coverage.get("control_evidence", {}).values())
+        total_controls = len(coverage.get("covered", [])) + len(coverage.get("missing", []))
+        controls_covered = len(coverage.get("covered", []))
+
+        scan_summary = (
+            f"{total_evidence} evidence items, "
+            f"{findings_summary.get('total', 0)} findings "
+            f"({findings_summary.get('critical', 0)} critical, "
+            f"{findings_summary.get('high', 0)} high), "
+            f"{controls_covered}/{total_controls} controls covered"
+        )
+        logger.info(f"Report data loaded: {scan_summary}")
 
         # Default audit period: last 12 months
         end_date = datetime.utcnow().strftime("%Y-%m-%d")
@@ -7545,7 +7548,7 @@ _Link expires in 24 hours. PDF format coming soon!_"""
                 file_content=pdf_bytes,
                 filename=filename,
                 title=f"{report_type.title()} Compliance Report",
-                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n**Environment:** {scan_summary}\n\nProfessional PDF report attached above ⬆️"
+                initial_comment=f"📊 **{report_type.title()} Report Generated**\n\n**Audit Period:** {start_date} to {end_date}\n**Environment:** {scan_summary}\n\nProfessional PDF report attached below ⬇️"
             )
         except Exception as e:
             logger.error(f"Failed to upload PDF to Slack: {e}")

@@ -904,9 +904,14 @@ requiring attention.
         exceptions_summary = self._get_exceptions_summary()
 
         # Calculate compliance score
-        compliance_score = coverage["coverage_percent"]
+        base_coverage = coverage["coverage_percent"]
+        compliance_score = base_coverage
+
+        # Apply penalty for critical findings
+        score_penalty_applied = False
         if findings_summary["critical"] > 0:
-            compliance_score *= 0.7  # Penalty for critical findings
+            compliance_score = base_coverage * 0.7  # 30% penalty for critical findings
+            score_penalty_applied = True
 
         # Structure data for PDF
         report_data = {
@@ -915,7 +920,9 @@ requiring attention.
             'audit_period': f'{audit_period_start} to {audit_period_end}',
             'generated_at': datetime.utcnow().strftime('%B %d, %Y'),
             'compliance_score': compliance_score,
-            'executive_summary': self._generate_executive_text(coverage, findings_summary),
+            'base_coverage': base_coverage,
+            'score_penalty_applied': score_penalty_applied,
+            'executive_summary': self._generate_executive_text(coverage, findings_summary, base_coverage, score_penalty_applied),
             'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
             'controls_passed': len(coverage["covered"]),
             'total_findings': findings_summary["total"],
@@ -926,7 +933,8 @@ requiring attention.
                 'low': findings_summary["low"]
             },
             'controls': self._format_controls_for_pdf(coverage, findings_summary),
-            'findings': self._format_findings_for_pdf(findings_summary.get('findings', []))
+            'findings': self._format_findings_for_pdf(findings_summary.get('items', []))[:10],  # Top 10 for executive
+            'is_executive': True  # Flag for template to show limited findings
         }
 
         # Generate PDF
@@ -955,9 +963,14 @@ requiring attention.
         exceptions_summary = self._get_exceptions_summary()
 
         # Calculate compliance score
-        compliance_score = coverage["coverage_percent"]
+        base_coverage = coverage["coverage_percent"]
+        compliance_score = base_coverage
+
+        # Apply penalty for critical findings
+        score_penalty_applied = False
         if findings_summary["critical"] > 0:
-            compliance_score *= 0.7
+            compliance_score = base_coverage * 0.7  # 30% penalty for critical findings
+            score_penalty_applied = True
 
         # Structure comprehensive data for PDF
         report_data = {
@@ -966,7 +979,9 @@ requiring attention.
             'audit_period': f'{audit_period_start} to {audit_period_end}',
             'generated_at': datetime.utcnow().strftime('%B %d, %Y'),
             'compliance_score': compliance_score,
-            'executive_summary': self._generate_executive_text(coverage, findings_summary),
+            'base_coverage': base_coverage,
+            'score_penalty_applied': score_penalty_applied,
+            'executive_summary': self._generate_executive_text(coverage, findings_summary, base_coverage, score_penalty_applied),
             'total_controls': len(coverage["covered"]) + len(coverage["missing"]),
             'controls_passed': len(coverage["covered"]),
             'total_findings': findings_summary["total"],
@@ -977,7 +992,8 @@ requiring attention.
                 'low': findings_summary["low"]
             },
             'controls': self._format_controls_for_pdf(coverage, findings_summary, detailed=True),
-            'findings': self._format_findings_for_pdf(findings_summary.get('findings', []), detailed=True)
+            'findings': self._format_findings_for_pdf(findings_summary.get('items', []), detailed=True),
+            'is_executive': False  # Full report shows all findings
         }
 
         # Generate PDF
@@ -986,10 +1002,10 @@ requiring attention.
 
         return pdf_bytes, report_data
 
-    def _generate_executive_text(self, coverage: dict, findings_summary: dict) -> str:
+    def _generate_executive_text(self, coverage: dict, findings_summary: dict, base_coverage: float = None, penalty_applied: bool = False) -> str:
         """Generate concise executive summary text."""
         total_controls = len(coverage["covered"]) + len(coverage["missing"])
-        coverage_pct = coverage["coverage_percent"]
+        coverage_pct = base_coverage if base_coverage is not None else coverage["coverage_percent"]
 
         if coverage_pct >= 90 and findings_summary["critical"] == 0:
             status = "The organization demonstrates strong compliance posture"
@@ -998,7 +1014,17 @@ requiring attention.
         else:
             status = "The organization requires significant remediation to achieve compliance"
 
-        return f"""{status}. Assessment covers {len(coverage['covered'])} of {total_controls} SOC 2 controls ({coverage_pct:.0f}% coverage). {findings_summary['total']} findings identified across all severity levels, including {findings_summary['critical']} critical issues requiring immediate attention."""
+        summary = f"""{status}. Assessment covers {len(coverage['covered'])} of {total_controls} SOC 2 controls ({coverage_pct:.0f}% coverage). {findings_summary['total']} findings identified across all severity levels"""
+
+        # Add critical findings note if applicable
+        if findings_summary['critical'] > 0:
+            summary += f", including {findings_summary['critical']} critical issues requiring immediate attention"
+            if penalty_applied:
+                summary += ". Compliance score reflects 30% penalty due to critical findings"
+
+        summary += "."
+
+        return summary
 
     def _format_controls_for_pdf(self, coverage: dict, findings_summary: dict, detailed: bool = False) -> list[dict]:
         """Format control data for PDF table."""
@@ -1007,13 +1033,12 @@ requiring attention.
         # Map controls to their status
         for control_id in coverage["covered"]:
             evidence_count = len(coverage["control_evidence"].get(control_id, []))
-            findings_count = len([f for f in findings_summary.get("findings", [])
+            findings_count = len([f for f in findings_summary.get("items", [])
                                 if control_id in f.get("control_ids", [])])
 
             controls.append({
                 'control_id': control_id,
-                'control_name': SOC2_CONTROL_DESCRIPTIONS.get(control_id, "").split(":")[1].strip()
-                              if ":" in SOC2_CONTROL_DESCRIPTIONS.get(control_id, "") else "N/A",
+                'control_name': self._extract_control_name(control_id),
                 'status': 'compliant' if findings_count == 0 else 'non-compliant',
                 'evidence_count': evidence_count,
                 'findings_count': findings_count
@@ -1023,8 +1048,7 @@ requiring attention.
         for control_id in coverage["missing"]:
             controls.append({
                 'control_id': control_id,
-                'control_name': SOC2_CONTROL_DESCRIPTIONS.get(control_id, "").split(":")[1].strip()
-                              if ":" in SOC2_CONTROL_DESCRIPTIONS.get(control_id, "") else "N/A",
+                'control_name': self._extract_control_name(control_id),
                 'status': 'not_assessed',
                 'evidence_count': 0,
                 'findings_count': 0
@@ -1034,6 +1058,39 @@ requiring attention.
         controls.sort(key=lambda x: x['control_id'])
 
         return controls
+
+    def _extract_control_name(self, control_id: str) -> str:
+        """
+        Extract a clean control name from SOC2_CONTROL_DESCRIPTIONS.
+
+        Handles two formats:
+        1. "COSO Principle X: Description" → "COSO Principle X"
+        2. "Description" → First 60 chars of description
+        """
+        description = SOC2_CONTROL_DESCRIPTIONS.get(control_id, "")
+
+        if not description:
+            return f"Control {control_id}"
+
+        # If it starts with "COSO Principle", extract that as the name
+        if description.startswith("COSO Principle"):
+            # Split on first colon and take the principle part
+            parts = description.split(":", 1)
+            if len(parts) > 1:
+                return parts[0].strip()  # "COSO Principle X"
+            return description[:60]  # Fallback if no colon
+
+        # For other controls, use first 60 chars as a short name
+        if len(description) <= 60:
+            return description
+
+        # Truncate at last space before 60 chars
+        truncated = description[:60]
+        last_space = truncated.rfind(' ')
+        if last_space > 30:  # Only truncate if we're not cutting too much
+            return truncated[:last_space] + "..."
+
+        return truncated + "..."
 
     def _format_findings_for_pdf(self, findings: list, detailed: bool = False) -> list[dict]:
         """Format findings data for PDF."""

@@ -445,8 +445,6 @@ class PDFReportGenerator:
         <img src="data:image/png;base64,{findings_chart}" alt="Findings by Severity">
     </div>
 
-    <div class="page-break"></div>
-
     <!-- Detailed Sections -->
     {self._generate_detailed_sections(report_data)}
 
@@ -461,9 +459,14 @@ class PDFReportGenerator:
     def _generate_detailed_sections(self, report_data: dict) -> str:
         """Generate detailed sections for controls, findings, etc."""
         sections = []
+        is_executive = report_data.get('is_executive', False)
+
+        # Only add page break if we have detailed sections
+        if 'controls' in report_data or 'findings' in report_data:
+            sections.append('<div class="page-break"></div>')
 
         # Controls section
-        if 'controls' in report_data:
+        if 'controls' in report_data and report_data['controls']:
             sections.append('<h2>Control Assessment</h2>')
             sections.append('<table>')
             sections.append('<thead><tr><th>Control ID</th><th>Control Name</th><th>Status</th><th>Evidence</th><th>Findings</th></tr></thead>')
@@ -484,9 +487,17 @@ class PDFReportGenerator:
             sections.append('</tbody></table>')
 
         # Findings section
-        if 'findings' in report_data:
-            sections.append('<div class="page-break"></div>')
-            sections.append('<h2>Findings Detail</h2>')
+        if 'findings' in report_data and report_data['findings']:
+            # Add page break before findings section (after controls)
+            if 'controls' in report_data and report_data['controls']:
+                sections.append('<div class="page-break"></div>')
+
+            # Title depends on report type
+            if is_executive:
+                sections.append('<h2>Top Findings</h2>')
+                sections.append('<p><em>Showing highest priority findings. See full audit report for complete list.</em></p>')
+            else:
+                sections.append('<h2>Findings Detail</h2>')
 
             for finding in report_data['findings']:
                 severity = finding.get('severity', 'medium').lower()
