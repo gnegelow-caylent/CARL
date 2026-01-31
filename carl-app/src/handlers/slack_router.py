@@ -6877,6 +6877,7 @@ def handle_evidence_command(
             # This is MUCH faster than slack.post_message() and prevents timeout
             return {
                 "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
                 "body": json.dumps({
                     "response_type": "ephemeral",
                     "text": "🔍 *Starting evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
@@ -7675,6 +7676,7 @@ def handle_drift_command(
             # This is MUCH faster than slack.post_message() and prevents timeout
             return {
                 "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
                 "body": json.dumps({
                     "response_type": "ephemeral",
                     "text": "🔍 *Starting drift detection scan across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
@@ -7864,12 +7866,14 @@ def handle_drift_show_fix_button(payload: dict, drift_id: str) -> dict:
     drift_table = os.environ.get("DRIFT_TABLE", "carl-drift")
 
     try:
+        logger.info(f"Show Fix button clicked for drift_id: {drift_id}")
         detector = DriftDetector(drift_table=drift_table)
 
         # Get drift item details
         drift_item = detector.get_drift_item(drift_id)
 
         if not drift_item:
+            logger.error(f"Drift item not found in DynamoDB: {drift_id}")
             slack.post_message(channel, text=f"❌ Drift item `{drift_id}` not found")
             return {"statusCode": 200, "body": ""}
 

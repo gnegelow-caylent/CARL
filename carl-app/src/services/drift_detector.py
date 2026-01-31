@@ -261,9 +261,11 @@ class DriftDetector:
         # Store drift items in DynamoDB
         for item in drift_items:
             try:
-                self.table.put_item(Item=item.to_dict())
+                item_dict = item.to_dict()
+                logger.info(f"Storing drift item: pk={item_dict.get('pk')}, sk={item_dict.get('sk')}, resource={item.resource_id}")
+                self.table.put_item(Item=item_dict)
             except Exception as e:
-                logger.error(f"Error storing drift item {item.drift_id}: {e}")
+                logger.error(f"Error storing drift item {item.drift_id}: {e}", exc_info=True)
 
         # Build report
         scan_completed = datetime.utcnow()
@@ -838,12 +840,16 @@ class DriftDetector:
             if not account_id:
                 account_id = self.account_id
 
-            response = self.table.get_item(
-                Key={"pk": f"DRIFT#{account_id}", "sk": drift_id}
-            )
+            query_key = {"pk": f"DRIFT#{account_id}", "sk": drift_id}
+            logger.info(f"Querying drift item with key: {query_key}")
+
+            response = self.table.get_item(Key=query_key)
 
             if "Item" not in response:
+                logger.warning(f"Drift item not found: {drift_id}")
                 return None
+
+            logger.info(f"Found drift item: {drift_id}")
 
             item_data = response["Item"]
             return DriftItem(
