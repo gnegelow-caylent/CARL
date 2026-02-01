@@ -336,22 +336,8 @@ framework:
       default: 1
       required: true
 
-    - id: output_method
-      question: "How should CARL deliver the Terraform code?"
-      description: "Choose how you want to receive the generated compliance modules"
-      input_type: select
-      options:
-        - value: slack_files
-          label: "Upload files to Slack"
-          description: "Download .tf files directly from Slack"
-        - value: github_pr
-          label: "Create GitHub Pull Request"
-          description: "CARL creates PR in your infrastructure repo"
-        - value: both
-          label: "Both Slack + GitHub PR"
-          description: "Files in Slack and PR for version control"
-      default: slack_files
-      required: true
+  # Output is always GitHub PR using existing CodeUploader
+  # No need to ask - just push to GitHub
 
   # Organizational structure (used by Account Factory, ignored by Foundation)
   organizational_structure:
