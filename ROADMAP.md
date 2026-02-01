@@ -163,7 +163,67 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.2 Remaining Critical Security Patterns ~~(Week 3-4)~~ ✅ **COMPLETED January 31, 2026**
+#### 1.2 Migrate to AWS Bedrock AgentCore (Week 3-6)
+**Goal:** Refactor custom AgentCore to use AWS Bedrock AgentCore managed platform (Design Principle #7: Use AWS Managed Services)
+
+**Why:**
+- **Follows Design Principle #7**: Use AWS managed services wherever possible
+- **Reduces operational overhead**: AWS manages agentic orchestration, scaling, monitoring
+- **Enterprise features CARL needs**: Persistent memory, 8-hour task support, session isolation, code interpreter, browser automation, built-in evaluators
+- **Cost-effective**: ~$0.40/month platform fee (acceptable for removing ~2,000 lines of custom code)
+- **Better compliance**: AWS-managed security, audit trails, enterprise-grade isolation
+
+**Current State:**
+- CARL uses custom `AgentCore` class (~500 lines in agent_core.py)
+- Custom session management via DynamoDB (foundation table)
+- Custom learning system (scan_history, resource_graph tables, 580+ lines)
+- Manual threading for long-running tasks
+- Limited to 15-minute Lambda timeout
+
+**Target State:**
+- Use AWS Bedrock AgentCore Runtime for agent execution
+- Use AgentCore Memory for persistent learning (replaces scan_history/resource_graph)
+- Use AgentCore Gateway for tool management (replaces manual tool registration)
+- Use AgentCore Observability for monitoring (replaces custom CloudWatch logging)
+- Use AgentCore Policy for access control (enterprise security)
+
+**Tasks:**
+- [ ] **Phase 1: POC (Week 3)** - Migrate `/carl ask` agent to AgentCore Runtime
+  - [ ] Set up AgentCore Runtime environment
+  - [ ] Convert scanning tools to AgentCore Gateway format
+  - [ ] Test persistent memory vs. custom learning tables
+  - [ ] Compare costs (custom vs. AgentCore)
+  - [ ] A/B test: custom vs. AgentCore for 1 week
+
+- [ ] **Phase 2: Evaluation (Week 4)** - Measure benefits and limitations
+  - [ ] Performance comparison (response time, accuracy)
+  - [ ] Cost analysis (actual spend vs. estimates)
+  - [ ] Feature comparison (persistent memory, long tasks, code interpreter)
+  - [ ] Decision point: proceed or stay with custom?
+
+- [ ] **Phase 3: Full Migration (Week 5-6)** - If POC succeeds
+  - [ ] Migrate architecture agent to AgentCore
+  - [ ] Migrate compliance agent to AgentCore
+  - [ ] Remove custom tables (scan_history, resource_graph, foundation - if AgentCore Memory replaces them)
+  - [ ] Update documentation (CARL_DESIGN_PRINCIPLES.md, ARCHITECTURE.md)
+  - [ ] Remove ~2,000 lines of custom agent code
+
+**Deliverables:**
+- POC demonstrating AgentCore Runtime with CARL's scanning tools
+- Cost/benefit analysis comparing custom vs. managed
+- Decision document: migrate or stay custom
+- If migrating: All agents running on AgentCore, custom code removed
+
+**Estimated Effort:** 3-4 weeks
+
+**Risk Mitigation:**
+- Keep custom AgentCore as fallback during migration
+- A/B test before full switchover
+- Can abort migration if AgentCore doesn't meet needs
+
+---
+
+#### 1.3 Remaining Critical Security Patterns ~~(Week 3-4)~~ ✅ **COMPLETED January 31, 2026**
 **Goal:** Complete security service coverage
 
 **Tasks:**
@@ -203,7 +263,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.3 Account Baseline Deployment Automation (Week 5-6)
+#### 1.4 Account Baseline Deployment Automation (Week 7-8)
 **Goal:** Automate account baseline deployment across all accounts
 
 **Tasks:**
