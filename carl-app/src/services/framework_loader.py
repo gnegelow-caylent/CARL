@@ -132,8 +132,10 @@ class FrameworkLoader:
     def __init__(self, frameworks_dir: str = None):
         """Initialize the framework loader."""
         if frameworks_dir is None:
-            # Default to compliance-frameworks/ in project root
-            project_root = Path(__file__).parent.parent.parent
+            # In Lambda: /var/task/services/framework_loader.py
+            # Need: /var/task/compliance-frameworks/
+            # So go up 2 levels (services → task), not 3
+            project_root = Path(__file__).parent.parent
             frameworks_dir = project_root / "compliance-frameworks"
 
         self.frameworks_dir = Path(frameworks_dir)
