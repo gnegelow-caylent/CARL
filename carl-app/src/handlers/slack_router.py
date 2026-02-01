@@ -3152,7 +3152,9 @@ def handle_account_factory_email_submission(payload: dict) -> dict:
     email = values.get("email_block", {}).get("email_input", {}).get("value", "")
     logger.info(f"Email submission - email: {email}")
 
-    channel = payload.get("view", {}).get("private_metadata", "") or payload.get("response_urls", [{}])[0].get("channel_id", "")
+    # Channel will be retrieved from session below, but try to get from payload first
+    response_urls = payload.get("response_urls", [])
+    channel = payload.get("view", {}).get("private_metadata", "") or (response_urls[0].get("channel_id", "") if response_urls else "")
 
     # Try to get channel from user's recent message
     user_id = payload.get("user", {}).get("id", "")
