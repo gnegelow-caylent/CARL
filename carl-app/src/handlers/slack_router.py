@@ -6139,10 +6139,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
             if len(misconfigured_services) > 5:
                 explanation += f"   • ... and {len(misconfigured_services) - 5} more\n"
 
-        explanation += f"\n*Compliance Score:* {gap_analysis.compliance_percentage:.1f}% "
-        explanation += f"({gap_analysis.compliant_count}/{total_services} services fully compliant)\n"
-        explanation += f"💰 *Est. cost to fix gaps:* ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
-        explanation += f"_Next: I'll ask you {len(framework.questions)} configuration questions, then generate Terraform code to fix all gaps._"
+        explanation += f"\n_Next: I'll ask you {len(framework.questions)} configuration questions, then generate Terraform code to fix all gaps._"
 
         slack.post_message(channel, text=explanation)
 
