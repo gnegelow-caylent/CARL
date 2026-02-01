@@ -1145,7 +1145,7 @@ Provide a detailed comparison including:
 
     def _recommend_egress(self, req: dict) -> DecisionOption:
         """Recommend egress architecture."""
-        vpc_count = req.get("vpc_count", 1)
+        vpc_count = int(req.get("vpc_count", 1))
         inspection = req.get("traffic_inspection", "no")
 
         if inspection == "full_inspection":
@@ -1157,7 +1157,7 @@ Provide a detailed comparison including:
 
     def _recommend_transit(self, req: dict) -> DecisionOption:
         """Recommend transit architecture."""
-        vpc_count = req.get("vpc_count", 1)
+        vpc_count = int(req.get("vpc_count", 1))
         multi_region = req.get("multi_region", "single_region")
 
         if multi_region == "multi_region_complex":
@@ -1170,7 +1170,7 @@ Provide a detailed comparison including:
     def _recommend_ingress(self, req: dict) -> DecisionOption:
         """Recommend ingress architecture."""
         public_apps = req.get("public_applications", "none")
-        vpc_count = req.get("vpc_count", 1)
+        vpc_count = int(req.get("vpc_count", 1))
 
         if public_apps == "global":
             return INGRESS_PATTERNS.options[2]  # CloudFront + WAF
