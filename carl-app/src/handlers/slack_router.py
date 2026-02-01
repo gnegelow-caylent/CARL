@@ -6097,22 +6097,47 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
             region
         )
 
-        # Show gap analysis results with clear explanation
+        # Show gap analysis results with detailed service list
+        from services.framework_gap_analyzer import GapStatus
+
         total_services = gap_analysis.total_services
-        explanation = (
-            f"*{framework.name} Gap Analysis Complete*\n\n"
-            f"Scanned *{total_services} required services* for {framework.name} compliance:\n\n"
-            f"✅ *Compliant:* {gap_analysis.compliant_count} service{'s' if gap_analysis.compliant_count != 1 else ''} "
-            f"(correctly configured)\n"
-            f"❌ *Missing:* {gap_analysis.missing_count} service{'s' if gap_analysis.missing_count != 1 else ''} "
-            f"(not deployed yet)\n"
-            f"⚠️ *Misconfigured:* {gap_analysis.misconfigured_count} service{'s' if gap_analysis.misconfigured_count != 1 else ''} "
-            f"(deployed but settings need adjustment)\n\n"
-            f"*Compliance Score:* {gap_analysis.compliance_percentage:.1f}% "
-            f"({gap_analysis.compliant_count}/{total_services} services fully compliant)\n"
-            f"💰 *Est. cost to fix gaps:* ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
-            f"_Next: I'll ask you {len(framework.questions)} configuration questions, then generate Terraform code to fix all gaps._"
-        )
+
+        # Build service lists by status
+        compliant_services = [g.service for g in gap_analysis.gaps if g.status == GapStatus.COMPLIANT]
+        missing_services = [g.service for g in gap_analysis.gaps if g.status == GapStatus.MISSING]
+        misconfigured_services = [g.service for g in gap_analysis.gaps if g.status == GapStatus.MISCONFIGURED]
+
+        # Build detailed explanation
+        explanation = f"*{framework.name} Gap Analysis Complete*\n\n"
+        explanation += f"Scanned *{total_services} required services* for {framework.name} compliance:\n\n"
+
+        # Compliant services
+        if compliant_services:
+            explanation += f"✅ *Compliant* ({len(compliant_services)}):\n"
+            for svc in compliant_services:
+                explanation += f"   • {svc}\n"
+
+        # Missing services
+        if missing_services:
+            explanation += f"\n❌ *Missing* ({len(missing_services)} - not deployed):\n"
+            for svc in missing_services[:5]:  # Show first 5
+                explanation += f"   • {svc}\n"
+            if len(missing_services) > 5:
+                explanation += f"   • ... and {len(missing_services) - 5} more\n"
+
+        # Misconfigured services
+        if misconfigured_services:
+            explanation += f"\n⚠️ *Misconfigured* ({len(misconfigured_services)} - needs adjustment):\n"
+            for svc in misconfigured_services[:5]:  # Show first 5
+                explanation += f"   • {svc}\n"
+            if len(misconfigured_services) > 5:
+                explanation += f"   • ... and {len(misconfigured_services) - 5} more\n"
+
+        explanation += f"\n*Compliance Score:* {gap_analysis.compliance_percentage:.1f}% "
+        explanation += f"({gap_analysis.compliant_count}/{total_services} services fully compliant)\n"
+        explanation += f"💰 *Est. cost to fix gaps:* ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
+        explanation += f"_Next: I'll ask you {len(framework.questions)} configuration questions, then generate Terraform code to fix all gaps._"
+
         slack.post_message(channel, text=explanation)
 
         # Start asking framework questions
@@ -6143,7 +6168,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
                         button_elements.append({
                             "type": "button",
                             "text": {"type": "plain_text", "text": option['label'][:75]},
-                            "action_id": f"foundation_answer_{session['id']}_{first_question['id']}_{option['value']}",
+                            "action_id": f"foundation_answer_{session.session_id}_{first_question['id']}_{option['value']}",
                             "value": option['value']
                         })
 
@@ -6164,7 +6189,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
                         "type": "actions",
                         "elements": [{
                             "type": "static_select",
-                            "action_id": f"foundation_select_{session['id']}_{first_question['id']}",
+                            "action_id": f"foundation_select_{session.session_id}_{first_question['id']}",
                             "placeholder": {"type": "plain_text", "text": "Select an option"},
                             "options": select_options
                         }]
@@ -6183,7 +6208,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
                     "type": "actions",
                     "elements": [{
                         "type": "checkboxes",
-                        "action_id": f"foundation_multiselect_{session['id']}_{first_question['id']}",
+                        "action_id": f"foundation_multiselect_{session.session_id}_{first_question['id']}",
                         "options": checkbox_options
                     }]
                 })
@@ -6193,7 +6218,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
                     "elements": [{
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Submit"},
-                        "action_id": f"foundation_multiselect_submit_{session['id']}_{first_question['id']}",
+                        "action_id": f"foundation_multiselect_submit_{session.session_id}_{first_question['id']}",
                         "style": "primary"
                     }]
                 })
@@ -6205,7 +6230,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
                     "elements": [{
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Enter Answer"},
-                        "action_id": f"foundation_text_modal_{session['id']}_{first_question['id']}",
+                        "action_id": f"foundation_text_modal_{session.session_id}_{first_question['id']}",
                         "style": "primary"
                     }]
                 })
@@ -6628,7 +6653,7 @@ def handle_foundation_text_submission(payload: dict) -> dict:
         return {"statusCode": 200, "body": "Session expired"}
 
     # Get channel from session
-    channel = session.get("channel_id", "")
+    channel = session.channel_id
 
     result = engine.process_answer(session, question_id, answer_value)
 
