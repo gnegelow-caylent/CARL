@@ -2192,79 +2192,17 @@ def handle_help_command(
     slack: SlackService, channel_id: str, user_id: str
 ) -> dict:
     """Handle /carl help command - returns immediate response for orange Slack formatting."""
-    help_text = """
-CARL - Cloud Automated Risk & Compliance Logic
 
-Setup & Configuration:
-- /carl setup start - Initial setup wizard (first-time setup)
-- /carl setup status - View setup status
-- /carl settings - View current configuration
+    # Return immediate in-channel response (shows with formatting)
+    response = {
+        "response_type": "in_channel",
+        "text": "*CARL - Cloud Automated Risk & Compliance Logic*\n\n*Setup & Configuration:*\n• `/carl setup start` - Initial setup wizard (first-time setup)\n• `/carl setup status` - View setup status\n• `/carl settings` - View current configuration\n\n*Compliance Commands:*\n• `/carl status` - View compliance posture summary\n• `/carl findings list [severity]` - List recent findings with interactive buttons\n• `/carl findings accept <id> '<justification>'` - Accept risk with documented justification\n• `/carl findings ignore <id>` - Ignore a finding (will not create ticket)\n• `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings\n• `/carl ask <question>` - Ask compliance questions\n\n*Architecture & Build Commands:*\n• `/carl recommend <requirement>` - Smart: AI analyzes needs, scans environment, recommends with costs\n• `/carl build <blueprint>` - Quick: Pick from templates, fill params, generate code & PR instantly\n• `/carl blueprints` - List all quick-build templates\n• `/carl estimate <component>` - Get cost estimates\n\n*Foundation Builder:*\n• `/carl foundation start` - Start guided foundation building wizard\n• `/carl foundation status` - Check current foundation session\n• `/carl patterns [category]` - View architecture patterns with pros/cons\n\n*AI Architecture Advisor:*\n• `/carl architect <question>` - Ask AI for architecture recommendations (learns from feedback)\n\n*Audit & Evidence:*\n• `/carl evidence collect` - Collect audit evidence across all resources\n• `/carl evidence list [type]` - View all collected evidence items\n• `/carl evidence status` - View evidence collection status\n• `/carl report executive` - Generate executive compliance summary\n• `/carl report full` - Generate full audit report\n• `/carl report control <control-id>` - Generate control-specific report\n\n*Risk Management:*\n• `/carl exception request` - Request a risk exception\n• `/carl exception list` - View pending/active exceptions\n• `/carl exception approve <id>` - Approve an exception (requires permission)\n\n*Drift Detection:*\n• `/carl drift scan` - Run drift detection scan\n• `/carl drift status` - View current drift summary\n• `/carl drift details <drift-id>` - View drift item details\n• `/carl drift jira-sync` - Create Jira tickets for drift items\n\n*Jira Integration:*\n• `/carl jira test` - Test Jira connection and permissions\n• `/carl jira sync` - Sync findings to Jira tickets\n• `/carl jira status` - View Jira integration statistics\n\n*Coming Soon:*\n• `/carl remediate <finding-id>` - Request auto-remediation\n\n*Examples:*\n• `/carl foundation start` - Build your AWS foundation from scratch\n• `/carl patterns egress` - See egress architecture options\n• `/carl recommend compliant VPC with firewall`\n• `/carl build networking/standard-vpc`\n• `/carl estimate rds multi-az db.r5.large`"
+    }
 
-Compliance Commands:
-- /carl status - View compliance posture summary
-- /carl findings list [severity] - List recent findings with interactive buttons
-- /carl findings accept <id> '<justification>' - Accept risk with documented justification
-- /carl findings ignore <id> - Ignore a finding (will not create ticket)
-- /carl findings create-ticket <id> [<id> ...] - Create Jira tickets for specific findings
-- /carl ask <question> - Ask compliance questions
-
-Architecture & Build Commands:
-- /carl recommend <requirement> - Smart: AI analyzes needs, scans environment, recommends with costs
-- /carl build <blueprint> - Quick: Pick from templates, fill params, generate code & PR instantly
-- /carl blueprints - List all quick-build templates
-- /carl estimate <component> - Get cost estimates
-
-Foundation Builder:
-- /carl foundation start - Start guided foundation building wizard
-- /carl foundation status - Check current foundation session
-- /carl patterns [category] - View architecture patterns with pros/cons
-
-AI Architecture Advisor:
-- /carl architect <question> - Ask AI for architecture recommendations (learns from feedback)
-
-Audit & Evidence:
-- /carl evidence collect - Collect audit evidence across all resources
-- /carl evidence list [type] - View all collected evidence items
-- /carl evidence status - View evidence collection status
-- /carl report executive - Generate executive compliance summary
-- /carl report full - Generate full audit report
-- /carl report control <control-id> - Generate control-specific report
-
-Risk Management:
-- /carl exception request - Request a risk exception
-- /carl exception list - View pending/active exceptions
-- /carl exception approve <id> - Approve an exception (requires permission)
-
-Drift Detection:
-- /carl drift scan - Run drift detection scan
-- /carl drift status - View current drift summary
-- /carl drift details <drift-id> - View drift item details
-- /carl drift jira-sync - Create Jira tickets for drift items
-
-Jira Integration:
-- /carl jira test - Test Jira connection and permissions
-- /carl jira sync - Sync findings to Jira tickets
-- /carl jira status - View Jira integration statistics
-
-Coming Soon:
-- /carl remediate <finding-id> - Request auto-remediation
-
-Examples:
-- /carl foundation start - Build your AWS foundation from scratch
-- /carl patterns egress - See egress architecture options
-- /carl recommend compliant VPC with firewall
-- /carl build networking/standard-vpc
-- /carl estimate rds multi-az db.r5.large
-"""
-
-    # Return immediate response for orange Slack formatting
     return {
         "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({
-            "response_type": "ephemeral",
-            "text": help_text
-        })
+        "body": json.dumps(response)
     }
 
 
