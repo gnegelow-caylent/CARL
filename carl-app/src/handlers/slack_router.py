@@ -6535,7 +6535,7 @@ def handle_foundation_text_modal(payload: dict, action: dict) -> dict:
                 "element": {
                     "type": "plain_text_input",
                     "action_id": "answer_value",
-                    "placeholder": {"type": "plain_text", "text": question.default if question.default else "Enter your answer"},
+                    "placeholder": {"type": "plain_text", "text": str(question.default) if question.default else "Enter your answer"},
                 },
                 "label": {"type": "plain_text", "text": "Answer"}
             }
