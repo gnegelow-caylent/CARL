@@ -3098,6 +3098,22 @@ def _show_account_factory_next_question(slack: SlackService, channel: str, sessi
                 "style": "primary"
             }]
         })
+    elif question["type"] == "vpc_config":
+        # VPC configuration - show button to open VPC modal
+        account_name = question.get("account_name", "")
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "👇 *Click the button below to configure the VPC:*"}
+        })
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🌐 Configure VPC"},
+                "action_id": f"account_factory_vpc_config_{session_id}_{account_name}",
+                "style": "primary"
+            }]
+        })
     elif question.get("options"):
         elements = []
         for opt in question["options"]:
@@ -3379,9 +3395,180 @@ def handle_account_factory_accept(payload: dict, action: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
+def handle_account_factory_vpc_config_button(payload: dict, action: dict) -> dict:
+    """Handle button click to open VPC config modal for Account Factory."""
+    from services.account_factory import get_account_factory_service
+
+    trigger_id = payload.get("trigger_id", "")
+    action_id = action.get("action_id", "")
+
+    # Parse: account_factory_vpc_config_{session_id}_{account_name}
+    parts = action_id.replace("account_factory_vpc_config_", "").split("_", 1)
+    session_id = parts[0]
+    account_name = parts[1] if len(parts) > 1 else ""
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        channel = payload.get("channel", {}).get("id", "")
+        slack.post_message(channel, text="Session expired. Please start again with `/carl account-factory start`")
+        return {"statusCode": 200, "body": ""}
+
+    _show_account_factory_vpc_modal(slack, trigger_id, session_id, account_name)
+    return {"statusCode": 200, "body": ""}
+
+
+def _show_account_factory_vpc_modal(slack: SlackService, trigger_id: str, session_id: str, account_name: str):
+    """Show VPC configuration modal for Account Factory."""
+    logger = get_logger(__name__)
+
+    modal = {
+        "type": "modal",
+        "callback_id": f"account_factory_vpc_{session_id}_{account_name}",
+        "title": {"type": "plain_text", "text": f"VPC for {account_name}"[:24]},
+        "submit": {"type": "plain_text", "text": "Save VPC"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Configure VPC for {account_name}*"}
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_name",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "input",
+                    "placeholder": {"type": "plain_text", "text": "main-vpc"}
+                },
+                "label": {"type": "plain_text", "text": "VPC Name"},
+                "hint": {"type": "plain_text", "text": "A descriptive name for this VPC"}
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_cidr",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "input",
+                    "placeholder": {"type": "plain_text", "text": "10.0.0.0/16"}
+                },
+                "label": {"type": "plain_text", "text": "CIDR Block"},
+                "hint": {"type": "plain_text", "text": "e.g., 10.0.0.0/16 for dev, 10.1.0.0/16 for staging, 10.2.0.0/16 for prod"}
+            },
+            {
+                "type": "input",
+                "block_id": "az_count",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "select",
+                    "placeholder": {"type": "plain_text", "text": "Select AZ count"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "2 AZs"}, "value": "2"},
+                        {"text": {"type": "plain_text", "text": "3 AZs"}, "value": "3"},
+                    ],
+                    "initial_option": {"text": {"type": "plain_text", "text": "2 AZs"}, "value": "2"}
+                },
+                "label": {"type": "plain_text", "text": "Availability Zones"}
+            },
+            {
+                "type": "input",
+                "block_id": "nat_gateway",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "select",
+                    "placeholder": {"type": "plain_text", "text": "NAT Gateway"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Yes (required for private subnets)"}, "value": "true"},
+                        {"text": {"type": "plain_text", "text": "No"}, "value": "false"},
+                    ],
+                    "initial_option": {"text": {"type": "plain_text", "text": "Yes (required for private subnets)"}, "value": "true"}
+                },
+                "label": {"type": "plain_text", "text": "Enable NAT Gateway?"}
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_endpoints",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "select",
+                    "placeholder": {"type": "plain_text", "text": "VPC Endpoints"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Yes (S3, DynamoDB, SSM)"}, "value": "true"},
+                        {"text": {"type": "plain_text", "text": "No"}, "value": "false"},
+                    ],
+                    "initial_option": {"text": {"type": "plain_text", "text": "Yes (S3, DynamoDB, SSM)"}, "value": "true"}
+                },
+                "label": {"type": "plain_text", "text": "Enable VPC Endpoints?"}
+            }
+        ]
+    }
+
+    try:
+        slack.client.views_open(trigger_id=trigger_id, view=modal)
+    except Exception as e:
+        logger.error(f"Failed to open VPC config modal: {e}")
+
+
 def handle_account_factory_vpc_submission(payload: dict) -> dict:
     """Handle VPC configuration modal submission for Account Factory."""
-    # Similar to foundation VPC submission but for account factory
+    from services.account_factory import get_account_factory_service
+    from services.account_factory.models import VPCConfig
+
+    logger = get_logger(__name__)
+    callback_id = payload.get("view", {}).get("callback_id", "")
+
+    # Parse: account_factory_vpc_{session_id}_{account_name}
+    parts = callback_id.replace("account_factory_vpc_", "").split("_", 1)
+    session_id = parts[0]
+    account_name = parts[1] if len(parts) > 1 else ""
+
+    values = payload.get("view", {}).get("state", {}).get("values", {})
+
+    vpc_name = values.get("vpc_name", {}).get("input", {}).get("value", "main-vpc")
+    vpc_cidr = values.get("vpc_cidr", {}).get("input", {}).get("value", "10.0.0.0/16")
+    az_count = int(values.get("az_count", {}).get("select", {}).get("selected_option", {}).get("value", "2"))
+    nat_gateway = values.get("nat_gateway", {}).get("select", {}).get("selected_option", {}).get("value", "true") == "true"
+    vpc_endpoints = values.get("vpc_endpoints", {}).get("select", {}).get("selected_option", {}).get("value", "true") == "true"
+
+    logger.info(f"VPC submission - session: {session_id}, account: {account_name}, cidr: {vpc_cidr}")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        logger.error(f"VPC submission - session not found: {session_id}")
+        return {"statusCode": 200, "body": ""}
+
+    channel = session.channel_id
+
+    # Create VPC config and add to account
+    vpc_config = VPCConfig(
+        name=vpc_name,
+        cidr=vpc_cidr,
+        environment=account_name,
+        availability_zones=az_count,
+        enable_nat_gateway=nat_gateway,
+        enable_vpc_endpoints=vpc_endpoints,
+    )
+
+    result = service.add_vpc_to_account(session, account_name, vpc_config)
+
+    if result.get("success"):
+        slack.post_message(channel, text=f"✓ VPC *{vpc_name}* configured for *{account_name}* ({vpc_cidr})")
+    else:
+        slack.post_message(channel, text=f"❌ Failed to configure VPC: {result.get('error')}")
+        return {"statusCode": 200, "body": ""}
+
+    # Continue with next question
+    next_question = service.get_next_question(session)
+    if next_question:
+        _show_account_factory_next_question(slack, channel, session_id, next_question)
+    else:
+        _show_account_factory_summary(slack, channel, session, session_id)
+
     return {"statusCode": 200, "body": ""}
 
 
@@ -7175,6 +7362,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_account_factory_answer(payload, action)
             elif action_id.startswith("account_factory_all_emails_"):
                 return handle_account_factory_all_emails_button(payload, action)
+            elif action_id.startswith("account_factory_vpc_config_"):
+                return handle_account_factory_vpc_config_button(payload, action)
             elif action_id.startswith("account_factory_accept_"):
                 return handle_account_factory_accept(payload, action)
             elif action_id.startswith("foundation_select_"):
