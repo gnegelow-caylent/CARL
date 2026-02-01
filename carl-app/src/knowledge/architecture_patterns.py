@@ -1648,7 +1648,7 @@ def recommend_option(
     """
     # Example logic for egress
     if pattern == EGRESS_PATTERNS:
-        vpc_count = inputs.get("vpc_count", 1)
+        vpc_count = int(inputs.get("vpc_count", 1))
         need_inspection = inputs.get("need_inspection", False)
 
         if need_inspection:
