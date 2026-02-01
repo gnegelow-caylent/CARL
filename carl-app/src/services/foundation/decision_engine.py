@@ -616,24 +616,44 @@ class DecisionEngine:
         # Framework mode: Use framework-defined questions
         if session.framework_mode and session.framework:
             questions = session.framework.questions
-            if session.current_question_index >= len(questions):
-                return None
 
-            # Convert FrameworkQuestion to dict format expected by UI
-            fw_q = questions[session.current_question_index]
-            return {
-                "id": fw_q.id,
-                "question": fw_q.question,
-                "description": fw_q.description,
-                "input_type": fw_q.input_type,
-                "options": fw_q.options,
-                "default": fw_q.default,
-                "required": fw_q.required,
-                "depends_on": fw_q.depends_on,
-                "validation": fw_q.validation,
-                "min": fw_q.min,
-                "max": fw_q.max
-            }
+            # Find next question that meets dependency requirements
+            while session.current_question_index < len(questions):
+                fw_q = questions[session.current_question_index]
+
+                # Check if question depends on a previous answer
+                if fw_q.depends_on:
+                    # depends_on format: {"multi_region": "multi"}
+                    # Check if ALL dependencies are satisfied
+                    dependencies_met = True
+                    for dep_key, dep_value in fw_q.depends_on.items():
+                        user_answer = session.requirements.get(dep_key)
+                        if user_answer != dep_value:
+                            dependencies_met = False
+                            break
+
+                    if not dependencies_met:
+                        # Skip this question, move to next
+                        session.current_question_index += 1
+                        continue
+
+                # Dependencies met (or no dependencies), return this question
+                return {
+                    "id": fw_q.id,
+                    "question": fw_q.question,
+                    "description": fw_q.description,
+                    "input_type": fw_q.input_type,
+                    "options": fw_q.options,
+                    "default": fw_q.default,
+                    "required": fw_q.required,
+                    "depends_on": fw_q.depends_on,
+                    "validation": fw_q.validation,
+                    "min": fw_q.min,
+                    "max": fw_q.max
+                }
+
+            # Reached end of questions
+            return None
 
         # Original pattern mode: Use static REQUIREMENT_QUESTIONS
         if session.current_question_index >= len(REQUIREMENT_QUESTIONS):
