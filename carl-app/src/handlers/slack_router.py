@@ -3115,14 +3115,19 @@ def handle_account_factory_email_submission(payload: dict) -> dict:
     """Handle email modal submission."""
     from services.account_factory import get_account_factory_service
 
+    logger = get_logger(__name__)
     callback_id = payload.get("view", {}).get("callback_id", "")
+    logger.info(f"Email submission - callback_id: {callback_id}")
+
     # Parse: account_factory_email_{session_id}_{question_type}
     parts = callback_id.replace("account_factory_email_", "").split("_")
     session_id = parts[0]
     question_type = "_".join(parts[1:])
+    logger.info(f"Email submission - session_id: {session_id}, question_type: {question_type}")
 
     values = payload.get("view", {}).get("state", {}).get("values", {})
     email = values.get("email_block", {}).get("email_input", {}).get("value", "")
+    logger.info(f"Email submission - email: {email}")
 
     channel = payload.get("view", {}).get("private_metadata", "") or payload.get("response_urls", [{}])[0].get("channel_id", "")
 
@@ -3134,13 +3139,16 @@ def handle_account_factory_email_submission(payload: dict) -> dict:
     slack = get_slack_service()
 
     if not session:
+        logger.error(f"Email submission - session not found: {session_id}")
         return {"statusCode": 200, "body": ""}
 
+    logger.info(f"Email submission - before set: session.aft_account_email={session.aft_account_email}")
     channel = session.channel_id
 
     # Set the email
     if question_type == "aft_email":
         service.set_aft_account_email(session, email)
+        logger.info(f"Email submission - after set: session.aft_account_email={session.aft_account_email}")
         slack.post_message(channel, text=f"✓ AFT account email set to *{email}*")
     elif question_type.startswith("account_email"):
         # For specific account emails, need account name
@@ -3148,6 +3156,7 @@ def handle_account_factory_email_submission(payload: dict) -> dict:
 
     # Continue with next question
     next_question = service.get_next_question(session)
+    logger.info(f"Email submission - next_question type: {next_question.get('type') if next_question else 'None'}")
     if next_question:
         _show_account_factory_next_question(slack, channel, session_id, next_question)
     else:
