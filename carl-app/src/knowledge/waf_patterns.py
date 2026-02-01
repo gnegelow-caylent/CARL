@@ -1,8 +1,8 @@
 """
 AWS WAF (Web Application Firewall) Patterns for CARL Foundation Builder.
 
-Comprehensive patterns for WAF rule management, managed rule groups,
-and web application protection strategies.
+Comprehensive patterns for AWS WAF rule configuration, managed rule groups,
+and protection strategies for web applications and APIs.
 """
 
 from dataclasses import dataclass, field
@@ -12,635 +12,772 @@ from .architecture_patterns import ArchitectureDecision, DecisionOption
 
 
 # =============================================================================
-# WAF DEPLOYMENT PATTERNS
+# AWS WAF DEPLOYMENT PATTERNS
 # =============================================================================
 
 WAF_DEPLOYMENT_PATTERNS = ArchitectureDecision(
-    question="Where and how should AWS WAF be deployed?",
+    question="How should AWS WAF be deployed and configured?",
     options=[
         DecisionOption(
-            name="WAF on ALB (Regional)",
-            description="Deploy WAF on Application Load Balancers",
+            name="WAF with Managed Rule Groups Only",
+            description="Use AWS Managed Rules without custom rules",
             when_to_use=[
-                "ALB-based architecture",
-                "Regional applications",
-                "Internal and external APIs",
-                "Most web applications",
+                "Getting started with WAF",
+                "Standard web application security needed",
+                "Limited security engineering resources",
+                "Need quick OWASP protection",
             ],
             when_not_to_use=[
-                "Using CloudFront (use CloudFront WAF instead)",
-                "No ALB in architecture",
+                "Custom application-specific threats",
+                "Need fine-tuned rate limiting",
+                "Require geo-blocking specific countries",
+                "Advanced bot management needed",
             ],
             pros=[
-                "Protects at application layer",
-                "Works with internal ALBs",
-                "Lower latency than CloudFront",
-                "Regional deployment",
+                "Quick to implement (minutes)",
+                "AWS maintains and updates rules",
+                "Covers OWASP Top 10 automatically",
+                "No rule tuning required initially",
+                "Lower operational overhead",
             ],
             cons=[
-                "Per-region deployment needed",
-                "Doesn't protect against DDoS at edge",
-                "No geo-blocking at edge",
+                "Can cause false positives",
+                "Less control over specific rules",
+                "May need to add custom exceptions",
+                "Not optimized for your application",
             ],
             monthly_cost_range=(5.00, 50.00),
             cost_drivers=[
-                "Web ACL: $5/mo",
-                "Rules: $1/rule/mo",
-                "Requests: $0.60/1M requests",
-                "10-20 rules typical: $15-25/mo",
+                "WAF ACL: $5/month per web ACL",
+                "Rules: $1/month per rule (managed rules count as 1)",
+                "Requests: $0.60/million requests",
+                "Typical small app: $5-15/month (1M requests)",
+                "Typical medium app: $15-50/month (10M requests)",
             ],
-            soc2_controls=["CC6.6", "CC7.2"],
-            implementation_complexity="medium",
-            operational_overhead="low",
-        ),
-        DecisionOption(
-            name="WAF on CloudFront (Edge)",
-            description="Deploy WAF on CloudFront distributions",
-            when_to_use=[
-                "Global applications",
-                "Using CloudFront CDN",
-                "Need edge protection",
-                "DDoS protection priority",
-            ],
-            when_not_to_use=[
-                "Regional-only applications",
-                "Not using CloudFront",
-            ],
-            pros=[
-                "Edge-level protection",
-                "Blocks at closest location",
-                "Integrated with Shield",
-                "Geo-blocking at edge",
-            ],
-            cons=[
-                "Must use CloudFront",
-                "Global deployment (can't be regional)",
-                "Slightly different rule options",
-            ],
-            monthly_cost_range=(10.00, 100.00),
-            cost_drivers=[
-                "Web ACL: $5/mo",
-                "Rules: $1/rule/mo",
-                "Requests: $0.60/1M requests",
-                "Higher request volume at edge",
-            ],
-            soc2_controls=["CC6.6", "CC6.8", "CC7.2"],
-            implementation_complexity="medium",
-            operational_overhead="low",
-        ),
-        DecisionOption(
-            name="WAF on API Gateway",
-            description="Deploy WAF on API Gateway REST APIs",
-            when_to_use=[
-                "API Gateway REST APIs",
-                "Regional APIs",
-                "Need API-specific protection",
-            ],
-            when_not_to_use=[
-                "HTTP APIs (not supported)",
-                "WebSocket APIs (not supported)",
-                "Using ALB for APIs (use ALB WAF)",
-            ],
-            pros=[
-                "Protects API Gateway directly",
-                "Good for REST APIs",
-                "Regional deployment",
-            ],
-            cons=[
-                "Only REST APIs supported",
-                "Per-region deployment",
-                "Limited compared to ALB WAF",
-            ],
-            monthly_cost_range=(5.00, 30.00),
-            cost_drivers=[
-                "Web ACL: $5/mo",
-                "Rules: $1/rule/mo",
-                "Requests: $0.60/1M requests",
-            ],
-            soc2_controls=["CC6.6", "CC7.2"],
-            implementation_complexity="medium",
-            operational_overhead="low",
-        ),
-        DecisionOption(
-            name="Layered WAF Strategy",
-            description="WAF at both CloudFront (edge) and ALB (origin)",
-            when_to_use=[
-                "High-security applications",
-                "Need defense in depth",
-                "Using CloudFront + ALB",
-                "DDoS + application protection",
-            ],
-            when_not_to_use=[
-                "Cost is primary concern",
-                "Simple applications",
-                "Single-layer protection sufficient",
-            ],
-            pros=[
-                "Defense in depth",
-                "Edge and origin protection",
-                "Different rules at each layer",
-                "Maximum security",
-            ],
-            cons=[
-                "Double WAF cost",
-                "More complex management",
-                "Need to coordinate rules",
-            ],
-            monthly_cost_range=(20.00, 150.00),
-            cost_drivers=[
-                "2× Web ACLs: $10/mo",
-                "2× Rule sets",
-                "Requests charged at both layers",
-            ],
-            soc2_controls=["CC6.6", "CC6.8", "CC7.2"],
-            implementation_complexity="high",
-            operational_overhead="high",
-        ),
-    ],
-    recommendation_logic="""
-    WAF deployment decision tree:
-
-    1. Are you using CloudFront?
-       YES, and need edge protection → CloudFront WAF
-       YES, but also need origin protection → Layered WAF
-       NO → ALB or API Gateway WAF
-
-    2. What's your architecture?
-       ALB-based → WAF on ALB
-       API Gateway REST → WAF on API Gateway
-       CloudFront → WAF on CloudFront
-
-    3. What's your security requirement?
-       Standard → Single-layer WAF
-       High (PCI-DSS, financial) → Layered WAF
-
-    WAF deployment best practices:
-    - Start with managed rule groups
-    - Enable logging (S3 or Kinesis Firehose)
-    - Use rate limiting for APIs
-    - Test in COUNT mode first
-    - Monitor blocked requests
-    - Regular rule review and tuning
-
-    WAF logging destinations:
-    - S3 bucket (cheapest, batch analysis)
-    - Kinesis Data Firehose (real-time)
-    - CloudWatch Logs (integration with insights)
-
-    Cost optimization:
-    - Use managed rule groups (shared cost)
-    - Combine rules where possible
-    - Use IP sets for bulk IPs
-    - Use string match sets for patterns
-    - Monitor request charges
-    """,
-    soc2_relevance="""
-    SOC 2 controls:
-    - CC6.6: WAF provides boundary protection
-    - CC6.8: Threat detection and mitigation
-    - CC7.2: Security monitoring (WAF logs)
-
-    WAF demonstrates:
-    - Protection against OWASP Top 10
-    - Defense against common attacks
-    - Logging of blocked requests
-    - Proactive security posture
-
-    Auditors want to see:
-    - WAF rules documented
-    - Evidence of protection (logs)
-    - Regular rule updates
-    - Tuning process
-    """,
-    common_mistakes=[
-        "Enabling BLOCK mode without testing",
-        "Not enabling logging",
-        "Using only custom rules (skip managed rules)",
-        "Not monitoring blocked requests",
-        "No rate limiting rules",
-    ],
-)
-
-
-# =============================================================================
-# WAF RULE STRATEGY PATTERNS
-# =============================================================================
-
-WAF_RULE_STRATEGY_PATTERNS = ArchitectureDecision(
-    question="What WAF rule strategy should be implemented?",
-    options=[
-        DecisionOption(
-            name="Managed Rules Only",
-            description="Use AWS and marketplace managed rule groups",
-            when_to_use=[
-                "Getting started with WAF",
-                "Standard web applications",
-                "Limited security expertise",
-                "Most organizations",
-            ],
-            when_not_to_use=[
-                "Very custom applications",
-                "Need specific custom rules",
-            ],
-            pros=[
-                "AWS maintains rules",
-                "Automatic updates",
-                "OWASP coverage",
-                "Low maintenance",
-            ],
-            cons=[
-                "Less customization",
-                "May block legitimate traffic",
-                "Need tuning",
-            ],
-            monthly_cost_range=(5.00, 20.00),
-            cost_drivers=[
-                "Web ACL: $5/mo",
-                "Core Rule Set: $10/mo",
-                "Additional rule groups: $1-5/mo each",
-            ],
-            soc2_controls=["CC6.8", "CC7.2"],
+            soc2_controls=["CC6.6", "CC7.1", "CC7.2"],
             implementation_complexity="low",
             operational_overhead="low",
+            implementation_guidance="""
+# AWS WAF with Managed Rule Groups
+
+resource "aws_wafv2_web_acl" "main" {
+  name  = "app-protection"
+  scope = "REGIONAL"  # Use "CLOUDFRONT" for CloudFront distributions
+
+  default_action {
+    allow {}  # Allow by default, block on rule matches
+  }
+
+  # AWS Managed Rules: Core Rule Set (CRS)
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 1
+
+    override_action {
+      none {}  # Use default action from managed rule
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesCommonRuleSet"
+        
+        # Exclude rules that cause false positives (example)
+        # excluded_rule {
+        #   name = "SizeRestrictions_BODY"
+        # }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesCommonRuleSetMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules: Known Bad Inputs
+  rule {
+    name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesKnownBadInputsMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules: SQL Injection
+  rule {
+    name     = "AWS-AWSManagedRulesSQLiRuleSet"
+    priority = 3
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesSQLiRuleSet"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesSQLiMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "AppProtectionMetric"
+    sampled_requests_enabled   = true
+  }
+
+  tags = {
+    Environment = "production"
+    ManagedBy   = "CARL"
+  }
+}
+
+# Attach to Application Load Balancer
+resource "aws_wafv2_web_acl_association" "alb" {
+  resource_arn = aws_lb.app.arn
+  web_acl_arn  = aws_wafv2_web_acl.main.arn
+}
+
+# Common AWS Managed Rule Groups:
+# - AWSManagedRulesCommonRuleSet: OWASP Top 10 protection
+# - AWSManagedRulesKnownBadInputsRuleSet: Known malicious inputs
+# - AWSManagedRulesSQLiRuleSet: SQL injection protection
+# - AWSManagedRulesLinuxRuleSet: Linux-specific vulnerabilities
+# - AWSManagedRulesUnixRuleSet: Unix-specific vulnerabilities
+# - AWSManagedRulesWindowsRuleSet: Windows-specific vulnerabilities
+# - AWSManagedRulesPHPRuleSet: PHP-specific vulnerabilities
+# - AWSManagedRulesWordPressRuleSet: WordPress protection
+# - AWSManagedRulesAmazonIpReputationList: Block known malicious IPs
+# - AWSManagedRulesAnonymousIpList: Block anonymizing services (VPN, proxy, Tor)
+# - AWSManagedRulesBotControlRuleSet: Bot protection (additional cost)
+""",
+            validation_checklist=[
+                "WAF web ACL created and associated with ALB or CloudFront",
+                "Core Rule Set (CRS) enabled for OWASP protection",
+                "Known Bad Inputs rule set enabled",
+                "SQL injection rule set enabled if using database",
+                "CloudWatch metrics enabled for monitoring",
+                "Sampled requests enabled for debugging",
+                "Test WAF in count mode first (don't block immediately)",
+                "Review sampled requests for false positives",
+            ],
         ),
         DecisionOption(
-            name="Managed + Custom Rules",
-            description="Managed rules plus application-specific custom rules",
+            name="WAF with Custom Rate Limiting & Geo-Blocking",
+            description="Managed rules plus custom rate limiting and geographic restrictions",
             when_to_use=[
-                "Production applications",
-                "Need application-specific protection",
-                "Have security expertise",
-                "Custom attack patterns",
+                "Production applications with known traffic patterns",
+                "Need DDoS protection",
+                "Want to block specific countries/regions",
+                "Prevent brute force attacks",
             ],
             when_not_to_use=[
-                "No resources for rule management",
-                "Simple applications",
+                "Global user base (geo-blocking would hurt legitimate users)",
+                "Unpredictable traffic patterns",
+                "Don't know appropriate rate limits",
             ],
             pros=[
-                "Best of both worlds",
+                "Protects against DDoS/brute force",
+                "Reduces malicious traffic from specific regions",
+                "Lower request costs (blocked early)",
                 "Application-specific protection",
-                "Flexible",
-                "Covers custom threats",
             ],
             cons=[
-                "More rules to manage",
-                "Requires expertise",
-                "Testing needed",
-            ],
-            monthly_cost_range=(10.00, 50.00),
-            cost_drivers=[
-                "Web ACL: $5/mo",
-                "Managed rules: $10-15/mo",
-                "Custom rules: $1/rule/mo",
-                "10-30 custom rules typical",
-            ],
-            soc2_controls=["CC6.8", "CC7.2"],
-            implementation_complexity="medium",
-            operational_overhead="medium",
-        ),
-        DecisionOption(
-            name="Advanced Rule Strategy",
-            description="Comprehensive rules with rate limiting, geo-blocking, IP reputation",
-            when_to_use=[
-                "High-value applications",
-                "Public-facing APIs",
-                "Need sophisticated protection",
-                "Regulatory requirements (PCI-DSS)",
-            ],
-            when_not_to_use=[
-                "Internal applications only",
-                "Simple use cases",
-            ],
-            pros=[
-                "Comprehensive protection",
-                "Rate limiting per client",
-                "Geo-blocking",
-                "IP reputation filtering",
-                "Bot detection",
-            ],
-            cons=[
-                "Complex to configure",
-                "Higher cost",
-                "Requires ongoing tuning",
-            ],
-            monthly_cost_range=(20.00, 100.00),
-            cost_drivers=[
-                "Web ACL: $5/mo",
-                "Multiple managed rule groups: $15-30/mo",
-                "Custom rules: $10-30/mo",
-                "Bot Control (optional): $10/mo + $1/1M requests",
-            ],
-            soc2_controls=["CC6.6", "CC6.8", "CC7.2"],
-            implementation_complexity="high",
-            operational_overhead="high",
-        ),
-    ],
-    recommendation_logic="""
-    Recommended managed rule groups:
-
-    **Core Rule Set (Must have):**
-    - AWS Managed Rules Core Rule Set (CRS)
-    - Protects against OWASP Top 10
-    - Cost: approx. $10/mo
-    - Coverage: SQLi, XSS, LFI, RFI, RCE
-
-    **Additional managed rules:**
-    - Known Bad Inputs ($5/mo)
-    - SQL Database ($5/mo) - if using SQL
-    - Linux Operating System ($5/mo) - if Linux backends
-    - PHP Application ($5/mo) - if PHP
-    - WordPress Application ($5/mo) - if WordPress
-    - Amazon IP Reputation List ($5/mo)
-
-    **Custom rule examples:**
-
-    1. **Rate Limiting (API protection):**
-    ```
-    Rule: RateLimit-API
-    Type: RateBasedRule
-    Limit: 2000 requests per 5 minutes per IP
-    Action: BLOCK
-    Scope: Specific URI path (/api/*)
-    ```
-
-    2. **Geo-blocking:**
-    ```
-    Rule: BlockCountries
-    Type: GeoMatchRule
-    Countries: [High-risk countries]
-    Action: BLOCK
-    Exception: Known partner IPs
-    ```
-
-    3. **Auth endpoint protection:**
-    ```
-    Rule: RateLimit-Login
-    Type: RateBasedRule
-    Limit: 5 requests per 5 minutes per IP
-    Path: /login, /api/auth/*
-    Action: BLOCK
-    ```
-
-    4. **Block known bad user agents:**
-    ```
-    Rule: BlockBadBots
-    Type: StringMatchRule
-    Header: User-Agent
-    Patterns: [scanner patterns]
-    Action: BLOCK
-    ```
-
-    5. **Require specific headers:**
-    ```
-    Rule: RequireAPIKey
-    Type: ByteMatchRule
-    Header: X-API-Key
-    Condition: NOT present
-    Action: BLOCK
-    Scope: /api/*
-    ```
-
-    Rule priority recommendations:
-    1. Rate limiting rules (PRIORITY 1-10)
-    2. Geo-blocking (PRIORITY 11-20)
-    3. Known bad actors (PRIORITY 21-30)
-    4. Managed rule groups (PRIORITY 100-200)
-    5. Custom application rules (PRIORITY 300+)
-
-    Testing strategy:
-    1. Deploy in COUNT mode
-    2. Monitor for false positives (7-14 days)
-    3. Add exceptions for legitimate traffic
-    4. Switch to BLOCK mode
-    5. Monitor continuously
-    """,
-    soc2_relevance="""
-    SOC 2 controls:
-    - CC6.8: WAF rules mitigate threats
-    - CC7.2: Rule logging provides monitoring
-
-    Rule strategy demonstrates:
-    - Layered security (defense in depth)
-    - Protection against known attacks
-    - Proactive threat mitigation
-    - Regular rule updates
-
-    Auditors review:
-    - Rule documentation
-    - Rule rationale
-    - Blocked request analysis
-    - False positive handling process
-    """,
-    common_mistakes=[
-        "Enabling too many managed rules (false positives)",
-        "No rate limiting rules",
-        "Not testing in COUNT mode first",
-        "Forgetting to update custom rules",
-        "No process for reviewing blocked requests",
-    ],
-)
-
-
-# =============================================================================
-# WAF LOGGING AND MONITORING PATTERNS
-# =============================================================================
-
-WAF_LOGGING_PATTERNS = ArchitectureDecision(
-    question="How should WAF logging and monitoring be configured?",
-    options=[
-        DecisionOption(
-            name="S3 Logging Only",
-            description="Log all WAF actions to S3 bucket",
-            when_to_use=[
-                "Compliance requires log retention",
-                "Batch analysis sufficient",
-                "Cost optimization priority",
-            ],
-            when_not_to_use=[
-                "Need real-time analysis",
-                "Active threat response",
-            ],
-            pros=[
-                "Cheapest option",
-                "Long-term retention",
-                "Compliance-friendly",
-                "Athena analysis",
-            ],
-            cons=[
-                "Not real-time",
-                "Manual analysis needed",
-                "Delayed threat response",
-            ],
-            monthly_cost_range=(5.00, 20.00),
-            cost_drivers=[
-                "S3 storage: $0.023/GB",
-                "Typical: 1-5GB/mo",
-                "Athena queries: $5/TB",
-            ],
-            soc2_controls=["CC7.2"],
-            implementation_complexity="low",
-            operational_overhead="low",
-        ),
-        DecisionOption(
-            name="CloudWatch Logs + Insights",
-            description="Stream WAF logs to CloudWatch for analysis",
-            when_to_use=[
-                "Need real-time visibility",
-                "CloudWatch-centric monitoring",
-                "Want integrated dashboards",
-            ],
-            when_not_to_use=[
-                "High request volume (expensive)",
-                "Long-term retention needed",
-            ],
-            pros=[
-                "Real-time analysis",
-                "CloudWatch Insights queries",
-                "Integrated dashboards",
-                "Alarms on patterns",
-            ],
-            cons=[
-                "Higher cost",
-                "Retention limits (default 30 days)",
-                "Can be expensive at scale",
+                "Can block legitimate users if misconfigured",
+                "Requires understanding of traffic patterns",
+                "More complex to maintain",
+                "Rate limits need periodic review",
             ],
             monthly_cost_range=(10.00, 100.00),
             cost_drivers=[
-                "Data ingestion: $0.50/GB",
-                "Storage: $0.03/GB",
-                "Queries: $0.005/GB scanned",
+                "WAF ACL: $5/month",
+                "Rules: $1/month per rule (3-5 custom rules = $3-5)",
+                "Requests: $0.60/million (reduced by blocking)",
+                "Rate-based rules: Track request counts (small cost)",
+                "Typical: $10-100/month depending on traffic",
             ],
-            soc2_controls=["CC4.1", "CC7.2"],
+            soc2_controls=["CC6.6", "CC7.1", "CC7.2"],
             implementation_complexity="medium",
             operational_overhead="medium",
+            implementation_guidance="""
+# WAF with Rate Limiting and Geo-Blocking
+
+resource "aws_wafv2_web_acl" "advanced" {
+  name  = "advanced-app-protection"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  # Rate-based rule: Block IPs with >2000 requests in 5 minutes
+  rule {
+    name     = "RateLimitRule"
+    priority = 0  # Higher priority = evaluated first
+
+    action {
+      block {
+        custom_response {
+          response_code = 429  # Too Many Requests
+        }
+      }
+    }
+
+    statement {
+      rate_based_statement {
+        limit              = 2000
+        aggregate_key_type = "IP"
+
+        # Optional: Apply rate limit only to specific paths
+        # scope_down_statement {
+        #   byte_match_statement {
+        #     field_to_match {
+        #       uri_path {}
+        #     }
+        #     positional_constraint = "STARTS_WITH"
+        #     search_string         = "/api/login"
+        #     text_transformation {
+        #       priority = 0
+        #       type     = "LOWERCASE"
+        #     }
+        #   }
+        # }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "RateLimitMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Geo-blocking rule: Block traffic from specific countries
+  rule {
+    name     = "GeoBlockRule"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      geo_match_statement {
+        country_codes = ["CN", "RU", "KP"]  # Example: Block China, Russia, North Korea
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "GeoBlockMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules (same as previous example)
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesCommonRuleSet"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "AdvancedAppProtectionMetric"
+    sampled_requests_enabled   = true
+  }
+}
+
+# CloudWatch Alarm for Rate Limit Triggers
+resource "aws_cloudwatch_metric_alarm" "rate_limit_triggered" {
+  alarm_name          = "waf-rate-limit-blocking"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BlockedRequests"
+  namespace           = "AWS/WAFV2"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 100
+  alarm_description   = "WAF rate limiting is blocking traffic"
+
+  dimensions = {
+    Rule      = "RateLimitRule"
+    WebACL    = aws_wafv2_web_acl.advanced.name
+    Region    = "us-east-1"
+  }
+
+  alarm_actions = [aws_sns_topic.ops_alerts.arn]
+}
+
+# Rate Limit Guidelines:
+# - API endpoints: 100-1000 requests/5min per IP
+# - Login endpoints: 5-20 requests/5min per IP (prevent brute force)
+# - Public pages: 2000-5000 requests/5min per IP
+# - Adjust based on CloudWatch metrics and legitimate traffic patterns
+""",
+            validation_checklist=[
+                "Rate limits configured based on baseline traffic analysis",
+                "Tested rate limits don't block legitimate users",
+                "Geo-blocking countries verified (check your user base first!)",
+                "CloudWatch alarms created for rate limit triggers",
+                "Custom response codes configured (429 for rate limits)",
+                "Sampled requests reviewed for false positives",
+                "Exception process documented for legitimate blocked traffic",
+            ],
         ),
         DecisionOption(
-            name="Kinesis + SIEM Integration",
-            description="Stream via Kinesis Firehose to SIEM or analytics",
+            name="Advanced WAF with Bot Management & IP Reputation",
+            description="Comprehensive WAF with bot protection, IP reputation lists, and custom rules",
             when_to_use=[
-                "SIEM integration (Splunk, Datadog, etc.)",
-                "Real-time threat detection",
-                "Security operations center (SOC)",
-                "Enterprise environments",
+                "High-value applications (e-commerce, banking)",
+                "Targeted by sophisticated bots",
+                "Need advanced threat intelligence",
+                "Scraping/credential stuffing concerns",
             ],
             when_not_to_use=[
-                "No SIEM",
-                "Simple logging needs",
-                "Budget constraints",
+                "Budget-constrained (<$100/month for WAF)",
+                "Low-traffic applications",
+                "Simple brute force protection sufficient",
             ],
             pros=[
-                "Real-time streaming",
-                "SIEM integration",
-                "Advanced analytics",
-                "Automated response",
+                "Best-in-class bot protection",
+                "Blocks known malicious IPs automatically",
+                "Protects against credential stuffing",
+                "Advanced threat intelligence",
+                "Reduces scraping and fraud",
             ],
             cons=[
-                "Most expensive",
-                "Complex setup",
-                "SIEM costs additional",
+                "Significantly higher cost (Bot Control: $10/month + $1/million requests)",
+                "Complex configuration",
+                "May require tuning for specific bots",
+                "Can impact performance (additional inspection)",
             ],
-            monthly_cost_range=(20.00, 200.00),
+            monthly_cost_range=(50.00, 500.00),
             cost_drivers=[
-                "Kinesis Firehose: $0.029/GB",
-                "SIEM ingestion costs",
-                "Lambda transformations",
+                "WAF ACL: $5/month",
+                "Rules: $1/month per rule (~10 rules = $10)",
+                "Bot Control Managed Rule: $10/month + $1/million bot-checked requests",
+                "IP Reputation Lists: $1/month per list",
+                "Requests: $0.60/million requests",
+                "Typical medium traffic: $50-150/month",
+                "Typical high traffic: $150-500/month",
             ],
-            soc2_controls=["CC4.1", "CC7.2", "CC7.3"],
+            soc2_controls=["CC6.6", "CC7.1", "CC7.2"],
             implementation_complexity="high",
-            operational_overhead="high",
-        },
+            operational_overhead="medium",
+            implementation_guidance="""
+# Advanced WAF with Bot Management
+
+resource "aws_wafv2_web_acl" "enterprise" {
+  name  = "enterprise-app-protection"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  # AWS Managed Rules: Bot Control (Advanced)
+  rule {
+    name     = "AWS-AWSManagedRulesBotControlRuleSet"
+    priority = 0
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesBotControlRuleSet"
+
+        # Bot Control configuration
+        managed_rule_group_configs {
+          aws_managed_rules_bot_control_rule_set {
+            inspection_level = "TARGETED"  # Options: COMMON or TARGETED
+          }
+        }
+
+        # Exclude specific bot rules if needed
+        # excluded_rule {
+        #   name = "CategoryHttpLibrary"  # Allow legitimate HTTP libraries
+        # }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "BotControlMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # IP Reputation List: Block known malicious IPs
+  rule {
+    name     = "AWS-AWSManagedRulesAmazonIpReputationList"
+    priority = 1
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesAmazonIpReputationList"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "IpReputationMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Anonymous IP List: Block Tor, VPNs, proxies
+  rule {
+    name     = "AWS-AWSManagedRulesAnonymousIpList"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesAnonymousIpList"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AnonymousIpMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Rate limiting on login endpoint (prevent credential stuffing)
+  rule {
+    name     = "LoginRateLimitRule"
+    priority = 3
+
+    action {
+      block {
+        custom_response {
+          response_code = 429
+        }
+      }
+    }
+
+    statement {
+      rate_based_statement {
+        limit              = 10  # Max 10 login attempts per 5 minutes
+        aggregate_key_type = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            field_to_match {
+              uri_path {}
+            }
+            positional_constraint = "EXACTLY"
+            search_string         = "/api/login"
+            text_transformation {
+              priority = 0
+              type     = "LOWERCASE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "LoginRateLimitMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Core rule set (OWASP protection)
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 4
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        vendor_name = "AWS"
+        name        = "AWSManagedRulesCommonRuleSet"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "CommonRuleSetMetric"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "EnterpriseProtectionMetric"
+    sampled_requests_enabled   = true
+  }
+}
+
+# Bot Control Inspection Levels:
+# - COMMON: Basic bot detection (lower cost, less accuracy)
+# - TARGETED: Advanced bot detection (higher cost, better accuracy)
+
+# Use Cases:
+# - E-commerce: Prevent scraping, inventory hoarding, fraud
+# - APIs: Prevent unauthorized automation, rate limit abuse
+# - Login pages: Prevent credential stuffing, brute force
+# - Content sites: Prevent scraping, hotlinking
+""",
+            validation_checklist=[
+                "Bot Control configured with appropriate inspection level",
+                "Tested with known good bots (search engines, monitoring)",
+                "Search engine bots whitelisted if needed (Google, Bing)",
+                "IP Reputation List enabled for threat intelligence",
+                "Anonymous IP blocking evaluated (may block legitimate VPN users)",
+                "Login endpoint has aggressive rate limiting",
+                "Cost reviewed and approved ($50-500/month range)",
+                "CloudWatch dashboard created for WAF metrics",
+                "Weekly review process for blocked requests",
+            ],
+        ),
     ],
-    recommendation_logic="""
-    WAF logging strategy:
-
-    **For most organizations:**
-    - Primary: S3 for long-term storage
-    - Secondary: CloudWatch for recent analysis (7-30 days)
-    - Use Kinesis Firehose to deliver to both
-
-    **Setup:**
-    ```
-    WAF → Kinesis Firehose → S3 (primary)
-                           → CloudWatch Logs (secondary)
-    ```
-
-    **Key metrics to monitor:**
-    - Blocked requests by rule
-    - Blocked requests by country
-    - Blocked requests by IP
-    - Top blocked URIs
-    - Rate limit violations
-    - False positive rate
-
-    **CloudWatch Insights queries:**
-
-    1. Top blocked IPs:
-    ```
-    fields httpRequest.clientIp, @timestamp
-    | filter action = "BLOCK"
-    | stats count() by httpRequest.clientIp
-    | sort count desc
-    | limit 20
-    ```
-
-    2. Blocked requests by rule:
-    ```
-    fields terminatingRuleId, @timestamp
-    | filter action = "BLOCK"
-    | stats count() by terminatingRuleId
-    ```
-
-    3. Geographic distribution of blocks:
-    ```
-    fields httpRequest.country, @timestamp
-    | filter action = "BLOCK"
-    | stats count() by httpRequest.country
-    | sort count desc
-    ```
-
-    **Alarms to create:**
-    - Spike in blocked requests (unusual activity)
-    - New countries appearing (geo-anomaly)
-    - Rate limit rule triggering (potential attack)
-    - Specific rule blocking frequently (tune or investigate)
-
-    **Retention recommendations:**
-    - S3: 1-7 years (compliance)
-    - CloudWatch: 30-90 days (recent analysis)
-    - Kinesis: Real-time only
-    """,
-    soc2_relevance="""
-    SOC 2 controls:
-    - CC7.2: WAF logs provide security monitoring
-    - CC4.1: Logs analyzed for anomalies
-    - CC7.3: Logs support incident response
-
-    WAF logging demonstrates:
-    - All blocked requests logged
-    - Retention for audit purposes
-    - Analysis of attack patterns
-    - Evidence of protection
-
-    Auditors expect:
-    - WAF logging enabled
-    - Logs retained appropriately
-    - Evidence of log review
-    - Response to anomalies
-    """,
-    common_mistakes=[
-        "Not enabling logging at all",
-        "Logs not accessible (wrong S3 permissions)",
-        "No analysis of logs (collect but never review)",
-        "No alarms on log patterns",
-        "Insufficient retention",
-    ],
+    estimated_implementation_time="2-3 days",
+    recommendation_strategy="Start with Managed Rule Groups Only for quick OWASP protection. Add Rate Limiting & Geo-Blocking for production applications. Use Advanced Bot Management only for high-value applications targeted by bots. Always test in count mode first!",
 )
 
 
-def get_waf_patterns() -> dict:
-    """Get all AWS WAF patterns."""
+# =============================================================================
+# WAF DEPLOYMENT LOCATIONS PATTERNS
+# =============================================================================
+
+WAF_LOCATION_PATTERNS = ArchitectureDecision(
+    question="Where should AWS WAF be deployed (ALB vs CloudFront)?",
+    options=[
+        DecisionOption(
+            name="WAF on Application Load Balancer (Regional)",
+            description="Deploy WAF directly on ALB in single region",
+            when_to_use=[
+                "Single-region application",
+                "Don't use CloudFront CDN",
+                "Direct ALB access required",
+                "Regional compliance requirements",
+            ],
+            when_not_to_use=[
+                "Global application with users worldwide",
+                "Using CloudFront CDN",
+                "Need edge-location protection",
+            ],
+            pros=[
+                "Simpler architecture",
+                "Lower latency (no CDN hop)",
+                "Easier to debug",
+                "Works with any ALB application",
+            ],
+            cons=[
+                "No global DDoS protection",
+                "Higher latency for distant users",
+                "All traffic hits regional ALB",
+                "Limited to regional AWS Shield Standard",
+            ],
+            monthly_cost_range=(5.00, 50.00),
+            cost_drivers=[
+                "Same WAF costs as CloudFront",
+                "No CloudFront data transfer costs",
+                "Typical: $5-50/month",
+            ],
+            soc2_controls=["CC6.6", "CC7.1"],
+            implementation_complexity="low",
+            operational_overhead="low",
+            implementation_guidance="""
+# WAF on ALB
+
+resource "aws_wafv2_web_acl" "alb_protection" {
+  name  = "alb-waf"
+  scope = "REGIONAL"  # Must be REGIONAL for ALB
+
+  # ... (rule configuration from previous examples)
+}
+
+resource "aws_wafv2_web_acl_association" "alb" {
+  resource_arn = aws_lb.app.arn
+  web_acl_arn  = aws_wafv2_web_acl.alb_protection.arn
+}
+
+# When to Use ALB WAF:
+# - Internal applications (not public internet)
+# - Single-region deployments
+# - No need for CDN caching
+# - Direct WebSocket connections (CloudFront complicates WebSockets)
+""",
+            validation_checklist=[
+                "WAF scope set to REGIONAL (not CLOUDFRONT)",
+                "WAF associated with correct ALB",
+                "Security group still restricts traffic to ALB",
+                "CloudWatch metrics enabled",
+                "Tested with legitimate traffic",
+            ],
+        ),
+        DecisionOption(
+            name="WAF on CloudFront (Global Edge Protection)",
+            description="Deploy WAF at CloudFront edge locations worldwide",
+            when_to_use=[
+                "Global user base",
+                "Already using CloudFront CDN",
+                "Need edge-location DDoS protection",
+                "Want to block attacks before they reach origin",
+            ],
+            when_not_to_use=[
+                "Single-region application",
+                "Don't use CloudFront",
+                "WebSocket-heavy application (CloudFront adds complexity)",
+            ],
+            pros=[
+                "Global DDoS protection",
+                "Blocks attacks at edge (before hitting origin)",
+                "Lower origin load",
+                "Better global performance (CDN caching)",
+                "AWS Shield Advanced available",
+            ],
+            cons=[
+                "More complex architecture",
+                "CloudFront data transfer costs",
+                "Harder to debug (distributed)",
+                "CDN cache considerations",
+            ],
+            monthly_cost_range=(10.00, 200.00),
+            cost_drivers=[
+                "WAF: Same costs as ALB WAF",
+                "CloudFront: $0.085/GB data transfer (first 10TB)",
+                "CloudFront requests: $0.0075/10,000 HTTPS requests",
+                "Typical small: $10-30/month",
+                "Typical medium: $30-100/month",
+                "Typical large: $100-200+/month",
+            ],
+            soc2_controls=["CC6.6", "CC7.1", "CC7.2"],
+            implementation_complexity="medium",
+            operational_overhead="medium",
+            implementation_guidance="""
+# WAF on CloudFront
+
+# 1. Create WAF in us-east-1 (required for CloudFront)
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
+resource "aws_wafv2_web_acl" "cloudfront_protection" {
+  provider = aws.us_east_1  # CloudFront WAF must be in us-east-1
+
+  name  = "cloudfront-waf"
+  scope = "CLOUDFRONT"  # Must be CLOUDFRONT for CloudFront
+
+  # ... (rule configuration)
+}
+
+# 2. Associate with CloudFront distribution
+resource "aws_cloudfront_distribution" "app" {
+  # ... (CloudFront configuration)
+
+  web_acl_id = aws_wafv2_web_acl.cloudfront_protection.arn
+
+  # Restrict ALB to only accept traffic from CloudFront
+  # Use custom header and ALB listener rule
+}
+
+# 3. Restrict ALB to CloudFront traffic only
+resource "aws_lb_listener_rule" "cloudfront_only" {
+  listener_arn = aws_lb_listener.https.arn
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Custom-Secret-Header"
+      values           = [random_password.cloudfront_secret.result]
+    }
+  }
+}
+
+# Benefits of CloudFront + WAF:
+# - Attacks blocked at 200+ edge locations (not at origin)
+# - Origin protected by custom header (CloudFront only)
+# - Better performance for global users
+# - DDoS protection included (Shield Standard)
+""",
+            validation_checklist=[
+                "WAF created in us-east-1 (CloudFront requirement)",
+                "WAF scope set to CLOUDFRONT",
+                "CloudFront distribution associated with WAF",
+                "ALB restricted to CloudFront traffic only (custom header)",
+                "CloudFront cache behaviors configured correctly",
+                "SSL certificate in us-east-1 (ACM for CloudFront)",
+                "Tested with traffic from multiple regions",
+            ],
+        ),
+    ],
+    estimated_implementation_time="1-2 days",
+    recommendation_strategy="Use ALB WAF for single-region applications or when not using CloudFront. Use CloudFront WAF for global applications to block attacks at edge and improve performance. If using CloudFront, always put WAF there (not on ALB).",
+)
+
+
+# =============================================================================
+# HELPER FUNCTION TO GET ALL WAF PATTERNS
+# =============================================================================
+
+def get_waf_patterns() -> dict[str, ArchitectureDecision]:
+    """Get all AWS WAF patterns for CARL."""
     return {
         "waf_deployment": WAF_DEPLOYMENT_PATTERNS,
-        "waf_rules": WAF_RULE_STRATEGY_PATTERNS,
-        "waf_logging": WAF_LOGGING_PATTERNS,
+        "waf_location": WAF_LOCATION_PATTERNS,
     }

@@ -1,947 +1,757 @@
 """
-AWS Certificate Manager (ACM) Architecture Patterns for CARL.
+AWS Certificate Manager (ACM) Patterns for CARL Foundation Builder.
 
-Patterns for SSL/TLS certificate management, validation, renewal automation,
-and CloudFront integration.
-
-SOC 2 Relevance:
-- CC6.1: Logical and physical access controls (encrypted connections)
-- CC6.6: Encryption of data in transit
-- CC7.2: System monitoring (certificate expiration monitoring)
+Comprehensive patterns for SSL/TLS certificate management, lifecycle automation,
+and CloudFront/ALB certificate deployment strategies.
 """
 
-from dataclasses import dataclass
-from typing import List
-from .architecture_patterns import (
-    ArchitectureDecision,
-    DecisionOption,
-    SOC2Mapping,
-)
+from dataclasses import dataclass, field
+from typing import Any
+
+from .architecture_patterns import ArchitectureDecision, DecisionOption
 
 
-# Pattern 1: Certificate Lifecycle Management Strategy
-CERTIFICATE_LIFECYCLE_PATTERNS = ArchitectureDecision(
-    category="Security - Certificate Management",
-    question="What certificate lifecycle management strategy should be implemented?",
-    context="""
-Certificate lifecycle management ensures SSL/TLS certificates are properly provisioned,
-monitored, and renewed to maintain secure encrypted connections. Poor certificate
-management can lead to service outages from expired certificates or security incidents
-from manual certificate handling.
+# =============================================================================
+# ACM CERTIFICATE PATTERNS
+# =============================================================================
 
-Key considerations:
-- ACM provides free public certificates with automatic renewal
-- ACM can import third-party certificates (no auto-renewal)
-- Certificate expiration can cause service outages if not monitored
-- CloudFront requires certificates in us-east-1 region
-- Multi-region applications need certificate replication strategy
-""",
+CERTIFICATE_PATTERNS = ArchitectureDecision(
+    question="How should SSL/TLS certificates be managed with AWS Certificate Manager?",
     options=[
         DecisionOption(
-            name="ACM Public Certificates Only",
-            description="""
-Use AWS Certificate Manager to provision and manage all public SSL/TLS certificates.
-ACM handles validation, automatic renewal (60 days before expiry), and deployment.
-All certificates are managed by AWS with no manual intervention required.
-
-Implementation:
-- Request ACM certificates for all public domains
-- Use DNS validation (recommended) or email validation
-- ACM automatically renews certificates in use
-- Certificates automatically deployed to ALB, CloudFront, API Gateway
-
-Certificate scope:
-- Single domain: example.com
-- Wildcard: *.example.com (covers all subdomains)
-- Multi-domain (SAN): example.com, www.example.com, api.example.com
-""",
+            name="Single Domain Certificate",
+            description="One certificate per domain (e.g., api.company.com)",
+            when_to_use=[
+                "Single subdomain application",
+                "Simple deployment",
+                "Separate teams managing different subdomains",
+                "Security isolation between services",
+            ],
+            when_not_to_use=[
+                "Multiple subdomains for same application",
+                "Many microservices on subdomains",
+                "Wildcard certificate would simplify management",
+            ],
             pros=[
-                "Completely free - no certificate costs",
-                "Automatic renewal every 60 days before expiry",
-                "No manual certificate management overhead",
-                "Integrated with ALB, CloudFront, API Gateway, Elastic Beanstalk",
-                "Private keys never leave AWS infrastructure",
-                "CloudWatch metrics for certificate expiration",
+                "Simplest to manage",
+                "Clear ownership per certificate",
+                "Least privilege (cert only valid for one domain)",
+                "Easy to revoke single service",
             ],
             cons=[
-                "Limited to AWS services only (cannot export for EC2, on-prem)",
-                "Cannot use with services running on EC2 instances directly",
-                "Must use DNS or email validation (may require domain access)",
-                "CloudFront certificates must be in us-east-1 region",
-                "No support for private CA certificates",
+                "More certificates to manage",
+                "Certificate limit per account (2,048)",
+                "More renewals to track",
+                "Repetitive configuration",
             ],
-            cost_factors=[
-                "ACM public certificates: $0 (completely free)",
-                "DNS validation: $0 (uses Route 53 or external DNS)",
-                "CloudWatch metrics: $0 (included)",
+            monthly_cost_range=(0.00, 0.00),
+            cost_drivers=[
+                "ACM certificates: FREE",
+                "No charge for public certificates",
+                "Auto-renewal is free",
             ],
-            monthly_cost_range=(0, 0),
-            implementation_complexity="Low",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Provides free SSL/TLS certificates with automatic renewal",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="CloudWatch metrics track certificate expiration automatically",
-                ),
+            soc2_controls=["CC6.6", "CC6.7"],
+            implementation_complexity="low",
+            operational_overhead="low",
+            implementation_guidance="""
+# Single Domain Certificate
+
+resource "aws_acm_certificate" "api" {
+  domain_name       = "api.company.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name        = "api-cert"
+    Environment = "production"
+    ManagedBy   = "CARL"
+  }
+}
+
+# DNS validation (automatic with Route 53)
+resource "aws_route53_record" "api_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.api.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.main.zone_id
+}
+
+resource "aws_acm_certificate_validation" "api" {
+  certificate_arn         = aws_acm_certificate.api.arn
+  validation_record_fqdns = [for record in aws_route53_record.api_cert_validation : record.fqdn]
+}
+
+# Use with ALB
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.app.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"  # TLS 1.3 only
+  certificate_arn   = aws_acm_certificate.api.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# Best Practices:
+# - Always use DNS validation (not email)
+# - Use create_before_destroy to avoid downtime
+# - Choose modern SSL policy (TLS 1.3 preferred)
+# - Set up CloudWatch alarm for expiration (ACM auto-renews, but monitor anyway)
+""",
+            validation_checklist=[
+                "Certificate uses DNS validation (not email)",
+                "Route 53 validation records created automatically",
+                "Certificate status is ISSUED before using",
+                "SSL policy is modern (TLS 1.3 or TLS 1.2 minimum)",
+                "CloudWatch alarm for certificate expiration (just in case)",
+                "create_before_destroy lifecycle rule set",
+                "Certificate tags include ownership and environment",
             ],
         ),
         DecisionOption(
-            name="Hybrid ACM + Imported Certificates",
-            description="""
-Use ACM for most public certificates, but import third-party certificates when needed
-(e.g., extended validation certificates, certificates for non-AWS services, organizational
-requirements for specific CAs).
-
-Implementation:
-- Use ACM for standard public certificates
-- Import third-party certificates from external CAs
-- Set up CloudWatch alarms for imported certificate expiration (no auto-renewal)
-- Implement renewal workflows for imported certificates
-
-Use cases for imported certificates:
-- Extended Validation (EV) certificates (ACM only provides DV)
-- Certificates required by compliance/policy to use specific CA
-- Certificates needed on EC2 instances or on-premises servers
-- Multi-cloud certificate standardization
-""",
+            name="Wildcard Certificate (Recommended for Most)",
+            description="One certificate for all subdomains (*.company.com)",
+            when_to_use=[
+                "Multiple subdomains for same application",
+                "Microservices architecture",
+                "Want simplified certificate management",
+                "Frequent new subdomain additions",
+            ],
+            when_not_to_use=[
+                "Security requirement to isolate subdomains",
+                "Different teams own different subdomains",
+                "Need granular revocation",
+            ],
             pros=[
-                "Flexibility to use any certificate authority",
-                "Supports Extended Validation (EV) certificates",
-                "Can export certificates for use on EC2 or on-premises",
-                "ACM certificates still free with auto-renewal",
-                "Single management interface for all certificates",
+                "Single certificate for all subdomains",
+                "Easy to add new subdomains",
+                "Simplified management",
+                "One renewal to track",
+                "Works with ALB and CloudFront",
             ],
             cons=[
-                "Imported certificates cost from third-party CA ($50-300/year)",
-                "No automatic renewal for imported certificates",
-                "Manual renewal process creates operational overhead",
-                "Risk of service outage if imported certificate expires",
-                "Need monitoring and alerting for imported certificate expiration",
+                "If compromised, affects all subdomains",
+                "Can't revoke for single subdomain",
+                "Doesn't cover root domain (company.com)",
+                "Less granular access control",
             ],
-            cost_factors=[
-                "ACM public certificates: $0",
-                "Third-party certificates: $50-300/cert/year",
-                "CloudWatch alarms for expiration: approx. $0.10/alarm/month",
-                "Operational overhead for renewals: staff time",
+            monthly_cost_range=(0.00, 0.00),
+            cost_drivers=[
+                "ACM certificates: FREE",
+                "No charge regardless of subdomains covered",
             ],
-            monthly_cost_range=(5.00, 50.00),
-            implementation_complexity="Medium",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Provides SSL/TLS certificates from multiple sources",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="CloudWatch alarms track imported certificate expiration",
-                ),
+            soc2_controls=["CC6.6", "CC6.7"],
+            implementation_complexity="low",
+            operational_overhead="low",
+            implementation_guidance="""
+# Wildcard Certificate
+
+resource "aws_acm_certificate" "wildcard" {
+  domain_name       = "*.company.com"
+  validation_method = "DNS"
+
+  # Optionally add root domain as Subject Alternative Name (SAN)
+  subject_alternative_names = [
+    "company.com"  # Covers both root and wildcard
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name        = "wildcard-cert"
+    Environment = "production"
+    Scope       = "all-subdomains"
+  }
+}
+
+# DNS validation
+resource "aws_route53_record" "wildcard_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.wildcard.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.main.zone_id
+}
+
+resource "aws_acm_certificate_validation" "wildcard" {
+  certificate_arn         = aws_acm_certificate.wildcard.arn
+  validation_record_fqdns = [for record in aws_route53_record.wildcard_validation : record.fqdn]
+}
+
+# Use with ALB (multiple subdomains)
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.app.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.wildcard.arn
+
+  # All subdomains use same certificate
+  # Route based on host header in listener rules
+}
+
+# Covered domains:
+# *.company.com covers: api.company.com, app.company.com, admin.company.com, etc.
+# Does NOT cover: company.com (add as SAN if needed)
+# Does NOT cover: sub.api.company.com (multi-level wildcards not supported)
+""",
+            validation_checklist=[
+                "Wildcard domain specified correctly (*.domain.com)",
+                "Root domain added as SAN if needed (company.com)",
+                "DNS validation record created",
+                "Tested with multiple subdomains",
+                "CloudWatch alarm for expiration monitoring",
+                "Document all services using this certificate",
+                "Security review approved wildcard usage",
             ],
         ),
         DecisionOption(
-            name="ACM Private CA for Internal Services",
-            description="""
-Use AWS Certificate Manager Private Certificate Authority (ACM Private CA) to issue
-and manage certificates for internal services, microservices, and service mesh.
-Combine with ACM public certificates for external-facing services.
-
-Implementation:
-- Create ACM Private CA for internal certificate authority
-- Issue private certificates for internal services (APIs, databases, service mesh)
-- Use ACM public certificates for external-facing services
-- Implement short-lived certificates (1-7 days) for zero-trust architecture
-
-Use cases:
-- Service-to-service encryption in microservices
-- mTLS (mutual TLS) authentication
-- Kubernetes service mesh (Istio, Linkerd) certificates
-- Internal API encryption
-- Database connection encryption
-""",
+            name="Multi-Domain Certificate (SAN)",
+            description="One certificate for multiple specific domains using Subject Alternative Names",
+            when_to_use=[
+                "Fixed set of specific domains",
+                "Mix of root domains and subdomains",
+                "Want single certificate management",
+                "Domains don't follow wildcard pattern",
+            ],
+            when_not_to_use=[
+                "Domains follow simple wildcard pattern",
+                "Frequently adding new domains",
+                "More than 10 domains (gets unwieldy)",
+            ],
             pros=[
-                "Full control over private certificate authority",
-                "Issue unlimited private certificates after CA cost",
-                "Supports short-lived certificates (1 hour to 10 years)",
-                "Integrated with AWS services (API Gateway, NLB, IoT)",
-                "Supports certificate revocation",
-                "Ideal for zero-trust security model",
+                "One certificate for multiple specific domains",
+                "Covers root and subdomains",
+                "More secure than wildcard (explicit domains)",
+                "Easier than managing many single certs",
             ],
             cons=[
-                "High cost: $400/month per Private CA",
-                "Private certificates cost $0.75 each (after first 1,000/month free)",
-                "Additional complexity managing private CA",
-                "Need backup and disaster recovery for CA",
-                "Overkill for small deployments",
+                "Must reissue to add new domains",
+                "More complex validation",
+                "Can hit SAN limit (100 domains per cert)",
+                "Harder to audit what's covered",
             ],
-            cost_factors=[
-                "ACM Private CA: $400/month per CA",
-                "Private certificates: $0 for first 1,000/month, then $0.75 each",
-                "ACM public certificates: $0",
-                "For 2,000 certs/month: $400 + (1,000 × $0.75) = $1,150/month",
+            monthly_cost_range=(0.00, 0.00),
+            cost_drivers=[
+                "ACM certificates: FREE",
+                "No additional cost for SANs",
             ],
-            monthly_cost_range=(400.00, 2000.00),
-            implementation_complexity="High",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.1",
-                    control_name="Logical access controls",
-                    how_it_helps="mTLS certificates provide service authentication",
-                ),
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Encrypts all internal service communication",
-                ),
-            ],
-        ),
-        DecisionOption(
-            name="Enterprise Certificate Management",
-            description="""
-Comprehensive certificate management combining ACM public certificates, ACM Private CA,
-imported certificates, and automated certificate lifecycle management. Implements
-certificate monitoring, alerting, rotation automation, and compliance reporting.
+            soc2_controls=["CC6.6", "CC6.7"],
+            implementation_complexity="medium",
+            operational_overhead="medium",
+            implementation_guidance="""
+# Multi-Domain Certificate
 
-Implementation:
-- ACM public certificates for all external services
-- ACM Private CA for internal microservices and service mesh
-- Import third-party EV certificates when required
-- Automated certificate inventory and compliance scanning
-- Certificate expiration monitoring with 90/60/30/7-day alerts
-- Integration with AWS Config for certificate compliance rules
-- Certificate usage analytics and optimization
+resource "aws_acm_certificate" "multi_domain" {
+  domain_name       = "company.com"  # Primary domain
+  validation_method = "DNS"
 
-Certificate governance:
-- Automated certificate inventory (AWS Config)
-- Certificate compliance rules (key length, expiration, usage)
-- Certificate rotation playbooks
-- Certificate incident response procedures
+  subject_alternative_names = [
+    "www.company.com",
+    "api.company.com",
+    "app.company.com",
+    "admin.company.com",
+    "*.staging.company.com",  # Can mix wildcards
+    "otherbrand.com",         # Can even have different root domains
+    "www.otherbrand.com"
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name      = "multi-domain-cert"
+    Domains   = "company.com,otherbrand.com"  # Track covered domains
+  }
+}
+
+# DNS validation for all domains
+resource "aws_route53_record" "multi_domain_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.multi_domain.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id  # Must handle multiple zones if different root domains
+}
+
+# Use Cases:
+# - Single certificate for main site + API + admin portal
+# - Covers both company.com and www.company.com
+# - Can include staging wildcard for all staging subdomains
+# - Useful when rebranding (cover old and new domains during transition)
 """,
-            pros=[
-                "Complete certificate lifecycle management",
-                "Zero unplanned certificate expirations",
-                "Compliance reporting and auditing",
-                "Supports all certificate use cases",
-                "Automated certificate inventory",
-                "Integration with security tooling",
-            ],
-            cons=[
-                "High cost from Private CA and third-party certificates",
-                "Complex architecture requiring expertise",
-                "Significant operational overhead",
-                "May be overkill for smaller organizations",
-            ],
-            cost_factors=[
-                "ACM public certificates: $0",
-                "ACM Private CA: $400/month × number of CAs",
-                "Private certificates: $0.75 each after 1,000/month",
-                "Third-party certificates: $50-300/cert/year",
-                "AWS Config rules: approx. $2/rule/region/month",
-                "CloudWatch alarms: approx. $0.10/alarm/month",
-            ],
-            monthly_cost_range=(500.00, 3000.00),
-            implementation_complexity="Very High",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Comprehensive encryption for all services",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="Complete certificate monitoring and compliance reporting",
-                ),
-                SOC2Mapping(
-                    control_id="CC8.1",
-                    control_name="Change management",
-                    how_it_helps="Automated certificate rotation and change tracking",
-                ),
+            validation_checklist=[
+                "All required domains listed in SANs",
+                "DNS validation completed for ALL domains",
+                "Multiple Route 53 zones handled if needed",
+                "Tested all covered domains resolve correctly",
+                "Document why multi-domain cert chosen over wildcard",
+                "Plan for reissuance when adding domains",
+                "SAN count under 100 limit",
             ],
         ),
     ],
-    decision_framework="""
-Choose ACM Public Certificates Only when:
-- All services run on AWS (ALB, CloudFront, API Gateway)
-- Small to medium organization with limited security team
-- Cost optimization is important
-- No requirement for certificate export or private CA
-
-Choose Hybrid ACM + Imported Certificates when:
-- Need Extended Validation (EV) certificates
-- Some services run on EC2 or on-premises requiring exported certificates
-- Organizational policy requires specific certificate authority
-- Medium-sized organization with some certificate management capability
-
-Choose ACM Private CA when:
-- Large microservices architecture requiring service-to-service encryption
-- Implementing zero-trust security model with mTLS
-- Need to issue thousands of short-lived certificates
-- Kubernetes or service mesh deployment (Istio, Linkerd, Consul)
-- Can justify $400+/month cost per Private CA
-
-Choose Enterprise Certificate Management when:
-- Large enterprise with complex certificate requirements
-- Strict compliance requirements (PCI DSS, HIPAA, SOC 2 Type II)
-- Multiple AWS accounts and hybrid cloud environment
-- Need certificate compliance reporting and auditing
-- Budget supports $500-3,000/month for certificate management
-""",
-    examples=[
-        {
-            "scenario": "Startup with web application on ALB",
-            "recommendation": "ACM Public Certificates Only",
-            "reasoning": "Free certificates with automatic renewal. ALB integration is seamless. No operational overhead.",
-        },
-        {
-            "scenario": "Financial services company with EV certificate requirement",
-            "recommendation": "Hybrid ACM + Imported Certificates",
-            "reasoning": "Import EV certificates for compliance while using ACM for most services. Set up expiration monitoring.",
-        },
-        {
-            "scenario": "Microservices platform with 50+ services needing mTLS",
-            "recommendation": "ACM Private CA",
-            "reasoning": "Issue short-lived certificates for each service. Private CA cost justified by security benefits.",
-        },
-        {
-            "scenario": "Enterprise with 1,000+ certificates across AWS and on-premises",
-            "recommendation": "Enterprise Certificate Management",
-            "reasoning": "Need comprehensive management, compliance reporting, and automated lifecycle management.",
-        },
-    ],
+    estimated_implementation_time="1 day",
+    recommendation_strategy="Use Wildcard Certificate for most applications with multiple subdomains. Use Single Domain for security-isolated services. Use Multi-Domain (SAN) for specific fixed set of domains that don't follow wildcard pattern.",
 )
 
 
-# Pattern 2: Certificate Scope Strategy
-CERTIFICATE_SCOPE_PATTERNS = ArchitectureDecision(
-    category="Security - Certificate Management",
-    question="What certificate scope strategy should be implemented?",
-    context="""
-Certificate scope determines which domains are covered by a single certificate.
-The choice between single domain, wildcard, and multi-domain (SAN) certificates
-affects cost, management overhead, security posture, and operational flexibility.
+# =============================================================================
+# ACM REGIONAL VS GLOBAL PATTERNS
+# =============================================================================
 
-Certificate types:
-- Single domain: example.com (covers exactly one domain)
-- Wildcard: *.example.com (covers all first-level subdomains)
-- Multi-domain (SAN): example.com, www.example.com, api.example.com (explicit list)
-- Wildcard with SAN: *.example.com, *.api.example.com, example.com
-
-ACM considerations:
-- ACM public certificates are free regardless of type
-- Can include up to 10 domain names in multi-domain certificate
-- Wildcard certificates cover unlimited first-level subdomains
-- Cannot mix wildcard and specific domains in same ACM certificate (use separate certs)
-""",
+CERTIFICATE_LOCATION_PATTERNS = ArchitectureDecision(
+    question="Where should ACM certificates be provisioned (Regional vs Global)?",
     options=[
         DecisionOption(
-            name="Single Certificate per Domain",
-            description="""
-Use a separate certificate for each specific domain or subdomain. Each service
-gets its own dedicated certificate with no wildcards.
-
-Implementation:
-- Request separate ACM certificate for each domain:
-  - www.example.com → Certificate 1
-  - api.example.com → Certificate 2
-  - app.example.com → Certificate 3
-  - admin.example.com → Certificate 4
-
-Certificate management:
-- Each ALB, CloudFront distribution, or API Gateway gets specific certificate
-- Add new certificate when adding new subdomain
-- Easier to track certificate usage per service
-""",
+            name="Regional Certificates (ALB, API Gateway, NLB)",
+            description="Certificates in same region as load balancer",
+            when_to_use=[
+                "Using Application Load Balancer",
+                "Using Network Load Balancer",
+                "Using Regional API Gateway",
+                "Not using CloudFront",
+            ],
+            when_not_to_use=[
+                "Using CloudFront distribution",
+                "Need global edge locations",
+            ],
             pros=[
-                "Maximum security - compromised certificate affects one service only",
-                "Clear certificate-to-service mapping",
-                "Can revoke individual certificates without affecting others",
-                "Easier to audit certificate usage",
-                "No risk of wildcard certificate compromise affecting all services",
+                "Simple - certificate in same region as resource",
+                "Works with ALB, NLB, API Gateway",
+                "Can use different certs per region",
             ],
             cons=[
-                "High management overhead - many certificates to track",
-                "More complex DNS validation (separate validation per cert)",
-                "More CloudWatch metrics to monitor",
-                "Requires new certificate for every new subdomain",
-                "Can hit ACM certificate limits in large deployments",
+                "Must provision cert in each region",
+                "Can't use with CloudFront",
+                "No edge location termination",
             ],
-            cost_factors=[
-                "ACM certificates: $0 (all free)",
-                "CloudWatch metrics: approx. $0 (included)",
-                "Operational overhead: high (manual work per certificate)",
+            monthly_cost_range=(0.00, 0.00),
+            cost_drivers=[
+                "ACM certificates: FREE",
+                "Regional certificates are free",
             ],
-            monthly_cost_range=(0, 0),
-            implementation_complexity="Medium",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Provides SSL/TLS encryption for each service",
-                ),
+            soc2_controls=["CC6.6"],
+            implementation_complexity="low",
+            operational_overhead="low",
+            implementation_guidance="""
+# Regional Certificate for ALB
+
+resource "aws_acm_certificate" "alb_cert" {
+  domain_name       = "api.company.com"
+  validation_method = "DNS"
+
+  # Certificate is in same region as ALB (provider default region)
+
+  tags = {
+    Name   = "alb-cert"
+    Region = "us-east-1"
+  }
+}
+
+# Use with ALB in same region
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.app.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  certificate_arn   = aws_acm_certificate.alb_cert.arn  # Same region
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# Multi-Region Pattern:
+# If deploying to multiple regions, create certificate in EACH region
+
+provider "aws" {
+  alias  = "us_west_2"
+  region = "us-west-2"
+}
+
+resource "aws_acm_certificate" "alb_cert_west" {
+  provider = aws.us_west_2
+
+  domain_name       = "api.company.com"
+  validation_method = "DNS"
+
+  # Same domain, different region
+}
+""",
+            validation_checklist=[
+                "Certificate in same region as ALB/NLB/API Gateway",
+                "If multi-region, certificate created in each region",
+                "Route 53 health checks configured for multi-region",
+                "DNS validation works across all regions",
             ],
         ),
         DecisionOption(
-            name="Wildcard Certificates",
-            description="""
-Use wildcard certificates to cover all first-level subdomains. Single certificate
-covers unlimited subdomains at one level (*.example.com covers api.example.com,
-www.example.com, app.example.com, etc.).
-
-Implementation:
-- Request ACM wildcard certificate: *.example.com
-- Use same certificate across all first-level subdomains
-- Add apex domain certificate separately: example.com
-- Request additional wildcard if using nested subdomains: *.api.example.com
-
-Coverage examples:
-- *.example.com covers:
-  ✓ www.example.com
-  ✓ api.example.com
-  ✓ app.example.com
-  ✗ example.com (apex domain not covered)
-  ✗ v1.api.example.com (nested subdomain not covered)
-""",
+            name="Global Certificate (CloudFront) in us-east-1",
+            description="Certificate in us-east-1 for CloudFront distributions",
+            when_to_use=[
+                "Using CloudFront CDN",
+                "Need edge location SSL termination",
+                "Global user base",
+                "Static site or API with CloudFront",
+            ],
+            when_not_to_use=[
+                "Not using CloudFront",
+                "Only need regional ALB",
+            ],
             pros=[
-                "Minimal management overhead - one certificate covers many subdomains",
-                "Easy to add new subdomains (no new certificate needed)",
-                "Free with ACM (same as single domain certificates)",
-                "Simplified certificate deployment across services",
-                "Reduces ACM certificate count",
+                "Works with CloudFront globally",
+                "SSL termination at edge locations",
+                "Lower latency for global users",
+                "Only need one certificate (not per-region)",
             ],
             cons=[
-                "Security risk - compromised wildcard affects all subdomains",
-                "Cannot revoke access to individual subdomain without affecting all",
-                "Apex domain (example.com) requires separate certificate",
-                "Nested subdomains (api.v1.example.com) not covered",
-                "Harder to audit which services use certificate",
-                "May violate security policies requiring per-service certificates",
+                "MUST be in us-east-1 (CloudFront requirement)",
+                "Can't use regional certificates with CloudFront",
+                "Must remember us-east-1 requirement",
             ],
-            cost_factors=[
-                "ACM wildcard certificate: $0",
-                "ACM apex domain certificate: $0",
-                "Total: $0 for unlimited subdomains",
+            monthly_cost_range=(0.00, 0.00),
+            cost_drivers=[
+                "ACM certificates: FREE",
+                "CloudFront data transfer: $0.085/GB (first 10TB)",
             ],
-            monthly_cost_range=(0, 0),
-            implementation_complexity="Low",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Provides SSL/TLS encryption for all subdomains",
-                ),
-            ],
-        ),
-        DecisionOption(
-            name="Multi-Domain (SAN) Certificates",
-            description="""
-Use Subject Alternative Name (SAN) certificates that explicitly list multiple domains
-in a single certificate. Good middle ground between single domain and wildcard.
+            soc2_controls=["CC6.6", "CC6.7"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+            implementation_guidance="""
+# Global Certificate for CloudFront (MUST be in us-east-1)
 
-Implementation:
-- Request ACM certificate with multiple domains (up to 10):
-  - Primary domain: example.com
-  - Additional domains:
-    - www.example.com
-    - api.example.com
-    - app.example.com
-    - admin.example.com
+# Create provider for us-east-1 (CloudFront requirement)
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
 
-- Group related services under single certificate
-- Can create multiple SAN certificates for different service groups:
-  - Certificate 1: Main website (example.com, www.example.com)
-  - Certificate 2: API services (api.example.com, api-v2.example.com)
-  - Certificate 3: Admin services (admin.example.com, admin-staging.example.com)
+resource "aws_acm_certificate" "cloudfront_cert" {
+  provider = aws.us_east_1  # CRITICAL: Must be us-east-1 for CloudFront
+
+  domain_name       = "cdn.company.com"
+  validation_method = "DNS"
+
+  subject_alternative_names = [
+    "www.company.com",
+    "company.com"
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name    = "cloudfront-cert"
+    Purpose = "CloudFront"
+  }
+}
+
+# DNS validation (can use Route 53 in any region)
+resource "aws_route53_record" "cloudfront_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.cloudfront_cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.main.zone_id
+}
+
+resource "aws_acm_certificate_validation" "cloudfront_cert" {
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.cloudfront_cert.arn
+  validation_record_fqdns = [for record in aws_route53_record.cloudfront_cert_validation : record.fqdn]
+}
+
+# Use with CloudFront
+resource "aws_cloudfront_distribution" "cdn" {
+  # ... other configuration ...
+
+  viewer_certificate {
+    acm_certificate_arn      = aws_acm_certificate.cloudfront_cert.arn
+    ssl_support_method       = "sni-only"  # Free (vs $600/month for dedicated IP)
+    minimum_protocol_version = "TLSv1.2_2021"  # Modern TLS only
+  }
+}
+
+# CRITICAL REMINDERS:
+# 1. CloudFront certificates MUST be in us-east-1
+# 2. Use sni-only (not vip) to avoid $600/month dedicated IP cost
+# 3. Use modern TLS version (TLSv1.2_2021 or TLSv1.3_2021)
+# 4. CloudFront automatically uses certificate at all edge locations
 """,
-            pros=[
-                "Balance between security and management overhead",
-                "Explicit list of covered domains (no wildcards)",
-                "Can group related services logically",
-                "Easier certificate tracking than wildcards",
-                "Can revoke without affecting unrelated services",
-                "Free with ACM (up to 10 domains per certificate)",
-            ],
-            cons=[
-                "Limited to 10 domains per ACM certificate",
-                "Must request new certificate or update when adding domains",
-                "More certificates to manage than wildcard approach",
-                "Cannot dynamically add subdomains without certificate update",
-                "Updating certificate requires re-validation",
-            ],
-            cost_factors=[
-                "ACM multi-domain certificates: $0",
-                "Can create multiple SAN certificates (all free)",
-            ],
-            monthly_cost_range=(0, 0),
-            implementation_complexity="Medium",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Provides SSL/TLS encryption for multiple domains",
-                ),
-                SOC2Mapping(
-                    control_id="CC6.1",
-                    control_name="Logical access controls",
-                    how_it_helps="Explicit domain list provides clear access boundaries",
-                ),
-            ],
-        ),
-        DecisionOption(
-            name="Hybrid Certificate Strategy",
-            description="""
-Combine different certificate types based on service requirements and security posture.
-Use wildcards for development/staging, SAN certificates for production service groups,
-and single certificates for high-security services.
-
-Implementation:
-Production:
-- High-security services: Single certificates (admin.example.com, payments.example.com)
-- Service groups: SAN certificates (api.example.com, api-v2.example.com)
-- General services: Wildcard certificate (*.app.example.com)
-
-Non-production:
-- Wildcard certificates: *.dev.example.com, *.staging.example.com
-- Minimal certificate management in non-production environments
-
-Certificate policy:
-- Define when to use each certificate type
-- Document security requirements per service tier
-- Automated certificate selection based on service classification
-""",
-            pros=[
-                "Optimizes security vs. management overhead per service",
-                "High-security services get dedicated certificates",
-                "Development environments simplified with wildcards",
-                "Flexible approach adapts to different requirements",
-                "Can enforce different policies per environment",
-            ],
-            cons=[
-                "Most complex certificate architecture",
-                "Requires clear policy and documentation",
-                "More certificates to manage than pure wildcard",
-                "Team needs to understand certificate selection criteria",
-                "Mixing strategies can create confusion",
-            ],
-            cost_factors=[
-                "All ACM certificates: $0",
-                "Operational overhead: medium-high",
-            ],
-            monthly_cost_range=(0, 0),
-            implementation_complexity="High",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Comprehensive encryption with appropriate security per service",
-                ),
-                SOC2Mapping(
-                    control_id="CC6.1",
-                    control_name="Logical access controls",
-                    how_it_helps="Certificate strategy aligns with service security classification",
-                ),
+            validation_checklist=[
+                "Certificate created in us-east-1 (CloudFront requirement)",
+                "Certificate validation completed",
+                "CloudFront distribution uses sni-only (not vip for cost)",
+                "Minimum TLS version is modern (1.2 or 1.3)",
+                "Tested HTTPS access from multiple global locations",
+                "Alternative domain names (CNAMEs) configured in CloudFront",
+                "Route 53 alias points to CloudFront distribution",
             ],
         ),
     ],
-    decision_framework="""
-Choose Single Certificate per Domain when:
-- High-security requirements (finance, healthcare, government)
-- Need to isolate certificate compromise impact
-- Small number of domains/subdomains (<5)
-- Regulatory requirements for per-service certificates
-- Want clear audit trail of certificate usage
-
-Choose Wildcard Certificates when:
-- Many subdomains with similar security requirements
-- Frequently add new subdomains (SaaS platforms)
-- Development/staging environments
-- Small to medium organization with limited security team
-- Cost and simplicity are priorities
-
-Choose Multi-Domain (SAN) Certificates when:
-- Moderate number of domains (5-10 per service group)
-- Want to group related services logically
-- Need explicit domain list for compliance
-- Balance between security and management
-- Services have similar but not identical security requirements
-
-Choose Hybrid Certificate Strategy when:
-- Large organization with diverse security requirements
-- Different certificate needs per environment (prod vs. dev)
-- High-security services alongside general services
-- Mature security organization with clear policies
-- Can manage complexity of multiple certificate types
-""",
-    examples=[
-        {
-            "scenario": "Banking application with strict security requirements",
-            "recommendation": "Single Certificate per Domain",
-            "reasoning": "Each service (web, API, mobile API, admin) gets dedicated certificate. Compromise isolation is critical.",
-        },
-        {
-            "scenario": "SaaS platform with customer subdomains (customer1.app.com, customer2.app.com)",
-            "recommendation": "Wildcard Certificates",
-            "reasoning": "*.app.example.com covers all customer subdomains. New customers added without certificate changes.",
-        },
-        {
-            "scenario": "E-commerce site with API and admin portal",
-            "recommendation": "Multi-Domain (SAN) Certificates",
-            "reasoning": "One certificate covers example.com, www.example.com, api.example.com. Simple and secure.",
-        },
-        {
-            "scenario": "Enterprise with production + 3 non-production environments",
-            "recommendation": "Hybrid Certificate Strategy",
-            "reasoning": "Production uses SAN certificates per service group. Non-prod uses wildcards (*.dev, *.staging, *.test).",
-        },
-    ],
+    estimated_implementation_time="1 day",
+    recommendation_strategy="Use Regional Certificates for ALB/NLB in each region. Use Global Certificate in us-east-1 for CloudFront. If using both ALB and CloudFront, need certificates in both locations.",
 )
 
 
-# Pattern 3: Certificate Validation and Renewal Monitoring
-CERTIFICATE_VALIDATION_PATTERNS = ArchitectureDecision(
-    category="Security - Certificate Management",
-    question="What certificate validation and renewal monitoring strategy should be implemented?",
-    context="""
-Certificate validation proves domain ownership before ACM issues a certificate.
-Monitoring ensures certificates are renewed before expiration. Poor validation
-and monitoring can cause service outages from expired certificates or delays
-in certificate issuance.
+# =============================================================================
+# CERTIFICATE MONITORING PATTERNS
+# =============================================================================
 
-ACM validation methods:
-- DNS validation: Add CNAME record to prove domain ownership (recommended)
-- Email validation: Click link sent to domain admin email (not recommended)
-
-ACM renewal:
-- ACM automatically renews certificates 60 days before expiration
-- Renewal requires certificate to be actively in use (attached to resource)
-- ACM exports DaysToExpiry metric to CloudWatch
-- Imported certificates do NOT auto-renew
-""",
+CERTIFICATE_MONITORING_PATTERNS = ArchitectureDecision(
+    question="How should certificate expiration and renewal be monitored?",
     options=[
         DecisionOption(
-            name="Basic DNS Validation",
-            description="""
-Use DNS validation for all ACM certificates. Add CNAME records to DNS manually
-or via Route 53 automation. Rely on ACM's automatic renewal with no additional
-monitoring beyond AWS Service Health Dashboard.
-
-Implementation:
-- Request ACM certificate with DNS validation
-- Add CNAME validation records to Route 53 (or external DNS)
-- ACM validates domain ownership and issues certificate
-- ACM automatically renews certificates in use
-- No custom monitoring configured
-
-Validation process:
-1. Request ACM certificate
-2. ACM provides CNAME record: _abc123.example.com → _xyz456.acm-validations.aws
-3. Add CNAME record to DNS
-4. ACM validates and issues certificate (usually < 30 minutes)
-5. ACM auto-renews 60 days before expiration
-""",
+            name="CloudWatch Alarms for Certificate Expiration",
+            description="Set up CloudWatch alarms to alert on certificate expiration",
+            when_to_use=[
+                "All production certificates",
+                "Want proactive expiration alerts",
+                "Need compliance evidence of monitoring",
+            ],
+            when_not_to_use=[
+                "Only using ACM certificates (auto-renew anyway)",
+                "Development/staging environments",
+            ],
             pros=[
-                "Simple setup with minimal configuration",
-                "DNS validation is more reliable than email",
-                "Route 53 can automatically add validation records",
-                "ACM handles renewal automatically",
-                "No ongoing monitoring overhead",
+                "Proactive alerts before expiration",
+                "Works for ACM and imported certificates",
+                "Free (CloudWatch alarms)",
+                "Compliance evidence",
             ],
             cons=[
-                "No proactive alerting if renewal fails",
-                "Relies on ACM service health (no independent monitoring)",
-                "Won't catch unused certificates that don't renew",
-                "No visibility into certificate lifecycle",
-                "May not detect issues until service outage",
+                "ACM auto-renews anyway (redundant for ACM)",
+                "Must set up for each certificate",
+                "Can create alert fatigue if too sensitive",
             ],
-            cost_factors=[
-                "ACM certificates: $0",
-                "Route 53 hosted zone: $0.50/zone/month",
-                "Route 53 queries: $0.40 per million queries",
+            monthly_cost_range=(0.00, 1.00),
+            cost_drivers=[
+                "CloudWatch alarms: $0.10/alarm/month (first 10 free)",
+                "Typical: $0-1/month for 10-20 certificates",
             ],
-            monthly_cost_range=(0, 1.00),
-            implementation_complexity="Low",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="DNS validation proves domain ownership for certificate issuance",
-                ),
+            soc2_controls=["CC6.6", "CC7.2"],
+            implementation_complexity="low",
+            operational_overhead="low",
+            implementation_guidance="""
+# CloudWatch Alarm for Certificate Expiration
+
+resource "aws_cloudwatch_metric_alarm" "certificate_expiration" {
+  alarm_name          = "acm-certificate-expiring-${aws_acm_certificate.main.domain_name}"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "DaysToExpiry"
+  namespace           = "AWS/CertificateManager"
+  period              = 86400  # 1 day
+  statistic           = "Minimum"
+  threshold           = 30  # Alert 30 days before expiration
+  alarm_description   = "Certificate expires in less than 30 days"
+
+  dimensions = {
+    CertificateArn = aws_acm_certificate.main.arn
+  }
+
+  alarm_actions = [aws_sns_topic.ops_alerts.arn]
+
+  tags = {
+    Certificate = aws_acm_certificate.main.domain_name
+  }
+}
+
+# Auto-Renewal Monitoring (for imported certificates)
+resource "aws_cloudwatch_metric_alarm" "imported_cert_not_renewed" {
+  alarm_name          = "imported-cert-renewal-failed"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "DaysToExpiry"
+  namespace           = "AWS/CertificateManager"
+  period              = 86400
+  statistic           = "Minimum"
+  threshold           = 7  # Critical alert 7 days before
+  alarm_description   = "CRITICAL: Imported certificate expires in 7 days"
+
+  dimensions = {
+    CertificateArn = aws_acm_certificate.imported.arn
+  }
+
+  alarm_actions = [
+    aws_sns_topic.critical_alerts.arn,
+    aws_sns_topic.pagerduty.arn  # Page on-call for imported certs
+  ]
+}
+
+# Best Practices:
+# - ACM certificates: 30-day warning (auto-renews at 60 days, but monitor anyway)
+# - Imported certificates: 7-day critical alert (no auto-renewal!)
+# - Set up SNS topics to notify ops team
+# - Review certificate inventory quarterly
+# - Document certificate ownership and renewal process
+""",
+            validation_checklist=[
+                "CloudWatch alarm created for each production certificate",
+                "Threshold set appropriately (30 days for ACM, 7 days critical for imported)",
+                "SNS topic configured with correct subscribers",
+                "Test alarm by adjusting threshold temporarily",
+                "Alarm tags include certificate domain for easy identification",
+                "Runbook documented for certificate renewal process",
             ],
         ),
         DecisionOption(
-            name="DNS Validation with Basic Monitoring",
-            description="""
-Use DNS validation for all ACM certificates. Add CloudWatch alarms for certificate
-expiration monitoring. Get alerted 30 days before certificate expiration (covers
-ACM public certificates and imported certificates).
-
-Implementation:
-- Use DNS validation for certificate issuance
-- Create CloudWatch alarm on ACM DaysToExpiry metric
-- Alert at 30 days before expiration
-- Send alerts to SNS topic → email or Slack
-- Monitor both ACM and imported certificates
-
-CloudWatch alarm configuration:
-- Metric: AWS/CertificateManager DaysToExpiry
-- Condition: DaysToExpiry < 30
-- Period: 1 day
-- Evaluation: 1 consecutive period
-- Action: Send SNS notification
-""",
+            name="AWS Config Rules for Certificate Compliance",
+            description="Use AWS Config to track certificate compliance and renewal status",
+            when_to_use=[
+                "Need compliance auditing",
+                "Want centralized certificate inventory",
+                "Track certificate configuration changes",
+                "SOC 2 / compliance requirements",
+            ],
+            when_not_to_use=[
+                "Small deployments (<5 certificates)",
+                "Cost-sensitive (Config has monthly cost)",
+            ],
             pros=[
-                "Proactive alerting before certificate expiration",
-                "Catches renewal failures early (30-day warning)",
-                "Monitors imported certificates (which don't auto-renew)",
-                "Low cost ($0.10/alarm/month)",
-                "Simple to set up and maintain",
+                "Centralized compliance dashboard",
+                "Tracks configuration changes",
+                "Automated compliance checks",
+                "Audit trail for compliance",
             ],
             cons=[
-                "Only alerts at 30 days (no escalating alerts)",
-                "Manual response required to fix renewal issues",
-                "Doesn't validate certificate is actually in use",
-                "No automated remediation",
-                "Limited visibility into certificate lifecycle",
+                "AWS Config costs money ($2/month per rule)",
+                "More complex setup",
+                "Overkill for simple deployments",
             ],
-            cost_factors=[
-                "ACM certificates: $0",
-                "CloudWatch alarms: $0.10 per alarm × number of certificates",
-                "SNS notifications: $0 (first 1,000/month), then $0.50 per million",
-                "For 20 certificates: $2/month",
+            monthly_cost_range=(2.00, 10.00),
+            cost_drivers=[
+                "AWS Config: $2/month per active rule",
+                "Config rules for certificates: 2-3 rules = $4-6/month",
+                "Configuration item recordings: $0.003/item",
+                "Typical: $2-10/month",
             ],
-            monthly_cost_range=(1.00, 10.00),
-            implementation_complexity="Low",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Ensures certificates remain valid with proactive monitoring",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="CloudWatch alarms provide certificate expiration visibility",
-                ),
-            ],
-        ),
-        DecisionOption(
-            name="Automated DNS Validation with Escalating Alerts",
-            description="""
-Fully automated DNS validation using Route 53. Multi-level certificate expiration
-monitoring with escalating alerts (90/60/30/7 days before expiration). Automated
-remediation for common renewal failures.
+            soc2_controls=["CC6.6", "CC7.2", "CC8.1"],
+            implementation_complexity="medium",
+            operational_overhead="low",
+            implementation_guidance="""
+# AWS Config Rules for Certificate Compliance
 
-Implementation:
-- Use Route 53 for DNS with automatic validation record creation
-- CloudWatch alarms at multiple thresholds:
-  - 90 days: INFO alert to ops team (low priority)
-  - 60 days: WARNING alert (investigate if ACM renewal hasn't started)
-  - 30 days: CRITICAL alert (escalate to senior engineers)
-  - 7 days: EMERGENCY alert (page on-call, executive notification)
+resource "aws_config_config_rule" "acm_certificate_expiration" {
+  name = "acm-certificate-expiration-check"
 
-- Lambda function for automated remediation:
-  - Check if certificate is attached to resources
-  - Verify DNS validation records are correct
-  - Attempt to trigger renewal if possible
-  - Create incident ticket if automated fix fails
+  source {
+    owner             = "AWS"
+    source_identifier = "ACM_CERTIFICATE_EXPIRATION_CHECK"
+  }
 
-Monitoring dashboard:
-- Certificate inventory (ACM + imported)
-- Days to expiration per certificate
-- Renewal status
-- Validation record health
+  input_parameters = jsonencode({
+    daysToExpiration = 30  # Flag certificates expiring in 30 days
+  })
+
+  depends_on = [aws_config_configuration_recorder.main]
+}
+
+resource "aws_config_config_rule" "acm_certificate_rsa_check" {
+  name = "acm-certificate-rsa-check"
+
+  source {
+    owner             = "AWS"
+    source_identifier = "ACM_CERTIFICATE_RSA_CHECK"
+  }
+
+  input_parameters = jsonencode({
+    minimumRSAKeyLength = 2048  # Require RSA 2048+ bit keys
+  })
+}
+
+# SNS topic for Config compliance notifications
+resource "aws_sns_topic" "config_compliance" {
+  name = "config-compliance-notifications"
+}
+
+resource "aws_config_delivery_channel" "main" {
+  name           = "config-delivery-channel"
+  s3_bucket_name = aws_s3_bucket.config.bucket
+  sns_topic_arn  = aws_sns_topic.config_compliance.arn
+
+  depends_on = [aws_config_configuration_recorder.main]
+}
+
+# Benefits:
+# - Centralized view of all certificates in AWS Config dashboard
+# - Automatic compliance checks (expiration, key length, etc.)
+# - Historical tracking of certificate changes
+# - Audit trail for compliance (SOC 2 CC8.1)
 """,
-            pros=[
-                "Zero manual intervention for DNS validation",
-                "Multiple alert levels prevent surprise expirations",
-                "Automated remediation reduces operational burden",
-                "Comprehensive visibility into certificate lifecycle",
-                "Catches issues early with 90-day advance warning",
-            ],
-            cons=[
-                "More complex setup (Lambda, multiple alarms)",
-                "Alert fatigue if too many certificates triggering 90-day alerts",
-                "Requires Route 53 (doesn't work with external DNS automation)",
-                "Higher cost from multiple alarms per certificate",
-            ],
-            cost_factors=[
-                "ACM certificates: $0",
-                "CloudWatch alarms: $0.10 × 4 levels × number of certificates",
-                "Lambda function: approx. $0.20/month for remediation checks",
-                "Route 53: $0.50/zone/month",
-                "For 20 certificates: $8 (alarms) + $0.20 (Lambda) + $0.50 (R53) = approx. $9/month",
-            ],
-            monthly_cost_range=(5.00, 50.00),
-            implementation_complexity="Medium",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Automated validation and renewal prevent certificate outages",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="Multi-level monitoring provides comprehensive certificate oversight",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.3",
-                    control_name="System availability",
-                    how_it_helps="Automated remediation prevents service outages from expired certificates",
-                ),
-            ],
-        ),
-        DecisionOption(
-            name="Enterprise Certificate Governance",
-            description="""
-Comprehensive certificate management with automated validation, continuous monitoring,
-compliance enforcement, and integration with ITSM/incident management. Includes
-certificate inventory management, usage analytics, and compliance reporting.
-
-Implementation:
-- Automated DNS validation via Route 53 or external DNS automation
-- Continuous certificate monitoring:
-  - Real-time certificate inventory (AWS Config)
-  - Certificate usage tracking (which resources use which certificates)
-  - Certificate compliance scanning (key strength, expiration, usage)
-  - Certificate chain validation
-
-- Advanced alerting:
-  - Escalating alerts (90/60/30/14/7/1 day)
-  - Integration with PagerDuty, ServiceNow, Jira
-  - Alert routing based on certificate criticality
-  - Executive dashboard for certificate compliance
-
-- Automated remediation and orchestration:
-  - Detect and fix common renewal failures
-  - Automatic certificate rotation for imported certificates
-  - Integration with certificate ordering workflow
-  - Automated compliance remediation
-
-- Compliance and reporting:
-  - Monthly certificate inventory reports
-  - Certificate compliance posture dashboards
-  - Audit logs for all certificate operations
-  - SOC 2 evidence collection (certificate management controls)
-""",
-            pros=[
-                "Complete certificate lifecycle management",
-                "Zero unplanned certificate expirations",
-                "Comprehensive compliance and audit reporting",
-                "Automated remediation reduces operational burden",
-                "Executive visibility into certificate posture",
-                "Integration with enterprise ITSM tools",
-            ],
-            cons=[
-                "High implementation complexity",
-                "Significant ongoing operational overhead",
-                "Cost from Config rules, custom Lambda functions, alarms",
-                "Requires dedicated team or expertise",
-                "May be overkill for small organizations",
-            ],
-            cost_factors=[
-                "ACM certificates: $0",
-                "AWS Config rules: $2/rule/region × 3 rules = $6/month (us-east-1)",
-                "CloudWatch alarms: $0.10 × 6 levels × 50 certificates = $30/month",
-                "Lambda functions: $5/month for remediation and compliance scanning",
-                "CloudWatch dashboards: $3/month per dashboard",
-                "SNS/PagerDuty integration: varies",
-                "Total: approx. $50-200/month depending on scale",
-            ],
-            monthly_cost_range=(50.00, 200.00),
-            implementation_complexity="Very High",
-            soc2_controls=[
-                SOC2Mapping(
-                    control_id="CC6.6",
-                    control_name="Encryption of data in transit",
-                    how_it_helps="Enterprise-grade certificate management ensures continuous encryption",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.2",
-                    control_name="System monitoring",
-                    how_it_helps="Comprehensive monitoring and compliance reporting",
-                ),
-                SOC2Mapping(
-                    control_id="CC7.3",
-                    control_name="System availability",
-                    how_it_helps="Automated remediation prevents certificate-related outages",
-                ),
-                SOC2Mapping(
-                    control_id="CC8.1",
-                    control_name="Change management",
-                    how_it_helps="Certificate rotation and changes tracked with audit logs",
-                ),
-                SOC2Mapping(
-                    control_id="A1.2",
-                    control_name="Risk assessment",
-                    how_it_helps="Certificate compliance scanning identifies risks",
-                ),
+            validation_checklist=[
+                "AWS Config enabled in all regions with certificates",
+                "Config rules deployed for certificate expiration",
+                "Config rules deployed for certificate key length",
+                "SNS topic configured for non-compliance notifications",
+                "Config delivery channel set up to S3",
+                "Quarterly review process for certificate compliance",
+                "Cost reviewed and approved ($2-10/month)",
             ],
         ),
     ],
-    decision_framework="""
-Choose Basic DNS Validation when:
-- Small organization with few certificates (<10)
-- All certificates are ACM public certificates (auto-renewal)
-- Low budget for monitoring
-- Trust AWS service health for renewal notifications
-- Can tolerate reactive response to issues
-
-Choose DNS Validation with Basic Monitoring when:
-- Any organization using imported certificates (no auto-renewal)
-- Want proactive alerts before expiration
-- Budget supports $1-10/month for monitoring
-- Have operations team to respond to alerts
-- Most common choice for small to medium organizations
-
-Choose Automated DNS Validation with Escalating Alerts when:
-- Medium to large organization with many certificates (20+)
-- High availability requirements (cannot tolerate outages)
-- Operations team wants proactive early warnings
-- Budget supports $5-50/month for advanced monitoring
-- Use Route 53 for DNS management
-
-Choose Enterprise Certificate Governance when:
-- Large enterprise with 50+ certificates
-- Strict compliance requirements (SOC 2 Type II, ISO 27001)
-- Need compliance reporting and audit trails
-- Budget supports $50-200/month for certificate management
-- Have dedicated security or compliance team
-- Multi-account AWS environment
-""",
-    examples=[
-        {
-            "scenario": "Startup with 3 ACM certificates for web app",
-            "recommendation": "Basic DNS Validation",
-            "reasoning": "ACM auto-renewal sufficient. Small scale doesn't justify monitoring cost.",
-        },
-        {
-            "scenario": "E-commerce site with imported EV certificate + 5 ACM certificates",
-            "recommendation": "DNS Validation with Basic Monitoring",
-            "reasoning": "Imported certificate requires monitoring. CloudWatch alarm ensures no surprise expiration.",
-        },
-        {
-            "scenario": "SaaS platform with 30 certificates across prod and non-prod",
-            "recommendation": "Automated DNS Validation with Escalating Alerts",
-            "reasoning": "Large certificate inventory needs proactive monitoring. Escalating alerts prevent issues.",
-        },
-        {
-            "scenario": "Financial services company with 100+ certificates and SOC 2 requirements",
-            "recommendation": "Enterprise Certificate Governance",
-            "reasoning": "Compliance reporting required. AWS Config tracks certificate compliance. Audit logs needed for SOC 2.",
-        },
-    ],
+    estimated_implementation_time="1 day",
+    recommendation_strategy="Use CloudWatch Alarms for simple certificate expiration monitoring (free for first 10). Use AWS Config Rules for compliance auditing and centralized tracking (costs $2-10/month). Combine both for production environments.",
 )
 
 
-# Export all patterns
-__all__ = [
-    "CERTIFICATE_LIFECYCLE_PATTERNS",
-    "CERTIFICATE_SCOPE_PATTERNS",
-    "CERTIFICATE_VALIDATION_PATTERNS",
-]
+# =============================================================================
+# HELPER FUNCTION TO GET ALL CERTIFICATE MANAGER PATTERNS
+# =============================================================================
+
+def get_certificate_manager_patterns() -> dict[str, ArchitectureDecision]:
+    """Get all AWS Certificate Manager patterns for CARL."""
+    return {
+        "certificate_types": CERTIFICATE_PATTERNS,
+        "certificate_location": CERTIFICATE_LOCATION_PATTERNS,
+        "certificate_monitoring": CERTIFICATE_MONITORING_PATTERNS,
+    }
