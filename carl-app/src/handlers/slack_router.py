@@ -6918,7 +6918,10 @@ def handle_direct_message(event: dict) -> dict:
 
 def handle_interaction(payload: dict) -> dict:
     """Handle interactive components (buttons, modals)."""
-    action_type = payload.get("type", "")
+    logger = get_logger(__name__)
+
+    try:
+        action_type = payload.get("type", "")
 
     if action_type == "view_submission":
         callback_id = payload.get("view", {}).get("callback_id", "")
@@ -7038,7 +7041,12 @@ def handle_interaction(payload: dict) -> dict:
                 drift_id = action_id.replace("drift_suppress_", "")
                 return handle_drift_suppress_button(payload, drift_id)
 
-    return {"statusCode": 200, "body": "OK"}
+        return {"statusCode": 200, "body": "OK"}
+
+    except Exception as e:
+        logger.error(f"Error in handle_interaction: {e}", exc_info=True)
+        # Always return 200 to acknowledge the interaction
+        return {"statusCode": 200, "body": f"Error: {str(e)}"}
 
 
 def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
@@ -7823,29 +7831,53 @@ def _show_foundation_vpc_modal(slack, trigger_id: str, session_id: str, vpc_num:
 
 def handle_foundation_vpc_config_button(payload: dict, action: dict) -> dict:
     """Handle button click to open VPC config modal."""
-    trigger_id = payload.get("trigger_id", "")
-    action_id = action.get("action_id", "")
+    logger = get_logger(__name__)
 
-    # Parse: foundation_vpc_config_{session_id}_{vpc_index}
-    parts = action_id.replace("foundation_vpc_config_", "").rsplit("_", 1)
-    if len(parts) < 2:
-        return {"statusCode": 200, "body": "Invalid action"}
+    try:
+        trigger_id = payload.get("trigger_id", "")
+        action_id = action.get("action_id", "")
 
-    session_id = parts[0]
-    vpc_index = int(parts[1])
+        logger.info(f"VPC config button clicked: action_id={action_id}")
 
-    engine = get_decision_engine()
-    session = engine.get_session(session_id)
+        # Parse: foundation_vpc_config_{session_id}_{vpc_index}
+        parts = action_id.replace("foundation_vpc_config_", "").rsplit("_", 1)
+        if len(parts) < 2:
+            logger.error(f"Invalid action_id format: {action_id}")
+            return {"statusCode": 200, "body": "Invalid action"}
 
-    if not session:
-        return {"statusCode": 200, "body": "Session expired"}
+        session_id = parts[0]
+        vpc_index = int(parts[1])
 
-    total_vpcs = session.requirements.get("vpc_count", 1)
-    slack = get_slack_service()
+        logger.info(f"Parsed session_id={session_id}, vpc_index={vpc_index}")
 
-    _show_foundation_vpc_modal(slack, trigger_id, session_id, vpc_index + 1, total_vpcs)
+        engine = get_decision_engine()
+        session = engine.get_session(session_id)
 
-    return {"statusCode": 200, "body": ""}
+        if not session:
+            logger.error(f"Session not found: {session_id}")
+            # Try to notify user via channel from payload
+            try:
+                channel = payload.get("channel", {}).get("id")
+                if channel:
+                    slack = get_slack_service()
+                    slack.post_message(channel, text="❌ Session expired. Please run `/carl foundation start` again.")
+            except Exception:
+                pass
+            return {"statusCode": 200, "body": "Session expired"}
+
+        total_vpcs = session.requirements.get("vpc_count", 1)
+        slack = get_slack_service()
+
+        logger.info(f"Opening VPC modal: vpc_index={vpc_index + 1}, total_vpcs={total_vpcs}")
+
+        _show_foundation_vpc_modal(slack, trigger_id, session_id, vpc_index + 1, total_vpcs)
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.error(f"Error in handle_foundation_vpc_config_button: {e}", exc_info=True)
+        # Return 200 to acknowledge the action, even on error
+        return {"statusCode": 200, "body": str(e)}
 
 
 def handle_foundation_vpc_submission(payload: dict) -> dict:

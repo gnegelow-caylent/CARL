@@ -650,6 +650,58 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 These are features that have been discussed and designed but deferred for later consideration. They are not currently on the roadmap but may be added based on user feedback and business priorities.
 
+### AI Framework Evaluation (LangChain, LlamaIndex, CrewAI, etc.)
+
+**Status:** To be reviewed
+
+**Question:** Should CARL use a common AI framework instead of custom orchestration?
+
+**Current CARL Approach:**
+- Direct Anthropic/Bedrock API calls
+- Custom session/state management
+- Custom prompt building
+- Straightforward request → generate → upload flows
+
+**Frameworks to Evaluate:**
+- **LangChain** - Popular LLM orchestration, chains, agents, memory, tools
+- **LlamaIndex** - Data framework, excellent for RAG
+- **CrewAI** - Multi-agent collaboration
+- **AutoGen** - Microsoft's multi-agent framework
+- **Semantic Kernel** - Microsoft's orchestration SDK
+
+**When a Framework Would Help:**
+- Complex multi-step agent reasoning
+- RAG (retrieval-augmented generation) from docs/policies/runbooks
+- Memory/context across long conversations
+- Multi-agent collaboration (Advisory → Architect handoff)
+- Standardized tool/function calling patterns
+
+**When It's Overkill:**
+- Simple request → response flows
+- Well-defined, deterministic workflows
+- When full control over prompts and behavior is needed
+
+**Potential Use Cases for CARL:**
+- Add RAG over AWS docs, compliance policies, internal runbooks
+- Build more autonomous planning (agent decides what to build)
+- Add conversation memory across sessions
+- Create specialized sub-agents (security reviewer, cost optimizer)
+
+**Trade-offs:**
+- **Pro:** Standardized patterns, built-in memory, community plugins
+- **Con:** Added dependency, framework lock-in, abstraction overhead, version churn
+
+**Decision Needed:**
+- Evaluate if CARL's complexity warrants framework adoption
+- Consider for Phase 4+ after core features are stable
+- Test with a small POC (e.g., RAG over AWS Well-Architected docs)
+
+**Estimated Effort:** 2-3 weeks for POC evaluation
+
+**Priority:** Low - Current approach works well for CARL's guided workflows
+
+---
+
 ### Historical Findings & Compliance Reporting
 
 **Status:** Documented for future consideration
