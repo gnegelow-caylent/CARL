@@ -6723,18 +6723,16 @@ def handle_foundation_text_submission(payload: dict) -> dict:
             session.requirements["vpc_config_index"] = 0
             engine._save_session_to_dynamodb(session)
 
-            # Show VPC config modal for first VPC
-            slack.post_message(channel, text=f"✓ Configuring {vpc_count} VPC(s). Let's set up VPC 1/{vpc_count}...")
-
-            # Get trigger_id from original interaction if available, or post button
-            trigger_id = payload.get("trigger_id")
-            if trigger_id:
-                _show_foundation_vpc_modal(slack, trigger_id, session_id, 1, vpc_count)
-            else:
-                # Post a button to trigger the modal
-                slack.post_message(
-                    channel,
-                    blocks=[{
+            # Post button to open VPC config modal (can't open modal directly from view_submission)
+            slack.post_message(
+                channel,
+                text=f"✓ Configuring {vpc_count} VPC(s). Click below to set up each VPC.",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"✓ Configuring *{vpc_count} VPC(s)*. Click below to set up each one."}
+                    },
+                    {
                         "type": "actions",
                         "elements": [{
                             "type": "button",
@@ -6742,8 +6740,9 @@ def handle_foundation_text_submission(payload: dict) -> dict:
                             "action_id": f"foundation_vpc_config_{session_id}_0",
                             "style": "primary"
                         }]
-                    }]
-                )
+                    }
+                ]
+            )
             return {"statusCode": 200, "body": ""}
         except ValueError:
             slack.post_message(channel, text="❌ Please enter a valid number for VPC count.")
