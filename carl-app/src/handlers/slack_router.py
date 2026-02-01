@@ -1003,7 +1003,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         session_id = event.get("session_id")
 
         from services.account_factory import get_account_factory_service
-        from services.code_uploader import CodeUploader
+        # CodeUploader is imported at top of file (line 29)
 
         service = get_account_factory_service()
         session = service.get_session(session_id)
@@ -6220,7 +6220,7 @@ Generate complete Terraform code including:
                 )
 
                 # Upload to GitHub and notify
-                from services.code_uploader import CodeUploader
+                # CodeUploader is imported at top of file (line 29)
                 from services.github_service import GitHubService
 
                 github = GitHubService()
