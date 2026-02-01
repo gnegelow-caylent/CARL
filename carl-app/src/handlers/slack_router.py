@@ -2958,10 +2958,33 @@ def handle_account_factory_answer(payload: dict, action: dict) -> dict:
     action_id = action.get("action_id", "")
 
     # Parse: account_factory_answer_{session_id}_{question_type}[_{value}]
+    # session_id is 8 chars (UUID prefix, no underscores)
+    # question_type may contain underscores (aft_email, account_email, primary_region)
     parts = action_id.replace("account_factory_answer_", "").split("_")
     session_id = parts[0]
-    question_type = parts[1] if len(parts) > 1 else ""
-    value = "_".join(parts[2:]) if len(parts) > 2 else action.get("value", "")
+    rest = "_".join(parts[1:]) if len(parts) > 1 else ""
+
+    # Known question types that may have underscores
+    known_question_types = ["aft_email", "account_email", "primary_region", "vpc_config", "framework_select"]
+    question_type = ""
+    value = action.get("value", "")  # Prefer value from button itself
+
+    for qt in known_question_types:
+        if rest == qt:
+            question_type = qt
+            break
+        elif rest.startswith(qt + "_"):
+            question_type = qt
+            # Extract value from rest if not already set
+            if not value:
+                value = rest[len(qt) + 1:]
+            break
+
+    # Fallback: if no known type matched, use first part as question_type
+    if not question_type and len(parts) > 1:
+        question_type = parts[1]
+        if not value:
+            value = "_".join(parts[2:]) if len(parts) > 2 else ""
 
     service = get_account_factory_service()
     session = service.get_session(session_id)
