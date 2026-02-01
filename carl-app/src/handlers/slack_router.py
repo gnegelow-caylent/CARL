@@ -6499,9 +6499,19 @@ def handle_foundation_text_modal(payload: dict, action: dict) -> dict:
     if not session:
         return {"statusCode": 200, "body": "Session expired"}
 
-    # Find the question
-    framework = engine.framework
-    question = framework.get_question_by_id(question_id)
+    # Find the question - check framework mode first, then pattern mode
+    question = None
+    if session.framework_mode and session.framework:
+        # Framework mode - look up in framework questions
+        question = session.framework.get_question_by_id(question_id)
+    else:
+        # Pattern mode - look up in REQUIREMENT_QUESTIONS
+        from types import SimpleNamespace
+        from services.foundation.decision_engine import REQUIREMENT_QUESTIONS
+        for q in REQUIREMENT_QUESTIONS:
+            if q.get('id') == question_id:
+                question = SimpleNamespace(**q)  # Convert dict to object-like
+                break
 
     if not question:
         return {"statusCode": 200, "body": "Question not found"}
