@@ -14,6 +14,11 @@ from services.architecture_advisor import ArchitectureAdvisor
 from services.pricing_tool import get_aws_pricing
 from services.pricing_prefetch_service import PricingPrefetchService
 from services.cost_estimator import CostEstimator
+from services.ai_terraform_generator import (
+    AITerraformGenerator,
+    TerraformGenerationRequest,
+    get_patterns_for_module,
+)
 from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import get_vpc_patterns
 from knowledge.security_tooling_patterns import get_security_tooling_patterns
@@ -601,6 +606,236 @@ Example: compare_architecture_options(option_a="EC2 with RDS", option_b="Lambda 
                 "required": ["option_a", "option_b"]
             }
         ),
+
+        Tool(
+            name="generate_terraform",
+            description="""Generate Terraform code using AI with architecture patterns as grounding context.
+
+Use this to dynamically generate production-ready Terraform for:
+- VPCs (vpc) - with subnets, NAT, flow logs
+- Security services (security_services) - GuardDuty, Security Hub, Config, Inspector
+- CloudTrail (cloudtrail) - organization trail with logging
+- CloudWatch alarms (cloudwatch_alarms) - security monitoring
+- AWS Config rules (config_rules) - compliance rules
+- SCPs (scp) - service control policies
+- IAM password policy (iam_password_policy)
+- Central logging bucket (central_logging_bucket)
+- Egress architecture (egress) - NAT, Network Firewall
+- AFT account requests (aft_account_request)
+- AFT main module (aft_main)
+
+The AI is grounded by architecture patterns from knowledge/ to ensure:
+- Accurate AWS configurations
+- SOC 2 compliance mappings
+- Cost-aware recommendations
+- Best practices
+
+Example: generate_terraform(module_type="vpc", requirements={"vpc_name": "prod", "cidr": "10.0.0.0/16", "azs": 3})""",
+            function=generate_terraform_code,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "module_type": {
+                        "type": "string",
+                        "description": "Type of module: vpc, security_services, cloudtrail, cloudwatch_alarms, config_rules, scp, iam_password_policy, central_logging_bucket, egress, aft_account_request, aft_main"
+                    },
+                    "requirements": {
+                        "type": "object",
+                        "description": "Module-specific requirements (vpc_name, cidr, enable_nat, etc.)"
+                    },
+                    "compliance_framework": {
+                        "type": "string",
+                        "description": "Compliance framework: SOC2, HIPAA, PCI (default: SOC2)"
+                    }
+                },
+                "required": ["module_type", "requirements"]
+            }
+        ),
     ]
 
     return tools
+
+
+# =============================================================================
+# AI-Driven Terraform Generation
+# =============================================================================
+
+# Singleton generator instance
+_terraform_generator = None
+
+
+def _get_terraform_generator() -> AITerraformGenerator:
+    """Get or create the AI Terraform generator instance."""
+    global _terraform_generator
+    if _terraform_generator is None:
+        _terraform_generator = AITerraformGenerator()
+    return _terraform_generator
+
+
+def generate_terraform_code(
+    module_type: str,
+    requirements: dict,
+    compliance_framework: str = "SOC2"
+) -> dict:
+    """
+    Generate Terraform code using AI with architecture patterns as grounding.
+
+    This function is used by agents to dynamically generate Terraform code
+    instead of using static templates. The AI is grounded by:
+    - Architecture patterns from knowledge/ directory
+    - Compliance framework requirements
+    - AWS best practices
+
+    Args:
+        module_type: Type of Terraform module to generate
+            - vpc: VPC with subnets, NAT, flow logs
+            - security_services: GuardDuty, Security Hub, Config, Inspector
+            - cloudtrail: Organization CloudTrail
+            - cloudwatch_alarms: Security monitoring alarms
+            - config_rules: AWS Config compliance rules
+            - scp: Service Control Policies
+            - iam_password_policy: IAM password policy
+            - central_logging_bucket: S3 bucket for centralized logs
+            - egress: Egress architecture (NAT, Network Firewall)
+            - aft_account_request: AFT account request
+            - aft_main: AFT main module configuration
+
+        requirements: Module-specific requirements dict
+            - vpc: {vpc_name, cidr, azs, enable_nat, enable_flow_logs}
+            - security_services: {enable_guardduty, enable_security_hub, etc.}
+            - cloudtrail: {multi_region, is_organization_trail, retention_days}
+            - scp: {scp_name, description, policy_statements, target_ous}
+            - etc.
+
+        compliance_framework: SOC2, HIPAA, PCI (default: SOC2)
+
+    Returns:
+        dict with:
+            - success: bool
+            - content: Generated Terraform code
+            - module_type: The module type
+            - validation_errors: List of errors if any
+    """
+    try:
+        generator = _get_terraform_generator()
+
+        # Route to appropriate generator method based on module_type
+        module_type_lower = module_type.lower().replace("-", "_")
+
+        if module_type_lower == "vpc":
+            result = generator.generate_vpc_module(
+                vpc_name=requirements.get("vpc_name", "main"),
+                cidr=requirements.get("cidr", "10.0.0.0/16"),
+                azs=requirements.get("azs", 2),
+                enable_nat=requirements.get("enable_nat", True),
+                enable_flow_logs=requirements.get("enable_flow_logs", True),
+                enable_endpoints=requirements.get("enable_endpoints", False),
+                environment=requirements.get("environment", "production"),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "security_services":
+            result = generator.generate_security_services_module(
+                enable_guardduty=requirements.get("enable_guardduty", True),
+                enable_security_hub=requirements.get("enable_security_hub", True),
+                enable_config=requirements.get("enable_config", True),
+                enable_inspector=requirements.get("enable_inspector", True),
+                enable_macie=requirements.get("enable_macie", False),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "cloudtrail":
+            result = generator.generate_cloudtrail_module(
+                multi_region=requirements.get("multi_region", True),
+                is_organization_trail=requirements.get("is_organization_trail", False),
+                enable_log_validation=requirements.get("enable_log_validation", True),
+                retention_days=requirements.get("retention_days", 2555),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "cloudwatch_alarms":
+            result = generator.generate_cloudwatch_alarms(
+                cloudtrail_log_group=requirements.get("cloudtrail_log_group", "/aws/cloudtrail/organization"),
+                sns_topic_name=requirements.get("sns_topic_name", "security-alerts"),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "config_rules":
+            result = generator.generate_config_rules(
+                enable_org_rules=requirements.get("enable_org_rules", True),
+                rules=requirements.get("rules"),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "scp":
+            result = generator.generate_scp(
+                scp_name=requirements.get("scp_name", "default-scp"),
+                description=requirements.get("description", ""),
+                policy_statements=requirements.get("policy_statements", []),
+                target_ous=requirements.get("target_ous", []),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "iam_password_policy":
+            result = generator.generate_iam_password_policy(
+                minimum_length=requirements.get("minimum_length", 14),
+                require_uppercase=requirements.get("require_uppercase", True),
+                require_lowercase=requirements.get("require_lowercase", True),
+                require_numbers=requirements.get("require_numbers", True),
+                require_symbols=requirements.get("require_symbols", True),
+                max_age_days=requirements.get("max_age_days", 90),
+                reuse_prevention=requirements.get("reuse_prevention", 24),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "central_logging_bucket":
+            result = generator.generate_central_logging_bucket(
+                bucket_name_suffix=requirements.get("bucket_name_suffix", "central-logs"),
+                retention_days=requirements.get("retention_days", 2555),
+                enable_access_logging=requirements.get("enable_access_logging", True),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "egress":
+            result = generator.generate_egress_module(
+                egress_type=requirements.get("egress_type", "distributed_nat"),
+                vpc_count=requirements.get("vpc_count", 1),
+                availability_zones=requirements.get("availability_zones", 2),
+                transit_gateway_id=requirements.get("transit_gateway_id"),
+                compliance=compliance_framework,
+            )
+        elif module_type_lower == "aft_account_request":
+            result = generator.generate_aft_account_request(
+                account_name=requirements.get("account_name", "new-account"),
+                account_email=requirements.get("account_email", ""),
+                ou_name=requirements.get("ou_name", "Workloads"),
+                purpose=requirements.get("purpose", ""),
+                sso_user_email=requirements.get("sso_user_email", ""),
+                compliance=compliance_framework,
+                tags=requirements.get("tags"),
+            )
+        elif module_type_lower == "aft_main":
+            result = generator.generate_aft_main_module(
+                primary_region=requirements.get("primary_region", "us-east-1"),
+                terraform_version=requirements.get("terraform_version", "1.6.0"),
+                delete_default_vpcs=requirements.get("delete_default_vpcs", True),
+                compliance=compliance_framework,
+            )
+        else:
+            # Generic generation using the base method
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type=module_type,
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context=get_patterns_for_module(module_type),
+                )
+            )
+
+        return {
+            "success": result.success,
+            "content": result.content,
+            "module_type": result.module_type,
+            "validation_errors": result.validation_errors,
+        }
+
+    except Exception as e:
+        logger.exception(f"Error generating Terraform for {module_type}")
+        return {
+            "success": False,
+            "content": f"# Error generating Terraform: {str(e)}",
+            "module_type": module_type,
+            "validation_errors": [str(e)],
+        }

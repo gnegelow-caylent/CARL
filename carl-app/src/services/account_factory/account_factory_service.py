@@ -22,7 +22,7 @@ from services.framework_loader import (
     ServiceControlPolicy,
     get_framework_loader,
 )
-from .aft_generator import AFTGenerator, AFTModuleConfig
+from services.architecture_tools import generate_terraform_code
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class AccountFactoryService:
     def __init__(self):
         self.sessions: dict[str, AccountFactorySession] = {}
         self.framework_loader = get_framework_loader()
-        self.aft_generator = AFTGenerator()
+        # No longer using static AFTGenerator - using AI-driven generation via generate_terraform_code
         self.dynamodb = boto3.resource('dynamodb')
 
     def create_session(self, user_id: str, channel_id: str) -> AccountFactorySession:
@@ -432,20 +432,8 @@ class AccountFactoryService:
         self._save_session(session)
 
         try:
-            # Build AFT configuration
-            aft_config = AFTModuleConfig(
-                aft_management_account_email=session.aft_account_email,
-                primary_region=session.primary_region,
-                additional_regions=session.additional_regions,
-                ct_home_region=session.primary_region,
-            )
-
-            # Generate AFT modules
-            terraform_files = self.aft_generator.generate_complete_aft(
-                config=aft_config,
-                framework=session.framework,
-                accounts=session.accounts,
-            )
+            # Generate AFT modules using AI-driven generation
+            terraform_files = self._generate_aft_with_ai(session)
 
             # Calculate cost estimate
             estimated_cost = self._estimate_monthly_cost(session)
@@ -469,6 +457,183 @@ class AccountFactoryService:
         except Exception as e:
             logger.exception(f"Failed to generate AFT Terraform: {e}")
             return {"success": False, "error": str(e)}
+
+    def _generate_aft_with_ai(self, session: AccountFactorySession) -> dict[str, str]:
+        """
+        Generate complete AFT Terraform configuration using AI-driven generation.
+
+        Uses generate_terraform_code tool with architecture patterns as grounding.
+        Per CLAUDE.md: No static Terraform templates - AI generates dynamically.
+        """
+        files = {}
+        framework = session.framework
+
+        # Core AFT setup
+        aft_main_result = generate_terraform_code(
+            module_type="aft_main",
+            requirements={
+                "primary_region": session.primary_region,
+                "terraform_version": "1.6.0",
+                "delete_default_vpcs": True,
+                "aft_management_account_email": session.aft_account_email,
+            },
+            compliance_framework=framework.name,
+        )
+        files["aft-main.tf"] = aft_main_result.get("content", "# Error generating aft-main.tf")
+
+        # Providers (generic, can use AI)
+        providers_result = generate_terraform_code(
+            module_type="providers",
+            requirements={
+                "primary_region": session.primary_region,
+                "additional_regions": session.additional_regions,
+            },
+            compliance_framework=framework.name,
+        )
+        files["providers.tf"] = providers_result.get("content", "# Error generating providers.tf")
+
+        # Variables
+        variables_result = generate_terraform_code(
+            module_type="variables",
+            requirements={
+                "primary_region": session.primary_region,
+                "compliance_framework": framework.name,
+            },
+            compliance_framework=framework.name,
+        )
+        files["variables.tf"] = variables_result.get("content", "# Error generating variables.tf")
+
+        # Account requests - one per account
+        for account in session.accounts:
+            result = generate_terraform_code(
+                module_type="aft_account_request",
+                requirements={
+                    "account_name": account.name,
+                    "account_email": account.email,
+                    "ou_name": account.ou_name,
+                    "purpose": account.purpose,
+                    "sso_user_email": account.sso_user_email or "",
+                    "tags": account.tags,
+                },
+                compliance_framework=framework.name,
+            )
+            files[f"account-requests/{account.name}.tf"] = result.get("content", f"# Error generating {account.name}")
+
+        # Account customizations per OU type
+        customization_types = set(acc.ou_name.lower() for acc in session.accounts)
+        for cust_type in customization_types:
+            result = generate_terraform_code(
+                module_type="account_customization",
+                requirements={
+                    "customization_type": cust_type,
+                    "enable_guardduty": True,
+                    "enable_security_hub": True,
+                    "enable_config": True,
+                },
+                compliance_framework=framework.name,
+            )
+            files[f"account-customizations/{cust_type}/main.tf"] = result.get("content", "# Error")
+
+        # Global customizations
+        global_result = generate_terraform_code(
+            module_type="global_customization",
+            requirements={
+                "iam_password_policy": True,
+                "s3_block_public_access": True,
+                "ebs_encryption_default": True,
+            },
+            compliance_framework=framework.name,
+        )
+        files["global-customizations/main.tf"] = global_result.get("content", "# Error")
+
+        # SCPs from framework
+        for scp in framework.scps:
+            result = generate_terraform_code(
+                module_type="scp",
+                requirements={
+                    "scp_name": scp.name,
+                    "description": scp.description,
+                    "policy_statements": scp.statement if hasattr(scp, 'statement') else [],
+                    "target_ous": scp.targets if hasattr(scp, 'targets') else [],
+                },
+                compliance_framework=framework.name,
+            )
+            files[f"scps/{scp.name}.tf"] = result.get("content", f"# Error generating {scp.name}")
+
+        # Security baseline
+        security_result = generate_terraform_code(
+            module_type="security_services",
+            requirements={
+                "enable_guardduty": True,
+                "enable_security_hub": True,
+                "enable_config": True,
+                "enable_inspector": True,
+            },
+            compliance_framework=framework.name,
+        )
+        files["security-baseline/security-services.tf"] = security_result.get("content", "# Error")
+
+        # CloudWatch alarms
+        alarms_result = generate_terraform_code(
+            module_type="cloudwatch_alarms",
+            requirements={
+                "cloudtrail_log_group": "/aws/cloudtrail/organization",
+                "sns_topic_name": "security-alerts",
+            },
+            compliance_framework=framework.name,
+        )
+        files["security-baseline/cloudwatch-alarms.tf"] = alarms_result.get("content", "# Error")
+
+        # Config rules
+        config_result = generate_terraform_code(
+            module_type="config_rules",
+            requirements={"enable_org_rules": True},
+            compliance_framework=framework.name,
+        )
+        files["security-baseline/config-rules.tf"] = config_result.get("content", "# Error")
+
+        # CloudTrail
+        cloudtrail_result = generate_terraform_code(
+            module_type="cloudtrail",
+            requirements={
+                "multi_region": True,
+                "is_organization_trail": True,
+                "retention_days": 2555,
+            },
+            compliance_framework=framework.name,
+        )
+        files["logging/cloudtrail-org.tf"] = cloudtrail_result.get("content", "# Error")
+
+        # Central logging bucket
+        logging_result = generate_terraform_code(
+            module_type="central_logging_bucket",
+            requirements={
+                "bucket_name_suffix": "central-logs",
+                "retention_days": 2555,
+            },
+            compliance_framework=framework.name,
+        )
+        files["logging/central-logging-bucket.tf"] = logging_result.get("content", "# Error")
+
+        # VPCs for workload accounts
+        for account in session.accounts:
+            for vpc in account.vpcs:
+                result = generate_terraform_code(
+                    module_type="vpc",
+                    requirements={
+                        "vpc_name": f"{account.name}-{vpc.name}",
+                        "cidr": vpc.cidr,
+                        "azs": vpc.availability_zones,
+                        "enable_nat": vpc.enable_nat_gateway,
+                        "enable_flow_logs": True,
+                        "enable_endpoints": vpc.enable_vpc_endpoints,
+                        "environment": vpc.environment,
+                    },
+                    compliance_framework=framework.name,
+                )
+                files[f"vpcs/{account.name}-{vpc.name}.tf"] = result.get("content", "# Error")
+
+        return files
 
     def _estimate_monthly_cost(self, session: AccountFactorySession) -> float:
         """

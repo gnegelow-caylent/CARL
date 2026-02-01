@@ -368,41 +368,68 @@ framework:
           purpose: "Production workloads"
 
   # Service Control Policies (used by Account Factory, ignored by Foundation)
+  # Comprehensive SCPs for SOC2 compliance
   scps:
     - name: deny_security_service_disable
-      description: "Prevent disabling GuardDuty, Security Hub, Config, CloudTrail"
-      target_ous:
-        - Security
-        - Workloads
-      statement:
-        Effect: Deny
-        Action:
-          - guardduty:DeleteDetector
-          - guardduty:DisassociateFromMasterAccount
-          - securityhub:DisableSecurityHub
-          - config:DeleteConfigurationRecorder
-          - config:StopConfigurationRecorder
-          - cloudtrail:DeleteTrail
-          - cloudtrail:StopLogging
-        Resource: "*"
-
-    - name: require_mfa
-      description: "All console access requires MFA"
+      description: "Prevent disabling security services (CC7.1, CC7.2)"
       target_ous:
         - Security
         - Infrastructure
         - Workloads
       statement:
         Effect: Deny
-        Action: "*"
+        Action:
+          - guardduty:DeleteDetector
+          - guardduty:DisassociateFromMasterAccount
+          - guardduty:UpdateDetector
+          - securityhub:DisableSecurityHub
+          - securityhub:DeleteMembers
+          - securityhub:DisassociateFromMasterAccount
+          - config:DeleteConfigurationRecorder
+          - config:StopConfigurationRecorder
+          - config:DeleteDeliveryChannel
+          - cloudtrail:DeleteTrail
+          - cloudtrail:StopLogging
+          - cloudtrail:UpdateTrail
+          - access-analyzer:DeleteAnalyzer
+          - macie2:DisableMacie
+          - inspector2:Disable
+        Resource: "*"
+
+    - name: deny_root_user
+      description: "Deny root user actions except for billing (CC6.1)"
+      target_ous:
+        - Security
+        - Infrastructure
+        - Workloads
+      statement:
+        Effect: Deny
+        NotAction:
+          - aws-portal:*
+          - budgets:*
         Resource: "*"
         Condition:
-          BoolIfExists:
-            aws:MultiFactorAuthPresent: "false"
+          StringLike:
+            aws:PrincipalArn: "arn:aws:iam::*:root"
+
+    - name: require_imdsv2
+      description: "Require IMDSv2 for EC2 instances (CC6.1)"
+      target_ous:
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - ec2:RunInstances
+        Resource: "arn:aws:ec2:*:*:instance/*"
+        Condition:
+          StringNotEquals:
+            ec2:MetadataHttpTokens: "required"
 
     - name: require_encryption
-      description: "All S3 buckets and EBS volumes must be encrypted"
+      description: "Require encryption for S3, EBS, RDS (CC6.1, C1.1)"
       target_ous:
+        - Security
+        - Infrastructure
         - Workloads
       statement:
         - Effect: Deny
@@ -410,10 +437,8 @@ framework:
             - s3:PutObject
           Resource: "*"
           Condition:
-            StringNotEquals:
-              s3:x-amz-server-side-encryption:
-                - aws:kms
-                - AES256
+            "Null":
+              s3:x-amz-server-side-encryption: "true"
         - Effect: Deny
           Action:
             - ec2:RunInstances
@@ -421,6 +446,99 @@ framework:
           Condition:
             Bool:
               ec2:Encrypted: "false"
+        - Effect: Deny
+          Action:
+            - rds:CreateDBInstance
+            - rds:CreateDBCluster
+          Resource: "*"
+          Condition:
+            Bool:
+              rds:StorageEncrypted: "false"
+
+    - name: require_ssl_s3
+      description: "Require SSL/TLS for S3 access (CC6.7)"
+      target_ous:
+        - Security
+        - Infrastructure
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - s3:*
+        Resource: "*"
+        Condition:
+          Bool:
+            aws:SecureTransport: "false"
+
+    - name: deny_public_s3
+      description: "Deny public S3 buckets (CC6.1)"
+      target_ous:
+        - Security
+        - Infrastructure
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - s3:PutBucketPublicAccessBlock
+          - s3:DeletePublicAccessBlock
+        Resource: "*"
+
+    - name: deny_leave_organization
+      description: "Prevent accounts from leaving organization (CC6.1)"
+      target_ous:
+        - Security
+        - Infrastructure
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - organizations:LeaveOrganization
+        Resource: "*"
+
+    - name: restrict_regions
+      description: "Restrict to approved regions only (CC6.6)"
+      target_ous:
+        - Workloads
+      statement:
+        Effect: Deny
+        NotAction:
+          - cloudfront:*
+          - iam:*
+          - route53:*
+          - support:*
+          - budgets:*
+          - waf:*
+          - waf-regional:*
+          - cloudwatch:*
+          - sns:*
+          - sqs:*
+        Resource: "*"
+        Condition:
+          StringNotEquals:
+            aws:RequestedRegion:
+              - us-east-1
+              - us-west-2
+              - eu-west-1
+
+    - name: deny_vpc_changes
+      description: "Protect VPC infrastructure (CC6.6, CC8.1)"
+      target_ous:
+        - Workloads
+      statement:
+        Effect: Deny
+        Action:
+          - ec2:DeleteVpc
+          - ec2:DeleteSubnet
+          - ec2:DeleteInternetGateway
+          - ec2:DeleteNatGateway
+          - ec2:DeleteRouteTable
+          - ec2:DeleteFlowLogs
+        Resource: "*"
+        Condition:
+          StringNotLike:
+            aws:PrincipalArn:
+              - "arn:aws:iam::*:role/AWSControlTowerExecution"
+              - "arn:aws:iam::*:role/AWSAFTExecution"
 
   # Cost estimates for SOC 2 compliance
   estimated_monthly_costs:

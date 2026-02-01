@@ -2,6 +2,9 @@
 Foundation Builder Service for CARL.
 
 Orchestrates the generation of compliant AWS foundation infrastructure.
+
+Per CLAUDE.md: No static Terraform templates - AI generates dynamically using
+architecture patterns as grounding context.
 """
 
 from dataclasses import dataclass
@@ -16,6 +19,7 @@ from knowledge.aws_pricing import (
     SECURITY_PRICING,
     LANDING_ZONE_PRICING,
 )
+from services.architecture_tools import generate_terraform_code
 
 
 @dataclass
@@ -118,25 +122,40 @@ class FoundationBuilder:
         decision: DecisionResult,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate egress/NAT module."""
+        """Generate egress/NAT module using AI-driven generation."""
         option_name = decision.selected_option.name
+        vpc_count = session.requirements.get("vpc_count", 1)
 
+        # Determine egress type from decision
         if "Distributed" in option_name:
-            content = self._get_distributed_nat_template(session)
-            estimated_cost = 100.0 * session.requirements.get("vpc_count", 1)
+            egress_type = "distributed_nat"
+            estimated_cost = 100.0 * vpc_count
         elif "Centralized NAT" in option_name:
-            content = self._get_centralized_nat_template(session)
-            estimated_cost = 150.0 + 36.0 * session.requirements.get("vpc_count", 1)
+            egress_type = "centralized_nat"
+            estimated_cost = 150.0 + 36.0 * vpc_count
         else:  # Network Firewall
-            content = self._get_network_firewall_template(session)
-            estimated_cost = 850.0 + 36.0 * session.requirements.get("vpc_count", 1)
+            egress_type = "network_firewall"
+            estimated_cost = 850.0 + 36.0 * vpc_count
+
+        # Use AI-driven generation with architecture patterns as grounding
+        result = generate_terraform_code(
+            module_type="egress",
+            requirements={
+                "egress_type": egress_type,
+                "vpc_count": vpc_count,
+                "availability_zones": 2,
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# Error generating egress module")
 
         return TerraformModule(
             name="egress",
             path="modules/networking/egress",
             content=content,
             variables={
-                "vpc_count": session.requirements.get("vpc_count", 1),
+                "vpc_count": vpc_count,
                 "az_count": 2,
             },
             description=f"Egress architecture: {option_name}",
@@ -148,18 +167,32 @@ class FoundationBuilder:
         decision: DecisionResult,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate ingress module."""
+        """Generate ingress module using AI-driven generation."""
         option_name = decision.selected_option.name
 
+        # Determine ingress type from decision
         if "Distributed" in option_name:
-            content = self._get_distributed_alb_template(session)
+            ingress_type = "distributed_alb"
             estimated_cost = 50.0
         elif "Centralized" in option_name:
-            content = self._get_centralized_ingress_template(session)
+            ingress_type = "centralized_alb"
             estimated_cost = 200.0
         else:  # CloudFront
-            content = self._get_cloudfront_template(session)
+            ingress_type = "cloudfront"
             estimated_cost = 100.0
+
+        # Use AI-driven generation
+        result = generate_terraform_code(
+            module_type="ingress",
+            requirements={
+                "ingress_type": ingress_type,
+                "enable_waf": True,
+                "waf_rules": ["AWSManagedRulesCommonRuleSet"],
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# Error generating ingress module")
 
         return TerraformModule(
             name="ingress",
@@ -178,28 +211,42 @@ class FoundationBuilder:
         decision: DecisionResult,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate transit module."""
+        """Generate transit module using AI-driven generation."""
         option_name = decision.selected_option.name
+        vpc_count = session.requirements.get("vpc_count", 1)
 
+        # Determine transit type from decision
         if "Peering" in option_name:
-            content = self._get_vpc_peering_template(session)
+            transit_type = "vpc_peering"
             estimated_cost = 10.0
         elif "Transit Gateway" in option_name:
-            content = self._get_transit_gateway_template(session)
-            estimated_cost = 36.0 * session.requirements.get("vpc_count", 1)
+            transit_type = "transit_gateway"
+            estimated_cost = 36.0 * vpc_count
         elif "Cloud WAN" in option_name:
-            content = self._get_cloud_wan_template(session)
-            estimated_cost = 50.0 * session.requirements.get("vpc_count", 1)
+            transit_type = "cloud_wan"
+            estimated_cost = 50.0 * vpc_count
         else:
-            content = "# No transit module needed for isolated VPCs"
+            transit_type = "none"
             estimated_cost = 0.0
+
+        # Use AI-driven generation
+        result = generate_terraform_code(
+            module_type="transit",
+            requirements={
+                "transit_type": transit_type,
+                "vpc_count": vpc_count,
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# No transit module needed for isolated VPCs")
 
         return TerraformModule(
             name="transit",
             path="modules/networking/transit",
             content=content,
             variables={
-                "vpc_count": session.requirements.get("vpc_count", 1),
+                "vpc_count": vpc_count,
             },
             description=f"Transit architecture: {option_name}",
             estimated_monthly_cost=estimated_cost,
@@ -210,18 +257,32 @@ class FoundationBuilder:
         decision: DecisionResult,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate site-to-site VPN module."""
+        """Generate site-to-site VPN module using AI-driven generation."""
         option_name = decision.selected_option.name
 
+        # Determine connectivity type from decision
         if "Direct Connect" in option_name:
-            content = self._get_direct_connect_template(session)
+            connectivity_type = "direct_connect"
             estimated_cost = 500.0
         elif "Accelerated" in option_name:
-            content = self._get_accelerated_vpn_template(session)
+            connectivity_type = "accelerated_vpn"
             estimated_cost = 100.0
         else:
-            content = self._get_site_vpn_template(session)
+            connectivity_type = "site_to_site_vpn"
             estimated_cost = 72.0
+
+        # Use AI-driven generation
+        result = generate_terraform_code(
+            module_type="site_vpn",
+            requirements={
+                "connectivity_type": connectivity_type,
+                "customer_gateway_ip": "REPLACE_WITH_YOUR_IP",
+                "bgp_asn": 65000,
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# Error generating site VPN module")
 
         return TerraformModule(
             name="site_vpn",
@@ -240,21 +301,36 @@ class FoundationBuilder:
         decision: DecisionResult,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate client VPN module."""
+        """Generate client VPN module using AI-driven generation."""
         option_name = decision.selected_option.name
+        remote_users = session.requirements.get("remote_users", "small")
 
+        # Determine VPN type from decision
         if "Third-Party" in option_name or "Self" in option_name:
-            content = self._get_self_managed_vpn_template(session)
+            vpn_type = "self_managed"
             estimated_cost = 100.0
         else:
-            content = self._get_client_vpn_template(session)
-            remote_users = session.requirements.get("remote_users", "small")
+            vpn_type = "aws_client_vpn"
             if remote_users == "small":
                 estimated_cost = 200.0
             elif remote_users == "medium":
                 estimated_cost = 400.0
             else:
                 estimated_cost = 600.0
+
+        # Use AI-driven generation
+        result = generate_terraform_code(
+            module_type="client_vpn",
+            requirements={
+                "vpn_type": vpn_type,
+                "client_cidr": "10.100.0.0/16",
+                "target_network_cidr": "10.0.0.0/8",
+                "remote_users": remote_users,
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# Error generating client VPN module")
 
         return TerraformModule(
             name="client_vpn",
@@ -272,15 +348,29 @@ class FoundationBuilder:
         self,
         session: DecisionSession,
     ) -> TerraformModule:
-        """Generate security services module."""
+        """Generate security services module using AI-driven generation."""
         compliance = session.requirements.get("compliance_requirements", ["soc2"])
-
-        content = self._get_security_services_template(compliance)
 
         # Estimate cost based on compliance requirements
         estimated_cost = 50.0  # Base security stack
         if "hipaa" in compliance or "pci_dss" in compliance:
             estimated_cost += 50.0  # Additional services
+
+        # Use AI-driven generation
+        result = generate_terraform_code(
+            module_type="security_services",
+            requirements={
+                "enable_guardduty": True,
+                "enable_security_hub": True,
+                "enable_config": True,
+                "enable_inspector": True,
+                "enable_macie": "hipaa" in compliance,
+                "compliance_requirements": compliance,
+            },
+            compliance_framework="SOC2",
+        )
+
+        content = result.get("content", "# Error generating security services module")
 
         return TerraformModule(
             name="security",

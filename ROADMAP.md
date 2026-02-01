@@ -290,7 +290,56 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.4 Terraform Module Generation (Week 7-8)
+#### 1.4 AI-Driven Terraform Generation Migration (Week 7-8)
+**Goal:** Migrate all remaining Terraform generators to use AI-driven generation with architecture patterns as grounding
+
+**Background:**
+Per CLAUDE.md Design Principle: "Dynamic Processing Over Static Rules" - CARL should not maintain static Terraform templates. Instead, AI generates Terraform code dynamically using architecture patterns from `knowledge/` as grounding context.
+
+**Completed (February 1, 2026):**
+- ✅ Created `ai_terraform_generator.py` - Core AI-driven Terraform generation service
+- ✅ Added `generate_terraform` tool to `architecture_tools.py` - Agents can now generate Terraform
+- ✅ Refactored Account Factory (`account_factory_service.py`) to use AI-driven generation
+- ✅ Refactored Foundation Builder (`foundation_builder.py`) to use AI-driven generation
+
+**Remaining Tasks:**
+- [ ] Refactor `terraform_generator.py` to use AI-driven generation
+- [ ] Refactor `infrastructure_builder.py` to use AI-driven generation
+- [ ] Remove static template methods from Foundation Builder (currently unused)
+- [ ] Remove old `aft_generator.py` static templates (replaced by AI)
+- [ ] Update `/carl build` command to use AI-driven generation
+- [ ] Add validation layer to ensure AI-generated Terraform is syntactically correct
+- [ ] Add `terraform validate` integration for generated code
+- [ ] Update pattern files to include more Terraform-specific examples for grounding
+
+**Architecture:**
+```
+User Request → Agent decides what to generate → generate_terraform tool
+                                                      ↓
+                                            AITerraformGenerator
+                                                      ↓
+                                  Architecture Patterns (grounding context)
+                                                      ↓
+                                         BedrockService (Claude)
+                                                      ↓
+                                        Generated Terraform Code
+                                                      ↓
+                                        Validation (syntax check)
+                                                      ↓
+                                              Return to Agent
+```
+
+**Benefits:**
+- No more 2000+ line static template files to maintain
+- AI adapts to new AWS services without code changes
+- Patterns provide grounding to prevent hallucinations
+- Consistent with CARL's AI-first design philosophy
+
+**Estimated Effort:** 2 weeks (remaining tasks)
+
+---
+
+#### 1.5 Terraform Module Generation (Week 9-10)
 **Goal:** Generate Terraform code for all bootstrap components
 
 **Tasks:**

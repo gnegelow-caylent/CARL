@@ -1243,6 +1243,16 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
    - ✅ Cache pricing data to reduce API calls
    - ❌ Don't call AWS Price List API on every request
    - Target: Keep CARL operational costs under $200/month
+11. **No Static Terraform Templates**: CARL uses AI to dynamically generate Terraform code. Never maintain static Terraform templates with hardcoded infrastructure code. This follows Design Principle #9 (Dynamic Processing Over Static Rules). Examples:
+   - ✅ Use `generate_terraform` tool with architecture patterns as grounding
+   - ✅ AI generates VPC, security services, SCPs dynamically based on requirements
+   - ✅ Architecture patterns in `knowledge/` provide grounding context (not templates)
+   - ❌ Don't create f-string templates with hardcoded Terraform HCL
+   - ❌ Don't maintain 2000+ line template files (like old aft_generator.py)
+   - ❌ Don't add fallback static templates - if AI fails, fix the prompt/grounding
+   - **Implementation**: Use `generate_terraform_code()` from `architecture_tools.py`
+   - **Grounding**: AI uses patterns from `knowledge/*.py` for accurate configurations
+   - **Validation**: Generated code should be validated with `terraform validate`
 
 ## Current Capabilities (All Built)
 
