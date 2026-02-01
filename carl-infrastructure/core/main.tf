@@ -1020,6 +1020,9 @@ resource "aws_lambda_function" "carl" {
       SCAN_HISTORY_TABLE   = var.enable_foundation ? module.foundation[0].scan_history_table_name : "${local.name_prefix}-scan-history"
       RESOURCE_GRAPH_TABLE = var.enable_foundation ? module.foundation[0].resource_graph_table_name : "${local.name_prefix}-resource-graph"
 
+      # Foundation builder sessions
+      FOUNDATION_TABLE = var.enable_foundation ? module.foundation[0].foundation_table_name : "${local.name_prefix}-foundation"
+
       # Feature flags (all disabled initially)
       FEATURE_MONITORING_ENABLED = "false"
       FEATURE_BOOTSTRAP_ENABLED  = "false"
