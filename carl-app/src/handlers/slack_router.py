@@ -23,6 +23,7 @@ from services.architecture_advisor import ArchitectureAdvisor
 from services.infrastructure_builder import InfrastructureBuilder
 from services.cost_estimator import CostEstimator, format_cost_estimate
 from services.foundation import DecisionEngine, FoundationBuilder
+from services.foundation.decision_engine import SessionState
 from services.github_service import GitHubService
 from services.github_app_service import GitHubAppAuth
 from services.code_uploader import CodeUploader
