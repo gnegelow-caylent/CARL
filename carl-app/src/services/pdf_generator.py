@@ -342,7 +342,6 @@ class PDFReportGenerator:
             width: 100%;
             border-collapse: collapse;
             margin: 1em 0;
-            page-break-inside: avoid;
         }}
 
         th {{
@@ -359,6 +358,10 @@ class PDFReportGenerator:
         td {{
             padding: 0.75em;
             border-bottom: 1px solid #e2e8f0;
+        }}
+
+        tr {{
+            page-break-inside: avoid;
         }}
 
         tr:nth-child(even) {{
