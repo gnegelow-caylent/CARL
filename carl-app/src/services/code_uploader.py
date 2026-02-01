@@ -63,7 +63,7 @@ class CodeUploader:
         deployment_path = f"deployments/users/{user_id}/{blueprint_short}"
         files = {}
 
-        # Add Terraform files
+        # Add Terraform files (standard structure)
         if 'variables' in terraform_files:
             files[f"{deployment_path}/variables.tf"] = terraform_files['variables']
         if 'main' in terraform_files:
@@ -74,6 +74,15 @@ class CodeUploader:
             files[f"{deployment_path}/terraform.tfvars.example"] = terraform_files['tfvars_example']
         if 'readme' in terraform_files:
             files[f"{deployment_path}/README.md"] = terraform_files['readme']
+        if 'providers' in terraform_files:
+            files[f"{deployment_path}/providers.tf"] = terraform_files['providers']
+        if 'versions' in terraform_files:
+            files[f"{deployment_path}/versions.tf"] = terraform_files['versions']
+
+        # Handle files with path separators (e.g., "account-requests/security.tf")
+        for key, content in terraform_files.items():
+            if '/' in key and key not in ['variables', 'main', 'outputs', 'tfvars_example', 'readme', 'providers', 'versions']:
+                files[f"{deployment_path}/{key}"] = content
 
         # Add standard files
         files[f"{deployment_path}/backend.tf"] = self._generate_backend_config(deployment_path)

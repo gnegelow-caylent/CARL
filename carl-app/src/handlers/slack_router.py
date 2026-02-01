@@ -994,6 +994,91 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         return {"statusCode": 200, "body": ""}
 
+    if event.get("action") == "process_account_factory_generate":
+        logger.info("Processing async Account Factory generation")
+        slack = get_slack_service()
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        session_id = event.get("session_id")
+
+        from services.account_factory import get_account_factory_service
+        from services.code_uploader import CodeUploader
+
+        service = get_account_factory_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            slack.post_message(channel_id, text="❌ Session expired. Please start again with `/carl account-factory start`")
+            return {"statusCode": 200, "body": ""}
+
+        try:
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Generating AFT Terraform configuration...")
+
+            # Generate AFT Terraform
+            result = service.generate_aft_terraform(session)
+
+            if not result["success"]:
+                slack.post_message(channel_id, text=f"❌ Error: {result.get('error', 'Unknown error')}")
+                return {"statusCode": 200, "body": ""}
+
+            terraform_files = result["terraform_files"]
+            metadata = result["metadata"]
+
+            slack.post_message(channel_id, text=f"⏳ Generated {len(terraform_files)} files. Uploading to GitHub...")
+
+            # Upload to GitHub
+            github = get_github_service()
+            uploader = CodeUploader(github, slack)
+
+            # Build metadata for PR
+            pr_metadata = {
+                "description": f"AFT multi-account setup for {metadata['framework']} compliance",
+                "framework": metadata["framework"],
+                "accounts": metadata["total_accounts"],
+                "vpcs": metadata["total_vpcs"],
+                "estimated_cost": metadata["estimated_monthly_cost"],
+                "primary_region": metadata["primary_region"],
+                "scps": metadata["scps"],
+                "generated_at": datetime.now().isoformat()
+            }
+
+            blueprint_name = f"account-factory/{metadata['framework'].lower().replace(' ', '-')}"
+
+            upload_result = uploader.upload_and_notify(
+                channel_id=channel_id,
+                user_id=user_id,
+                blueprint_name=blueprint_name,
+                terraform_files=terraform_files,
+                metadata=pr_metadata
+            )
+
+            logger.info(f"AFT code uploaded to GitHub: {upload_result['pr_url']}")
+
+            # Show summary
+            summary_text = f"✅ *AFT Configuration Generated!*\n\n"
+            summary_text += f"• Framework: {metadata['framework']}\n"
+            summary_text += f"• Accounts: {metadata['total_accounts']}\n"
+            summary_text += f"• VPCs: {metadata['total_vpcs']}\n"
+            summary_text += f"• Estimated Cost: {metadata['estimated_monthly_cost']}\n"
+            summary_text += f"• SCPs: {', '.join(metadata['scps'])}\n"
+            summary_text += f"\n*Files Generated:* {len(terraform_files)}\n"
+
+            slack.post_message(channel_id, text=summary_text)
+
+            # Clean up session
+            if session_id in service.sessions:
+                del service.sessions[session_id]
+
+        except Exception as e:
+            logger.exception(f"Error generating AFT code: {e}")
+            slack.post_message(
+                channel_id,
+                text=f"❌ Error: {str(e)}\n\nPlease try again or contact support."
+            )
+
+        return {"statusCode": 200, "body": ""}
+
     if event.get("action") == "process_foundation_generate":
         logger.info("Processing async foundation generation")
         slack = get_slack_service()
@@ -1010,27 +1095,28 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         try:
             # Progress update
-            slack.post_message(channel_id, text="⏳ Generating Terraform modules...")
+            slack.post_message(channel_id, text="⏳ Step 1/5: Generating Terraform modules...")
 
             # Generate the code
             builder = get_foundation_builder()
             modules = builder.generate_foundation(session)
 
-            # Progress update
-            slack.post_message(channel_id, text="⏳ Preparing files for GitHub...")
-
-            # Convert modules to terraform files format for GitHub upload
-            terraform_files = {}
-            for module in modules:
-                if module.content and len(module.content) > 100:
-                    terraform_files[f"{module.name}.tf"] = module.content
-
-            if not terraform_files:
+            if not modules:
                 slack.post_message(channel_id, text="❌ No Terraform code was generated. Please try again.")
                 return {"statusCode": 200, "body": ""}
 
             # Progress update
-            slack.post_message(channel_id, text="⏳ Creating GitHub branch and PR...")
+            slack.post_message(channel_id, text="⏳ Step 2/5: Organizing files per Terraform best practices...")
+
+            # Organize modules into proper Terraform file structure
+            terraform_files = _organize_foundation_terraform_files(modules, session)
+
+            if not terraform_files.get('main'):
+                slack.post_message(channel_id, text="❌ No main Terraform content was generated. Please try again.")
+                return {"statusCode": 200, "body": ""}
+
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Step 3/5: Creating GitHub branch and PR...")
 
             # Upload to GitHub
             github = get_github_service()
@@ -1044,11 +1130,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "estimated_cost": f"${session.estimated_monthly_cost:.2f}/month" if session.estimated_monthly_cost else "N/A",
                 "framework": framework_name,
                 "vpcs": session.requirements.get("vpcs", []),
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now().isoformat(),
+                "modules_generated": len(modules),
             }
 
             # Create a meaningful blueprint name
             blueprint_name = f"foundation/{framework_name.lower().replace(' ', '-')}"
+
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Step 4/5: Committing files to GitHub...")
 
             upload_result = uploader.upload_and_notify(
                 channel_id=channel_id,
@@ -1057,6 +1147,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 terraform_files=terraform_files,
                 metadata=metadata
             )
+
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Step 5/5: Finalizing...")
 
             logger.info(f"Foundation code uploaded to GitHub: {upload_result['pr_url']}")
 
@@ -1243,6 +1336,8 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_blueprints_command(slack, channel_id, user_id)
     elif subcommand == "foundation":
         return handle_foundation_command(slack, channel_id, user_id, args)
+    elif subcommand == "account-factory":
+        return handle_account_factory_command(slack, channel_id, user_id, args)
     elif subcommand == "patterns":
         return handle_patterns_command(slack, channel_id, user_id, args)
     elif subcommand == "architect":
@@ -2631,6 +2726,472 @@ def handle_foundation_command(
             text="Unknown foundation command. Use start, status, or `cancel.",
         )
         return {"statusCode": 200, "body": ""}
+
+
+def handle_account_factory_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """Handle /carl account-factory command - multi-account AFT setup."""
+    from services.account_factory import get_account_factory_service
+
+    service = get_account_factory_service()
+    parts = args.split() if args else []
+    subcommand = parts[0].lower() if parts else "start"
+
+    if subcommand == "start":
+        # Create new session
+        session = service.create_session(user_id, channel_id)
+
+        # Show framework selection
+        from services.framework_loader import get_framework_loader
+        loader = get_framework_loader()
+        available_frameworks = loader.list_available_frameworks()
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "CARL Account Factory"},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "Welcome to the CARL Account Factory!\n\n"
+                        "I'll help you set up a compliant multi-account AWS environment using "
+                        "*AWS Account Factory for Terraform (AFT)*.\n\n"
+                        "The compliance framework you choose will determine:\n"
+                        "• Organizational structure (OUs)\n"
+                        "• Accounts to create\n"
+                        "• Service Control Policies (SCPs)\n"
+                        "• Security services configuration\n"
+                        "• VPC configuration per account"
+                    ),
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Select your compliance framework:*"
+                },
+            },
+        ]
+
+        # Framework selection buttons
+        framework_elements = []
+        for fw_id in available_frameworks:
+            metadata = loader.get_framework_metadata(fw_id)
+            framework_elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": metadata.get('name', fw_id)[:75]},
+                "value": fw_id,
+                "action_id": f"account_factory_framework_{session.session_id}_{fw_id}",
+                "style": "primary" if fw_id == "soc2" else None
+            })
+
+        blocks.append({
+            "type": "actions",
+            "elements": framework_elements[:5],
+        })
+
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"Session ID: {session.session_id} | Tip: SOC 2 is recommended for enterprise B2B"}
+            ],
+        })
+
+        slack.post_message(channel_id, blocks=blocks)
+        return {"statusCode": 200, "body": ""}
+
+    elif subcommand == "status":
+        # Find user's session
+        for session in service.sessions.values():
+            if session.user_id == user_id and session.channel_id == channel_id:
+                summary = service.get_summary(session)
+                text = f"*Account Factory Status*\n\n"
+                text += f"• State: {summary['state']}\n"
+                text += f"• Framework: {summary['framework'] or 'Not selected'}\n"
+                text += f"• Primary Region: {summary['primary_region'] or 'Not set'}\n"
+                text += f"• Accounts: {len(summary['accounts'])}\n"
+
+                if summary['accounts']:
+                    text += "\n*Accounts:*\n"
+                    for acc in summary['accounts']:
+                        text += f"  - {acc['name']} ({acc['ou']}) - {acc['email']}\n"
+
+                slack.post_message(channel_id, text=text)
+                return {"statusCode": 200, "body": ""}
+
+        slack.post_message(
+            channel_id,
+            text="No active Account Factory session. Use `/carl account-factory start` to begin.",
+        )
+        return {"statusCode": 200, "body": ""}
+
+    elif subcommand == "cancel":
+        for session_id, session in list(service.sessions.items()):
+            if session.user_id == user_id and session.channel_id == channel_id:
+                del service.sessions[session_id]
+                slack.post_message(channel_id, text="Account Factory session cancelled.")
+                return {"statusCode": 200, "body": ""}
+
+        slack.post_message(channel_id, text="No active session to cancel.")
+        return {"statusCode": 200, "body": ""}
+
+    else:
+        slack.post_message(
+            channel_id,
+            text="Unknown account-factory command. Use `start`, `status`, or `cancel`.",
+        )
+        return {"statusCode": 200, "body": ""}
+
+
+def handle_account_factory_framework_selection(payload: dict, action: dict) -> dict:
+    """Handle Account Factory framework selection."""
+    from services.account_factory import get_account_factory_service
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    action_id = action.get("action_id", "")
+
+    # Parse: account_factory_framework_{session_id}_{framework_id}
+    parts = action_id.replace("account_factory_framework_", "").split("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+    framework_id = parts[1]
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        slack.post_message(channel, text="Session expired. Please start again with `/carl account-factory start`")
+        return {"statusCode": 200, "body": ""}
+
+    # Select framework
+    result = service.select_framework(session, framework_id)
+
+    if not result["success"]:
+        slack.post_message(channel, text=f"❌ Error: {result.get('error', 'Unknown error')}")
+        return {"statusCode": 200, "body": ""}
+
+    # Show organizational structure from framework
+    org_text = f"✅ *{result['framework_name']}* framework selected!\n\n"
+    org_text += "*Organizational Structure (from framework):*\n"
+    for ou in result["org_structure"]:
+        org_text += f"\n*{ou['ou_name']} OU* - {ou['purpose']}\n"
+        for acc in ou["accounts"]:
+            org_text += f"  • {acc['name']}: {acc['purpose']}\n"
+
+    org_text += f"\n*Service Control Policies (SCPs):*\n"
+    for scp in result["scps"]:
+        org_text += f"  • {scp['name']}: {scp['description']}\n"
+
+    org_text += f"\n*Total Accounts:* {result['total_accounts']} (including AFT management)"
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": org_text}
+        },
+        {"type": "divider"},
+    ]
+
+    # Now ask for AFT account email
+    next_question = service.get_next_question(session)
+    if next_question:
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{next_question['question']}*\n_{next_question.get('description', '')}_"
+            }
+        })
+
+        if next_question["type"] in ["aft_email", "account_email"]:
+            # Text input - use button to trigger modal
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Enter Email"},
+                    "action_id": f"account_factory_answer_{session_id}_{next_question['type']}",
+                }]
+            })
+        elif next_question.get("options"):
+            # Use buttons for selection
+            elements = []
+            for opt in next_question["options"]:
+                elements.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": opt["label"][:75]},
+                    "value": opt["value"],
+                    "action_id": f"account_factory_answer_{session_id}_{next_question['type']}_{opt['value']}",
+                })
+            blocks.append({
+                "type": "actions",
+                "elements": elements[:5]
+            })
+
+    slack.post_message(channel, blocks=blocks)
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_account_factory_answer(payload: dict, action: dict) -> dict:
+    """Handle Account Factory answer buttons/inputs."""
+    from services.account_factory import get_account_factory_service
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    trigger_id = payload.get("trigger_id", "")
+    action_id = action.get("action_id", "")
+
+    # Parse: account_factory_answer_{session_id}_{question_type}[_{value}]
+    parts = action_id.replace("account_factory_answer_", "").split("_")
+    session_id = parts[0]
+    question_type = parts[1] if len(parts) > 1 else ""
+    value = "_".join(parts[2:]) if len(parts) > 2 else action.get("value", "")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        slack.post_message(channel, text="Session expired. Please start again.")
+        return {"statusCode": 200, "body": ""}
+
+    # Handle email inputs via modal
+    if question_type in ["aft_email", "account_email"] and not value:
+        # Open modal for email input
+        _show_account_factory_email_modal(slack, trigger_id, session_id, question_type)
+        return {"statusCode": 200, "body": ""}
+
+    # Handle region selection
+    if question_type == "primary_region" and value:
+        service.set_primary_region(session, value)
+        slack.post_message(channel, text=f"✓ Primary region set to *{value}*")
+
+    # Continue with next question
+    next_question = service.get_next_question(session)
+    if next_question:
+        _show_account_factory_next_question(slack, channel, session_id, next_question)
+    else:
+        # All questions answered - show summary and accept button
+        _show_account_factory_summary(slack, channel, session, session_id)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def _show_account_factory_email_modal(slack: SlackService, trigger_id: str, session_id: str, question_type: str):
+    """Show modal for email input."""
+    title = "AFT Account Email" if question_type == "aft_email" else "Account Email"
+
+    modal = {
+        "type": "modal",
+        "callback_id": f"account_factory_email_{session_id}_{question_type}",
+        "title": {"type": "plain_text", "text": title[:24]},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "email_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "email_input",
+                    "placeholder": {"type": "plain_text", "text": "email@example.com"}
+                },
+                "label": {"type": "plain_text", "text": "Email Address"},
+                "hint": {"type": "plain_text", "text": "Must be a unique email not already used by an AWS account"}
+            }
+        ]
+    }
+
+    try:
+        slack.client.views_open(trigger_id=trigger_id, view=modal)
+    except Exception as e:
+        logger.error(f"Failed to open email modal: {e}")
+
+
+def _show_account_factory_next_question(slack: SlackService, channel: str, session_id: str, question: dict):
+    """Show the next question in the Account Factory wizard."""
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{question['question']}*\n_{question.get('description', '')}_"
+            }
+        }
+    ]
+
+    if question["type"] in ["aft_email", "account_email"]:
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Enter Email"},
+                "action_id": f"account_factory_answer_{session_id}_{question['type']}",
+            }]
+        })
+    elif question.get("options"):
+        elements = []
+        for opt in question["options"]:
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": opt["label"][:75]},
+                "value": opt["value"],
+                "action_id": f"account_factory_answer_{session_id}_{question['type']}_{opt['value']}",
+            })
+        blocks.append({
+            "type": "actions",
+            "elements": elements[:5]
+        })
+
+    slack.post_message(channel, blocks=blocks)
+
+
+def _show_account_factory_summary(slack: SlackService, channel: str, session, session_id: str):
+    """Show summary and generate button."""
+    from services.account_factory import get_account_factory_service
+
+    service = get_account_factory_service()
+    summary = service.get_summary(session)
+
+    text = f"*Account Factory Configuration Complete!*\n\n"
+    text += f"• Framework: {summary['framework']}\n"
+    text += f"• Primary Region: {summary['primary_region']}\n"
+    text += f"• Accounts: {len(summary['accounts'])}\n\n"
+
+    text += "*Accounts to Create:*\n"
+    for acc in summary["accounts"]:
+        text += f"  • *{acc['name']}* ({acc['ou']}) - {acc['email']}\n"
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": text}
+        },
+        {"type": "divider"},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✓ Generate AFT & Push to GitHub"},
+                    "action_id": f"account_factory_accept_{session_id}",
+                    "style": "primary"
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                    "action_id": f"account_factory_cancel_{session_id}",
+                }
+            ]
+        }
+    ]
+
+    slack.post_message(channel, blocks=blocks)
+
+
+def handle_account_factory_email_submission(payload: dict) -> dict:
+    """Handle email modal submission."""
+    from services.account_factory import get_account_factory_service
+
+    callback_id = payload.get("view", {}).get("callback_id", "")
+    # Parse: account_factory_email_{session_id}_{question_type}
+    parts = callback_id.replace("account_factory_email_", "").split("_")
+    session_id = parts[0]
+    question_type = "_".join(parts[1:])
+
+    values = payload.get("view", {}).get("state", {}).get("values", {})
+    email = values.get("email_block", {}).get("email_input", {}).get("value", "")
+
+    channel = payload.get("view", {}).get("private_metadata", "") or payload.get("response_urls", [{}])[0].get("channel_id", "")
+
+    # Try to get channel from user's recent message
+    user_id = payload.get("user", {}).get("id", "")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        return {"statusCode": 200, "body": ""}
+
+    channel = session.channel_id
+
+    # Set the email
+    if question_type == "aft_email":
+        service.set_aft_account_email(session, email)
+        slack.post_message(channel, text=f"✓ AFT account email set to *{email}*")
+    elif question_type.startswith("account_email"):
+        # For specific account emails, need account name
+        pass
+
+    # Continue with next question
+    next_question = service.get_next_question(session)
+    if next_question:
+        _show_account_factory_next_question(slack, channel, session_id, next_question)
+    else:
+        _show_account_factory_summary(slack, channel, session, session_id)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_account_factory_accept(payload: dict, action: dict) -> dict:
+    """Handle Account Factory accept - generate AFT Terraform and push to GitHub."""
+    import json
+    import os
+    import boto3
+    from services.account_factory import get_account_factory_service
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    action_id = action.get("action_id", "")
+
+    session_id = action_id.replace("account_factory_accept_", "")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        slack.post_message(channel, text="Session expired.")
+        return {"statusCode": 200, "body": ""}
+
+    # Post acknowledgement
+    slack.post_message(channel, text="🔄 Starting AFT Terraform generation...")
+
+    # Invoke async generation
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',
+            Payload=json.dumps({
+                'action': 'process_account_factory_generate',
+                'channel_id': channel,
+                'user_id': user,
+                'session_id': session_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async account factory generation: {e}")
+        slack.post_message(channel, text=f"❌ Failed to start generation: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_account_factory_vpc_submission(payload: dict) -> dict:
+    """Handle VPC configuration modal submission for Account Factory."""
+    # Similar to foundation VPC submission but for account factory
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_patterns_command(
@@ -4404,6 +4965,356 @@ Return ONLY the README.md file content, no markers or extra text."""
 
 
 
+def _organize_foundation_terraform_files(modules: list, session) -> dict:
+    """
+    Organize foundation modules into proper Terraform file structure.
+
+    Follows Terraform best practices:
+    - main.tf: Main resource definitions (organized by category)
+    - variables.tf: All input variable definitions
+    - outputs.tf: All output definitions
+    - providers.tf: Provider configuration
+    - versions.tf: Terraform version constraints
+    - terraform.tfvars.example: Example variable values
+    - README.md: Documentation
+
+    Args:
+        modules: List of TerraformModule objects from FoundationBuilder
+        session: DecisionSession with requirements and framework info
+
+    Returns:
+        Dict with keys: main, variables, outputs, tfvars_example, readme
+    """
+    import re
+
+    # Collect all content, variables, and outputs
+    networking_content = []
+    security_content = []
+    connectivity_content = []
+    compliance_content = []
+    all_variables = []
+    all_outputs = []
+
+    for module in modules:
+        if not module.content or len(module.content) < 50:
+            continue
+
+        content = module.content
+
+        # Extract variable blocks
+        var_pattern = r'(variable\s+"[^"]+"\s*\{[^}]+\})'
+        variables = re.findall(var_pattern, content, re.DOTALL)
+        for var in variables:
+            if var not in all_variables:
+                all_variables.append(var)
+        # Remove variables from content (they go in variables.tf)
+        content = re.sub(var_pattern, '', content, flags=re.DOTALL)
+
+        # Extract output blocks
+        out_pattern = r'(output\s+"[^"]+"\s*\{[^}]+\})'
+        outputs = re.findall(out_pattern, content, re.DOTALL)
+        for out in outputs:
+            if out not in all_outputs:
+                all_outputs.append(out)
+        # Remove outputs from content (they go in outputs.tf)
+        content = re.sub(out_pattern, '', content, flags=re.DOTALL)
+
+        # Categorize remaining content
+        content = content.strip()
+        if not content:
+            continue
+
+        # Add module header comment
+        header = f"\n# {'=' * 60}\n# {module.name.upper()} - {module.description}\n# {'=' * 60}\n\n"
+
+        if module.name in ['egress', 'ingress', 'transit', 'vpc']:
+            networking_content.append(header + content)
+        elif module.name in ['site_vpn', 'client_vpn', 'direct_connect']:
+            connectivity_content.append(header + content)
+        elif module.name in ['security', 'guardduty', 'security_hub', 'config', 'inspector']:
+            security_content.append(header + content)
+        else:
+            compliance_content.append(header + content)
+
+    # Build main.tf with organized sections
+    main_tf = '''# Foundation Infrastructure
+# Generated by CARL - Compliant AWS Resource Logic
+#
+# This module creates the foundation infrastructure including:
+# - Networking (VPCs, NAT, Transit Gateway)
+# - Security Services (GuardDuty, Security Hub, Config)
+# - Connectivity (VPN, Direct Connect)
+#
+# Terraform Best Practices Applied:
+# - Separate files for variables, outputs, providers
+# - Organized by resource category
+# - Consistent tagging
+# - Security-first configuration
+
+'''
+
+    if networking_content:
+        main_tf += "\n# " + "=" * 70 + "\n"
+        main_tf += "# NETWORKING\n"
+        main_tf += "# " + "=" * 70 + "\n"
+        main_tf += "\n".join(networking_content)
+
+    if security_content:
+        main_tf += "\n\n# " + "=" * 70 + "\n"
+        main_tf += "# SECURITY SERVICES\n"
+        main_tf += "# " + "=" * 70 + "\n"
+        main_tf += "\n".join(security_content)
+
+    if connectivity_content:
+        main_tf += "\n\n# " + "=" * 70 + "\n"
+        main_tf += "# CONNECTIVITY\n"
+        main_tf += "# " + "=" * 70 + "\n"
+        main_tf += "\n".join(connectivity_content)
+
+    if compliance_content:
+        main_tf += "\n\n# " + "=" * 70 + "\n"
+        main_tf += "# COMPLIANCE & OTHER\n"
+        main_tf += "# " + "=" * 70 + "\n"
+        main_tf += "\n".join(compliance_content)
+
+    # Add data sources at the end
+    main_tf += '''
+
+# ============================================================================
+# DATA SOURCES
+# ============================================================================
+
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+# ============================================================================
+# LOCALS
+# ============================================================================
+
+locals {
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.name
+  azs        = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+
+  common_tags = {
+    ManagedBy  = "CARL"
+    Environment = var.environment
+    Project    = var.project_name
+  }
+}
+'''
+
+    # Build variables.tf
+    variables_tf = '''# Input Variables
+# Generated by CARL
+
+variable "environment" {
+  description = "Environment name (e.g., dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}
+
+variable "project_name" {
+  description = "Project name for resource tagging"
+  type        = string
+  default     = "foundation"
+}
+
+variable "aws_region" {
+  description = "AWS region for deployment"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "az_count" {
+  description = "Number of availability zones to use"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.az_count >= 1 && var.az_count <= 3
+    error_message = "AZ count must be between 1 and 3."
+  }
+}
+
+'''
+
+    # Add extracted variables
+    if all_variables:
+        variables_tf += "\n# Module-specific variables\n"
+        variables_tf += "\n\n".join(all_variables)
+
+    # Build outputs.tf
+    outputs_tf = '''# Output Values
+# Generated by CARL
+
+output "account_id" {
+  description = "AWS Account ID"
+  value       = data.aws_caller_identity.current.account_id
+}
+
+output "region" {
+  description = "AWS Region"
+  value       = data.aws_region.current.name
+}
+
+'''
+
+    # Add extracted outputs
+    if all_outputs:
+        outputs_tf += "\n# Module-specific outputs\n"
+        outputs_tf += "\n\n".join(all_outputs)
+
+    # Build providers.tf (separate from versions.tf per Hashicorp recommendation)
+    framework_name = session.framework.name if session.framework else "Best Practices"
+    providers_tf = f'''# Provider Configuration
+# Generated by CARL for {framework_name}
+
+provider "aws" {{
+  region = var.aws_region
+
+  default_tags {{
+    tags = {{
+      ManagedBy   = "CARL"
+      Compliance  = "{framework_name}"
+      Environment = var.environment
+    }}
+  }}
+}}
+
+# US-East-1 provider (required for global services like CloudFront, WAF global)
+provider "aws" {{
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {{
+    tags = {{
+      ManagedBy   = "CARL"
+      Compliance  = "{framework_name}"
+      Environment = var.environment
+    }}
+  }}
+}}
+'''
+
+    # Build versions.tf
+    versions_tf = '''# Terraform Configuration
+# Generated by CARL
+
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 5.0"
+    }
+  }
+}
+'''
+
+    # Build terraform.tfvars.example
+    vpc_count = session.requirements.get("vpc_count", 1)
+    tfvars_example = f'''# Example Variable Values
+# Copy this file to terraform.tfvars and customize
+
+environment  = "dev"
+project_name = "my-foundation"
+aws_region   = "us-east-1"
+az_count     = 2
+
+# VPC Configuration
+# vpc_count = {vpc_count}
+'''
+
+    # Build README.md
+    vpcs = session.requirements.get("vpcs", [])
+    vpc_summary = ""
+    if vpcs:
+        for vpc in vpcs:
+            vpc_summary += f"- **{vpc.get('name', 'VPC')}**: {vpc.get('cidr', 'N/A')} ({vpc.get('environment', 'N/A')})\n"
+
+    readme = f'''# Foundation Infrastructure
+
+Generated by **CARL** - Compliant AWS Resource Logic
+
+## Overview
+
+This Terraform configuration creates a compliant AWS foundation infrastructure based on **{framework_name}** requirements.
+
+## Components
+
+### Networking
+{vpc_summary or "- VPC with public and private subnets"}
+
+### Security Services
+- GuardDuty threat detection
+- Security Hub compliance monitoring
+- AWS Config configuration tracking
+
+## Prerequisites
+
+1. AWS CLI configured with appropriate credentials
+2. Terraform >= 1.5.0
+3. S3 bucket for state storage (configure in backend.tf)
+
+## Usage
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Review the plan
+terraform plan
+
+# Apply the configuration
+terraform apply
+```
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `main.tf` | Main resource definitions |
+| `variables.tf` | Input variable definitions |
+| `outputs.tf` | Output value definitions |
+| `providers.tf` | Provider configuration |
+| `versions.tf` | Terraform version constraints |
+| `terraform.tfvars.example` | Example variable values |
+| `backend.tf` | State storage configuration |
+
+## Estimated Monthly Cost
+
+{f"${session.estimated_monthly_cost:.2f}/month" if session.estimated_monthly_cost else "N/A"}
+
+## Compliance
+
+This infrastructure is designed for **{framework_name}** compliance with:
+- Encryption at rest (KMS)
+- Encryption in transit (TLS)
+- VPC Flow Logs enabled
+- CloudWatch monitoring
+- Security Hub compliance checks
+
+---
+*Generated by CARL on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}*
+'''
+
+    return {
+        'main': main_tf.strip(),
+        'variables': variables_tf.strip(),
+        'outputs': outputs_tf.strip(),
+        'tfvars_example': tfvars_example.strip(),
+        'readme': readme.strip(),
+        # Also include separate files for organization
+        'providers': providers_tf.strip(),
+        'versions': versions_tf.strip(),
+    }
+
+
 def _extract_soc2_controls(readme: str) -> list:
     """Extract SOC 2 controls mentioned in README."""
     import re
@@ -6029,6 +6940,10 @@ def handle_interaction(payload: dict) -> dict:
             return handle_foundation_text_submission(payload)
         elif callback_id.startswith("foundation_vpc_submit_"):
             return handle_foundation_vpc_submission(payload)
+        elif callback_id.startswith("account_factory_email_"):
+            return handle_account_factory_email_submission(payload)
+        elif callback_id.startswith("account_factory_vpc_"):
+            return handle_account_factory_vpc_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
@@ -6060,6 +6975,12 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_remediation_approval(payload, remediation_id, False)
             elif action_id.startswith("foundation_select_framework_"):
                 return handle_foundation_framework_selection(payload, action)
+            elif action_id.startswith("account_factory_framework_"):
+                return handle_account_factory_framework_selection(payload, action)
+            elif action_id.startswith("account_factory_answer_"):
+                return handle_account_factory_answer(payload, action)
+            elif action_id.startswith("account_factory_accept_"):
+                return handle_account_factory_accept(payload, action)
             elif action_id.startswith("foundation_select_"):
                 # Handle dropdown select answers
                 return handle_foundation_select_answer(payload, action)
