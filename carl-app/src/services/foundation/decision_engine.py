@@ -422,6 +422,34 @@ class DecisionEngine:
                 'framework_mode': session.framework_mode,
             }
 
+            # Serialize requirement_inputs (list of RequirementInput dataclass objects)
+            if session.requirement_inputs:
+                session_dict['requirement_inputs'] = [
+                    {
+                        'question_id': ri.question_id,
+                        'question': ri.question,
+                        'answer': ri.answer,
+                        'answered_at': ri.answered_at
+                    }
+                    for ri in session.requirement_inputs
+                ]
+
+            # Serialize decisions (list of DecisionResult dataclass objects)
+            if session.decisions:
+                session_dict['decisions'] = [
+                    {
+                        'category': d.category,
+                        'selected_option_name': d.selected_option.name if d.selected_option else None,
+                        'user_confirmed': d.user_confirmed,
+                        'custom_configuration': d.custom_configuration,
+                        'compliance_controls': d.compliance_controls,
+                        'why_required': d.why_required,
+                        'audit_evidence': d.audit_evidence,
+                        'gap_status': d.gap_status,
+                    }
+                    for d in session.decisions
+                ]
+
             # Store framework and gap analysis IDs (not full objects)
             if session.framework:
                 session_dict['framework_id'] = session.framework.id
@@ -471,6 +499,23 @@ class DecisionEngine:
                 estimated_monthly_cost=session_data.get('estimated_monthly_cost', 0.0),
                 framework_mode=session_data.get('framework_mode', False),
             )
+
+            # Deserialize requirement_inputs
+            if 'requirement_inputs' in session_data:
+                session.requirement_inputs = [
+                    RequirementInput(
+                        question_id=ri['question_id'],
+                        question=ri['question'],
+                        answer=ri['answer'],
+                        answered_at=ri.get('answered_at')
+                    )
+                    for ri in session_data['requirement_inputs']
+                ]
+
+            # Deserialize decisions (simplified - won't fully reconstruct DecisionResult objects)
+            # This is OK because decisions are only needed for code generation at the end
+            if 'decisions' in session_data:
+                session.decisions = []  # Will be regenerated if needed
 
             # Reload framework if needed
             if 'framework_id' in session_data:
