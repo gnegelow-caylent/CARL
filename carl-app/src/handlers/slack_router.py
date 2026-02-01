@@ -6299,10 +6299,14 @@ def handle_foundation_answer(payload: dict, action: dict) -> dict:
             },
         ]
 
-        # Add options
-        if "options" in question:
+        # Add interactive elements based on question type
+        input_type = question.get('input_type', 'select')
+        options = question.get('options', [])
+
+        if input_type == 'select' and options:
+            # Use buttons for select questions with options
             elements = []
-            for opt in question["options"]:
+            for opt in options:
                 elements.append({
                     "type": "button",
                     "text": {"type": "plain_text", "text": opt["label"][:75]},
@@ -6318,6 +6322,42 @@ def handle_foundation_answer(payload: dict, action: dict) -> dict:
                     "type": "actions",
                     "elements": elements[5:],
                 })
+
+        elif input_type == 'multi_select' and options:
+            # Use checkboxes for multi-select questions
+            checkbox_options = [
+                {"text": {"type": "plain_text", "text": opt['label'][:75]}, "value": opt['value']}
+                for opt in options
+            ]
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "checkboxes",
+                    "action_id": f"foundation_multiselect_{session_id}_{question['id']}",
+                    "options": checkbox_options
+                }]
+            })
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                    "action_id": f"foundation_multiselect_submit_{session_id}_{question['id']}",
+                    "style": "primary"
+                }]
+            })
+
+        elif input_type in ['text', 'number']:
+            # Use button to open modal for text/number input
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Enter Answer"},
+                    "action_id": f"foundation_text_modal_{session_id}_{question['id']}",
+                    "style": "primary"
+                }]
+            })
 
         slack.post_message(channel, blocks=blocks)
 
