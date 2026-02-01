@@ -341,32 +341,31 @@ framework:
   # No need to ask - just push to GitHub
 
   # Organizational structure (used by Account Factory, ignored by Foundation)
+  # Simplified structure: Security (audit + logging), AFT, Workloads (dev, staging, prod)
   organizational_structure:
     - ou_name: Security
-      purpose: "Security team and centralized security services"
+      purpose: "Centralized security and logging"
       accounts:
-        - name: security-audit
-          purpose: "Security Hub delegated admin, GuardDuty admin"
-        - name: security-logging
-          purpose: "Centralized CloudTrail, Config, VPC Flow Logs"
+        - name: audit
+          purpose: "Security Hub delegated admin, GuardDuty admin, centralized security tools"
+        - name: log-archive
+          purpose: "Centralized CloudTrail, Config logs, VPC Flow Logs (immutable)"
 
     - ou_name: Infrastructure
-      purpose: "Shared services and networking"
+      purpose: "Account Factory for Terraform"
       accounts:
-        - name: network
-          purpose: "Transit Gateway, centralized networking"
-        - name: shared-services
-          purpose: "DNS, monitoring, backup"
+        - name: aft-management
+          purpose: "Account Factory for Terraform - manages account provisioning"
 
     - ou_name: Workloads
       purpose: "Application workloads"
       accounts:
-        - name: production
-          purpose: "Production workloads"
-        - name: staging
-          purpose: "Staging environment"
-        - name: development
+        - name: dev
           purpose: "Development environment"
+        - name: staging
+          purpose: "Staging/QA environment"
+        - name: prod
+          purpose: "Production workloads"
 
   # Service Control Policies (used by Account Factory, ignored by Foundation)
   scps:

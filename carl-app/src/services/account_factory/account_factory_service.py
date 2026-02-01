@@ -291,6 +291,25 @@ class AccountFactoryService:
         self._save_session(session)
         return {"success": True, "primary_region": region}
 
+    def set_account_emails(
+        self,
+        session: AccountFactorySession,
+        emails: dict[str, str]
+    ) -> dict:
+        """Set emails for multiple accounts at once.
+
+        Args:
+            emails: Dict mapping account_name -> email
+        """
+        updated = []
+        for account in session.accounts:
+            if account.name in emails:
+                account.email = emails[account.name]
+                updated.append(account.name)
+
+        self._save_session(session)
+        return {"success": True, "updated_accounts": updated}
+
     def add_vpc_to_account(
         self,
         session: AccountFactorySession,
@@ -350,16 +369,23 @@ class AccountFactoryService:
                 ],
             }
 
-        # Check for accounts missing emails
-        for account in session.accounts:
-            if not account.email and account.name != "aft-management":
-                return {
-                    "type": "account_email",
-                    "account_name": account.name,
-                    "question": f"What email should be used for the '{account.name}' account?",
-                    "description": f"Purpose: {account.purpose}\nOU: {account.ou_name}",
-                    "input_type": "text",
-                }
+        # Check for accounts missing emails - return ALL at once for better UX
+        accounts_needing_emails = [
+            {
+                "name": account.name,
+                "purpose": account.purpose,
+                "ou_name": account.ou_name,
+            }
+            for account in session.accounts
+            if not account.email and account.name != "aft-management"
+        ]
+        if accounts_needing_emails:
+            return {
+                "type": "all_account_emails",
+                "question": "Configure email addresses for your AWS accounts",
+                "description": "Each AWS account needs a unique email address. These cannot be changed after account creation.",
+                "accounts": accounts_needing_emails,
+            }
 
         # Check for workload accounts that need VPCs
         for account in session.accounts:

@@ -3059,7 +3059,31 @@ def _show_account_factory_next_question(slack: SlackService, channel: str, sessi
         }
     ]
 
-    if question["type"] in ["aft_email", "account_email"]:
+    if question["type"] == "all_account_emails":
+        # Show all accounts needing emails with a button to open multi-email modal
+        accounts = question.get("accounts", [])
+        account_list = "\n".join([
+            f"• *{acc['name']}* - {acc['purpose']} (OU: {acc['ou_name']})"
+            for acc in accounts
+        ])
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Accounts needing email addresses:*\n{account_list}"}
+        })
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "👇 *Click the button below to enter email addresses for all accounts:*"}
+        })
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "📧 Configure Account Emails"},
+                "action_id": f"account_factory_all_emails_{session_id}",
+                "style": "primary"
+            }]
+        })
+    elif question["type"] in ["aft_email", "account_email"]:
         # Text input - use button to trigger modal with clear instructions
         blocks.append({
             "type": "section",
@@ -3089,6 +3113,127 @@ def _show_account_factory_next_question(slack: SlackService, channel: str, sessi
         })
 
     slack.post_message(channel, blocks=blocks)
+
+
+def handle_account_factory_all_emails_button(payload: dict, action: dict) -> dict:
+    """Handle button click to open multi-account email modal."""
+    from services.account_factory import get_account_factory_service
+
+    trigger_id = payload.get("trigger_id", "")
+    action_id = action.get("action_id", "")
+    session_id = action_id.replace("account_factory_all_emails_", "")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        channel = payload.get("channel", {}).get("id", "")
+        slack.post_message(channel, text="Session expired. Please start again with `/carl account-factory start`")
+        return {"statusCode": 200, "body": ""}
+
+    # Get accounts needing emails
+    accounts_needing_emails = [
+        {"name": acc.name, "purpose": acc.purpose, "ou_name": acc.ou_name}
+        for acc in session.accounts
+        if not acc.email and acc.name != "aft-management"
+    ]
+
+    _show_account_factory_all_emails_modal(slack, trigger_id, session_id, accounts_needing_emails)
+    return {"statusCode": 200, "body": ""}
+
+
+def _show_account_factory_all_emails_modal(slack: SlackService, trigger_id: str, session_id: str, accounts: list):
+    """Show modal for entering all account emails at once."""
+    logger = get_logger(__name__)
+
+    # Build input blocks for each account (max 10 inputs in a modal)
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Configure email addresses for your AWS accounts*\n_Each account needs a unique email not already associated with an AWS account._"
+            }
+        },
+        {"type": "divider"}
+    ]
+
+    for acc in accounts[:10]:  # Slack modal limit
+        blocks.append({
+            "type": "input",
+            "block_id": f"email_{acc['name']}",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "email_input",
+                "placeholder": {"type": "plain_text", "text": f"{acc['name']}@yourcompany.com"}
+            },
+            "label": {"type": "plain_text", "text": f"{acc['name']}"},
+            "hint": {"type": "plain_text", "text": f"{acc['purpose']} (OU: {acc['ou_name']})"}
+        })
+
+    modal = {
+        "type": "modal",
+        "callback_id": f"account_factory_all_emails_submit_{session_id}",
+        "title": {"type": "plain_text", "text": "Account Emails"},
+        "submit": {"type": "plain_text", "text": "Save All"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks
+    }
+
+    try:
+        slack.client.views_open(trigger_id=trigger_id, view=modal)
+    except Exception as e:
+        logger.error(f"Failed to open all emails modal: {e}")
+
+
+def handle_account_factory_all_emails_submission(payload: dict) -> dict:
+    """Handle submission of all account emails modal."""
+    from services.account_factory import get_account_factory_service
+
+    logger = get_logger(__name__)
+    callback_id = payload.get("view", {}).get("callback_id", "")
+    session_id = callback_id.replace("account_factory_all_emails_submit_", "")
+
+    values = payload.get("view", {}).get("state", {}).get("values", {})
+
+    # Extract emails from each input block
+    emails = {}
+    for block_id, block_data in values.items():
+        if block_id.startswith("email_"):
+            account_name = block_id.replace("email_", "")
+            email = block_data.get("email_input", {}).get("value", "")
+            if email:
+                emails[account_name] = email
+
+    logger.info(f"All emails submission - session_id: {session_id}, emails: {list(emails.keys())}")
+
+    service = get_account_factory_service()
+    session = service.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        logger.error(f"All emails submission - session not found: {session_id}")
+        return {"statusCode": 200, "body": ""}
+
+    channel = session.channel_id
+
+    # Set all emails at once
+    result = service.set_account_emails(session, emails)
+    logger.info(f"All emails submission - set result: {result}")
+
+    # Confirmation message
+    email_summary = "\n".join([f"• *{name}*: {email}" for name, email in emails.items()])
+    slack.post_message(channel, text=f"✓ Account emails configured:\n{email_summary}")
+
+    # Continue with next question
+    next_question = service.get_next_question(session)
+    if next_question:
+        _show_account_factory_next_question(slack, channel, session_id, next_question)
+    else:
+        _show_account_factory_summary(slack, channel, session, session_id)
+
+    return {"statusCode": 200, "body": ""}
 
 
 def _show_account_factory_summary(slack: SlackService, channel: str, session, session_id: str):
@@ -6989,6 +7134,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_foundation_vpc_submission(payload)
         elif callback_id.startswith("account_factory_email_"):
             return handle_account_factory_email_submission(payload)
+        elif callback_id.startswith("account_factory_all_emails_submit_"):
+            return handle_account_factory_all_emails_submission(payload)
         elif callback_id.startswith("account_factory_vpc_"):
             return handle_account_factory_vpc_submission(payload)
 
@@ -7026,6 +7173,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_account_factory_framework_selection(payload, action)
             elif action_id.startswith("account_factory_answer_"):
                 return handle_account_factory_answer(payload, action)
+            elif action_id.startswith("account_factory_all_emails_"):
+                return handle_account_factory_all_emails_button(payload, action)
             elif action_id.startswith("account_factory_accept_"):
                 return handle_account_factory_accept(payload, action)
             elif action_id.startswith("foundation_select_"):
