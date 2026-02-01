@@ -1214,19 +1214,28 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
 4. **Continuous Learning**: User feedback improves recommendations over time
 5. **Audit-Ready**: Evidence collection and report generation for auditors
 6. **Bootstrap Through Code**: Complete AWS environment setup via automation (NEW)
-7. **Avoid Redundant Tools**: Don't build multiple tools that do the same thing. Reuse existing functionality, consolidate similar features, and prefer extending existing tools over creating new ones. Examples:
+7. **Use AWS Managed Services Wherever Possible**: Prefer AWS managed services over custom implementations. Reduces operational overhead, improves reliability, and leverages AWS expertise. Examples:
+   - ✅ Use AWS Bedrock AgentCore (managed platform) for agents, not custom agentic loops
+   - ✅ Use DynamoDB (managed NoSQL) instead of self-hosted databases
+   - ✅ Use Lambda (serverless) instead of EC2 for event-driven workloads
+   - ✅ Use EventBridge (managed event bus) instead of custom schedulers
+   - ✅ Use Secrets Manager (managed) instead of custom encryption solutions
+   - ✅ Use CloudWatch (managed) instead of self-hosted monitoring
+   - ❌ Don't build custom solutions when AWS has a managed service for it
+   - **Trade-off**: Only build custom when AWS service doesn't exist or has critical limitations
+8. **Avoid Redundant Tools**: Don't build multiple tools that do the same thing. Reuse existing functionality, consolidate similar features, and prefer extending existing tools over creating new ones. Examples:
    - Use existing `architecture_tools.py` functions instead of creating new similar tools
    - Consolidate similar Slack commands under one interface
-   - Extend `agent_core.py` capabilities rather than building parallel agent systems
-   - Leverage AWS services instead of reimplementing functionality (e.g., use EventBridge, not custom schedulers)
-8. **Dynamic Processing Over Static Rules**: This is AI - leverage that advantage. Use intelligent agents to solve problems dynamically rather than building brittle static rules. Examples:
+   - Extend existing tools rather than building parallel systems
+   - See Design Principle #7 for AWS managed services guidance
+9. **Dynamic Processing Over Static Rules**: This is AI - leverage that advantage. Use intelligent agents to solve problems dynamically rather than building brittle static rules. Examples:
    - ✅ Use AI agent to condense verbose responses (adapts to content)
    - ❌ Don't write 50+ regex rules to fix formatting issues
    - ✅ Use AI to detect intent and choose appropriate scans
    - ❌ Don't hardcode keyword matching for every possible question
    - ✅ Use AI to intelligently ask relevant questions based on context
    - ❌ Don't create static forms with predetermined questions
-9. **Cost-Conscious Architecture**: CARL's own infrastructure must be cost-effective. Every AWS service, API call, and resource must have justified ROI. Examples:
+10. **Cost-Conscious Architecture**: CARL's own infrastructure must be cost-effective. Every AWS service, API call, and resource must have justified ROI. Examples:
    - ✅ Use Sonnet for condensing (~$0.03/month) - acceptable for reliability
    - ❌ Don't use expensive models when cheaper ones work (Opus for simple tasks)
    - ✅ DynamoDB on-demand pricing (pay per request) - scales to zero
