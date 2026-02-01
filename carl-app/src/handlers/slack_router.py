@@ -995,6 +995,85 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         return {"statusCode": 200, "body": ""}
 
+    if event.get("action") == "process_foundation_generate":
+        logger.info("Processing async foundation generation")
+        slack = get_slack_service()
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        session_id = event.get("session_id")
+
+        engine = get_decision_engine()
+        session = engine.get_session(session_id)
+
+        if not session:
+            slack.post_message(channel_id, text="❌ Session expired. Please start again with `/carl foundation start`")
+            return {"statusCode": 200, "body": ""}
+
+        try:
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Generating Terraform modules...")
+
+            # Generate the code
+            builder = get_foundation_builder()
+            modules = builder.generate_foundation(session)
+
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Preparing files for GitHub...")
+
+            # Convert modules to terraform files format for GitHub upload
+            terraform_files = {}
+            for module in modules:
+                if module.content and len(module.content) > 100:
+                    terraform_files[f"{module.name}.tf"] = module.content
+
+            if not terraform_files:
+                slack.post_message(channel_id, text="❌ No Terraform code was generated. Please try again.")
+                return {"statusCode": 200, "body": ""}
+
+            # Progress update
+            slack.post_message(channel_id, text="⏳ Creating GitHub branch and PR...")
+
+            # Upload to GitHub
+            github = get_github_service()
+            uploader = CodeUploader(github, slack)
+
+            # Build metadata for the PR
+            framework_name = session.framework.name if session.framework else "Best Practices"
+            metadata = {
+                "description": f"Foundation infrastructure for {framework_name} compliance",
+                "requirements": session.requirements,
+                "estimated_cost": f"${session.estimated_monthly_cost:.2f}/month" if session.estimated_monthly_cost else "N/A",
+                "framework": framework_name,
+                "vpcs": session.requirements.get("vpcs", []),
+                "generated_at": datetime.now().isoformat()
+            }
+
+            # Create a meaningful blueprint name
+            blueprint_name = f"foundation/{framework_name.lower().replace(' ', '-')}"
+
+            upload_result = uploader.upload_and_notify(
+                channel_id=channel_id,
+                user_id=user_id,
+                blueprint_name=blueprint_name,
+                terraform_files=terraform_files,
+                metadata=metadata
+            )
+
+            logger.info(f"Foundation code uploaded to GitHub: {upload_result['pr_url']}")
+
+            # Clean up session from memory (DynamoDB copy remains for history)
+            if session_id in engine.sessions:
+                del engine.sessions[session_id]
+
+        except Exception as e:
+            logger.exception(f"Error generating or uploading foundation code: {e}")
+            slack.post_message(
+                channel_id,
+                text=f"❌ Error: {str(e)}\n\nPlease try again or contact support."
+            )
+
+        return {"statusCode": 200, "body": ""}
+
     # Parse request
     headers = event.get("headers", {})
     body = event.get("body", "")
@@ -6921,26 +7000,60 @@ def handle_foundation_vpc_submission(payload: dict) -> dict:
             ]
         )
     else:
-        # All VPCs configured - show summary and continue
+        # All VPCs configured - generate recommendations and show button
         vpc_summary = "\n".join([
             f"• *{v['name']}*: {v['cidr']} ({v['environment']})"
             for v in session.requirements["vpcs"]
         ])
 
+        # Mark session as complete and generate recommendations
+        session.current_phase = "decisions"
+        session.state = SessionState.REVIEWING_DECISIONS
+        engine._generate_recommendations(session)
+        engine._save_session_to_dynamodb(session)
+
+        # Format recommendations message
+        message = engine.format_recommendations_message(session)
+
+        # Show summary with Generate Terraform button
         slack.post_message(
             channel,
-            text=f"✓ All {total_vpcs} VPC(s) configured!\n\n{vpc_summary}"
+            text=f"✓ All {total_vpcs} VPC(s) configured!",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"✓ *All {total_vpcs} VPC(s) configured!*\n\n{vpc_summary}"}
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": message}
+                },
+                {"type": "divider"},
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✓ Generate & Push to GitHub"},
+                            "action_id": f"foundation_accept_{session_id}",
+                            "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Start Over"},
+                            "action_id": f"foundation_restart_{session_id}"
+                        }
+                    ]
+                }
+            ]
         )
-
-        # Process the vpc_count answer to continue flow
-        result = engine.process_answer(session, "vpc_count", str(total_vpcs))
-        _show_foundation_next_step(slack, channel, session_id, result)
 
     return {"statusCode": 200, "body": ""}
 
 
 def handle_foundation_accept(payload: dict, action: dict) -> dict:
-    """Handle acceptance of foundation recommendations - generate code and upload to GitHub."""
+    """Handle acceptance of foundation recommendations - trigger async generation."""
     channel = payload.get("channel", {}).get("id", "")
     user = payload.get("user", {}).get("id", "")
 
@@ -6955,64 +7068,26 @@ def handle_foundation_accept(payload: dict, action: dict) -> dict:
         slack.post_message(channel, text="Session expired.")
         return {"statusCode": 200, "body": ""}
 
-    # Respond immediately to avoid 3-second timeout
-    slack.post_message(channel, text="🔄 Generating Terraform modules...")
+    # Post acknowledgement immediately
+    slack.post_message(channel, text="🔄 Starting Terraform generation...")
 
-    # Do the work in a background thread
-    def generate_and_upload():
-        try:
-            # Generate the code
-            builder = get_foundation_builder()
-            modules = builder.generate_foundation(session)
+    # Invoke Lambda asynchronously to do the actual work
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async
+            Payload=json.dumps({
+                'action': 'process_foundation_generate',
+                'channel_id': channel,
+                'user_id': user,
+                'session_id': session_id
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async foundation generation: {e}")
+        slack.post_message(channel, text=f"❌ Failed to start generation: {str(e)}")
 
-            # Convert modules to terraform files format for GitHub upload
-            terraform_files = {}
-            for module in modules:
-                if module.content and len(module.content) > 100:
-                    terraform_files[f"{module.name}.tf"] = module.content
-
-            if not terraform_files:
-                slack.post_message(channel, text="❌ No Terraform code was generated.")
-                return
-
-            # Upload to GitHub
-            github = get_github_service()
-            uploader = CodeUploader(github, slack)
-
-            # Build metadata for the PR
-            metadata = {
-                "description": "Foundation infrastructure generated by CARL",
-                "requirements": session.requirements,
-                "estimated_cost": f"${session.estimated_monthly_cost:.2f}/month",
-                "framework": session.framework.name if session.framework else "Best Practices",
-                "generated_at": datetime.now().isoformat()
-            }
-
-            upload_result = uploader.upload_and_notify(
-                channel_id=channel,
-                user_id=user,
-                blueprint_name="foundation",
-                terraform_files=terraform_files,
-                metadata=metadata
-            )
-
-            logger.info(f"Foundation code uploaded to GitHub: {upload_result['pr_url']}")
-
-            # Clean up session
-            if session_id in engine.sessions:
-                del engine.sessions[session_id]
-
-        except Exception as e:
-            logger.error(f"Failed to generate/upload foundation code: {e}", exc_info=True)
-            slack.post_message(
-                channel,
-                text=f"❌ Error generating or uploading code: {str(e)}\n\nPlease try again or contact support."
-            )
-
-    thread = threading.Thread(target=generate_and_upload, daemon=True)
-    thread.start()
-
-    # Return immediately (within 3 seconds)
     return {"statusCode": 200, "body": ""}
 
 
