@@ -18,6 +18,9 @@ from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import get_vpc_patterns
 from knowledge.security_tooling_patterns import get_security_tooling_patterns
 from knowledge.identity_patterns import get_identity_patterns
+from knowledge.cloudwatch_alerting_patterns import get_cloudwatch_alerting_patterns
+from knowledge.waf_patterns import get_waf_patterns
+from knowledge.certificate_manager_patterns import get_certificate_manager_patterns
 # Rewritten patterns (using correct ArchitectureDecision API)
 from knowledge.etl_patterns import PATTERNS as ETL_PATTERNS
 from knowledge.serverless_patterns import PATTERNS as SERVERLESS_PATTERNS
@@ -107,6 +110,9 @@ def create_architecture_tools() -> list[Tool]:
                 - networking, vpc: VPC design, Transit Gateway, Direct Connect, VPN
                 - security: Security Hub, GuardDuty, Config, CloudTrail, WAF, firewall
                 - identity: IAM Identity Center, permission sets, SSO
+                - cloudwatch, monitoring, alerting: CloudWatch alarms, dashboards, notifications
+                - waf, firewall: AWS WAF, managed rules, bot control
+                - certificate, acm, ssl: AWS Certificate Manager, SSL/TLS certificates
                 - etl, data-processing: AWS Glue, Step Functions, data quality
                 - serverless, api: Lambda, API Gateway, AppSync, Amplify
                 - containers, ecs: ECS Fargate, EKS patterns
@@ -129,6 +135,14 @@ def create_architecture_tools() -> list[Tool]:
                 "vpc": get_vpc_patterns(),
                 "security": get_security_tooling_patterns(),
                 "identity": get_identity_patterns(),
+                "cloudwatch": get_cloudwatch_alerting_patterns(),
+                "monitoring": get_cloudwatch_alerting_patterns(),
+                "alerting": get_cloudwatch_alerting_patterns(),
+                "waf": get_waf_patterns(),
+                "firewall": get_waf_patterns(),
+                "certificate": get_certificate_manager_patterns(),
+                "acm": get_certificate_manager_patterns(),
+                "ssl": get_certificate_manager_patterns(),
                 # Rewritten patterns (using correct API)
                 "etl": ETL_PATTERNS,
                 "data-processing": ETL_PATTERNS,
@@ -150,12 +164,10 @@ def create_architecture_tools() -> list[Tool]:
                 # "database": ADDITIONAL_SERVICE_PATTERNS,
                 # "redshift": ADDITIONAL_SERVICE_PATTERNS,
                 # "documentdb": ADDITIONAL_SERVICE_PATTERNS,
-                # "firewall": ADDITIONAL_SERVICE_PATTERNS,
                 # "cognito": ADDITIONAL_SERVICE_PATTERNS,
                 # "authentication": ADDITIONAL_SERVICE_PATTERNS,
                 # "website": STATIC_WEBSITE_PATTERNS,
                 # "static-website": STATIC_WEBSITE_PATTERNS,
-                # "cloudfront": STATIC_WEBSITE_PATTERNS,
             }
 
             if category in patterns_map:

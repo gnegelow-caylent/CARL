@@ -33,7 +33,7 @@ This document provides a clear view of what CARL can do today vs what's planned 
 
 ### 📐 Architecture Patterns Library
 
-**Total Patterns:** 130+ production-ready patterns across 35 files
+**Total Patterns:** 148+ production-ready patterns across 38 files
 
 | Category | Count | Status | Details |
 |----------|-------|--------|---------|
@@ -275,7 +275,7 @@ Want a new feature? Here's how:
 ## 📊 Stats
 
 - **Total Slack Commands:** 30+
-- **Architecture Patterns:** **130+** across **35 pattern files** (43 → 130+ added January 30, 2026)
+- **Architecture Patterns:** **148+** across **38 pattern files** (43 → 130+ January 30, 2026 | +18 patterns January 31, 2026)
 - **Infrastructure Blueprints:** 6 production-ready
 - **Lines of Code:** 18,000+
 - **Supported AWS Services:** 50+ (EC2, ECS, EKS, Lambda, RDS, Aurora, DynamoDB, S3, EFS, FSx, Glue, Kinesis, Redshift, DocumentDB, API Gateway, CloudFront, and more)

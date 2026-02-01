@@ -5945,6 +5945,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_accept_risk_modal_submission(payload)
         elif callback_id.startswith("build_config_submit:"):
             return handle_build_config_submission(payload)
+        elif callback_id.startswith("foundation_text_submit_"):
+            return handle_foundation_text_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
@@ -5976,6 +5978,18 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_remediation_approval(payload, remediation_id, False)
             elif action_id.startswith("foundation_select_framework_"):
                 return handle_foundation_framework_selection(payload, action)
+            elif action_id.startswith("foundation_select_"):
+                # Handle dropdown select answers
+                return handle_foundation_select_answer(payload, action)
+            elif action_id.startswith("foundation_multiselect_submit_"):
+                # Handle multi-select submit
+                return handle_foundation_multiselect_submit(payload, action)
+            elif action_id.startswith("foundation_multiselect_"):
+                # Store multi-select state (doesn't submit yet)
+                return {"statusCode": 200, "body": ""}
+            elif action_id.startswith("foundation_text_modal_"):
+                # Open modal for text/number input
+                return handle_foundation_text_modal(payload, action)
             elif action_id.startswith("foundation_answer_"):
                 return handle_foundation_answer(payload, action)
             elif action_id.startswith("foundation_accept_"):
@@ -6083,31 +6097,120 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
             region
         )
 
-        # Show gap analysis results
-        slack.post_message(
-            channel,
-            text=(
-                f"*{framework.name} Gap Analysis Complete*\n\n"
-                f"Your environment: *{gap_analysis.compliance_percentage:.1f}% compliant*\n\n"
-                f"✅ Compliant: {gap_analysis.compliant_count}\n"
-                f"❌ Missing: {gap_analysis.missing_count}\n"
-                f"⚠️ Misconfigured: {gap_analysis.misconfigured_count}\n"
-                f"💰 Est. cost to fix: ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
-                f"I'll ask you {len(framework.questions)} configuration questions, then generate Terraform to fix the gaps."
-            )
+        # Show gap analysis results with clear explanation
+        total_services = gap_analysis.total_services
+        explanation = (
+            f"*{framework.name} Gap Analysis Complete*\n\n"
+            f"Scanned *{total_services} required services* for {framework.name} compliance:\n\n"
+            f"✅ *Compliant:* {gap_analysis.compliant_count} service{'s' if gap_analysis.compliant_count != 1 else ''} "
+            f"(correctly configured)\n"
+            f"❌ *Missing:* {gap_analysis.missing_count} service{'s' if gap_analysis.missing_count != 1 else ''} "
+            f"(not deployed yet)\n"
+            f"⚠️ *Misconfigured:* {gap_analysis.misconfigured_count} service{'s' if gap_analysis.misconfigured_count != 1 else ''} "
+            f"(deployed but settings need adjustment)\n\n"
+            f"*Compliance Score:* {gap_analysis.compliance_percentage:.1f}% "
+            f"({gap_analysis.compliant_count}/{total_services} services fully compliant)\n"
+            f"💰 *Est. cost to fix gaps:* ${gap_analysis.estimated_cost_to_fix:.2f}/month\n\n"
+            f"_Next: I'll ask you {len(framework.questions)} configuration questions, then generate Terraform code to fix all gaps._"
         )
+        slack.post_message(channel, text=explanation)
 
         # Start asking framework questions
         first_question = engine.get_next_question(session)
         if first_question:
-            slack.post_message(
-                channel,
-                text=(
-                    f"*Question 1/{len(framework.questions)}:* {first_question['question']}\n\n"
-                    f"_{first_question['description']}_"
-                )
-            )
-        # TODO: Add button options for question
+            question_num = 1
+            total_questions = len(framework.questions)
+
+            # Build Slack blocks based on question type
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Question {question_num}/{total_questions}:* {first_question['question']}\n\n_{first_question['description']}_"
+                    }
+                }
+            ]
+
+            # Add interactive elements based on input_type
+            if first_question.get('input_type') == 'select' and first_question.get('options'):
+                # Render as buttons (max 5 options) or dropdown (more than 5)
+                options = first_question['options']
+                if len(options) <= 5:
+                    # Use buttons for 5 or fewer options
+                    button_elements = []
+                    for option in options:
+                        button_elements.append({
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": option['label'][:75]},
+                            "action_id": f"foundation_answer_{session['id']}_{first_question['id']}_{option['value']}",
+                            "value": option['value']
+                        })
+
+                    blocks.append({
+                        "type": "actions",
+                        "elements": button_elements
+                    })
+                else:
+                    # Use static select for more than 5 options
+                    select_options = [
+                        {
+                            "text": {"type": "plain_text", "text": opt['label'][:75]},
+                            "value": opt['value']
+                        }
+                        for opt in options
+                    ]
+                    blocks.append({
+                        "type": "actions",
+                        "elements": [{
+                            "type": "static_select",
+                            "action_id": f"foundation_select_{session['id']}_{first_question['id']}",
+                            "placeholder": {"type": "plain_text", "text": "Select an option"},
+                            "options": select_options
+                        }]
+                    })
+
+            elif first_question.get('input_type') == 'multi_select' and first_question.get('options'):
+                # Use checkboxes for multi-select
+                checkbox_options = [
+                    {
+                        "text": {"type": "plain_text", "text": opt['label'][:75]},
+                        "value": opt['value']
+                    }
+                    for opt in first_question['options']
+                ]
+                blocks.append({
+                    "type": "actions",
+                    "elements": [{
+                        "type": "checkboxes",
+                        "action_id": f"foundation_multiselect_{session['id']}_{first_question['id']}",
+                        "options": checkbox_options
+                    }]
+                })
+                # Add submit button for multi-select
+                blocks.append({
+                    "type": "actions",
+                    "elements": [{
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Submit"},
+                        "action_id": f"foundation_multiselect_submit_{session['id']}_{first_question['id']}",
+                        "style": "primary"
+                    }]
+                })
+
+            elif first_question.get('input_type') in ['text', 'number']:
+                # For text/number, show a button to open modal
+                blocks.append({
+                    "type": "actions",
+                    "elements": [{
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Enter Answer"},
+                        "action_id": f"foundation_text_modal_{session['id']}_{first_question['id']}",
+                        "style": "primary"
+                    }]
+                })
+
+            slack.post_message(channel, text=first_question['question'], blocks=blocks)
 
     except Exception as e:
         logger.error(f"Framework selection failed: {e}", exc_info=True)
@@ -6220,6 +6323,317 @@ def handle_foundation_answer(payload: dict, action: dict) -> dict:
         ]
 
         slack.post_message(channel, blocks=blocks)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_foundation_select_answer(payload: dict, action: dict) -> dict:
+    """Handle dropdown select answer (foundation_select_)."""
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    # Parse action_id: foundation_select_{session_id}_{question_id}
+    action_id = action.get("action_id", "")
+    parts = action_id.replace("foundation_select_", "").split("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+    question_id = parts[1]
+
+    # Get selected value from static_select
+    selected_option = action.get("selected_option", {})
+    answer_value = selected_option.get("value", "")
+
+    if not answer_value:
+        return {"statusCode": 200, "body": "No value selected"}
+
+    # Process the answer (same as button answer)
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+
+    if not session:
+        slack = get_slack_service()
+        slack.post_message(channel, text="Session expired. Please start a new foundation session.")
+        return {"statusCode": 200, "body": ""}
+
+    result = engine.process_answer(session, question_id, answer_value)
+    slack = get_slack_service()
+
+    # Show next question or recommendations (same logic as handle_foundation_answer)
+    _show_foundation_next_step(slack, channel, session_id, result)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_foundation_multiselect_submit(payload: dict, action: dict) -> dict:
+    """Handle multi-select checkbox submission (foundation_multiselect_submit_)."""
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    # Parse action_id: foundation_multiselect_submit_{session_id}_{question_id}
+    action_id = action.get("action_id", "")
+    parts = action_id.replace("foundation_multiselect_submit_", "").split("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+    question_id = parts[1]
+
+    # Find the checkboxes action in the message to get selected values
+    # Look through the message blocks for the checkbox component
+    message_blocks = payload.get("message", {}).get("blocks", [])
+    selected_values = []
+
+    for block in message_blocks:
+        if block.get("type") == "actions":
+            for element in block.get("elements", []):
+                if element.get("action_id", "").startswith(f"foundation_multiselect_{session_id}_{question_id}"):
+                    selected_values = [opt.get("value") for opt in element.get("selected_options", [])]
+                    break
+
+    # Join multiple values with commas
+    answer_value = ",".join(selected_values) if selected_values else ""
+
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+
+    if not session:
+        slack = get_slack_service()
+        slack.post_message(channel, text="Session expired. Please start a new foundation session.")
+        return {"statusCode": 200, "body": ""}
+
+    result = engine.process_answer(session, question_id, answer_value)
+    slack = get_slack_service()
+
+    # Show next question or recommendations
+    _show_foundation_next_step(slack, channel, session_id, result)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_foundation_text_modal(payload: dict, action: dict) -> dict:
+    """Open modal for text/number input (foundation_text_modal_)."""
+    trigger_id = payload.get("trigger_id", "")
+
+    # Parse action_id: foundation_text_modal_{session_id}_{question_id}
+    action_id = action.get("action_id", "")
+    parts = action_id.replace("foundation_text_modal_", "").split("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+    question_id = parts[1]
+
+    # Get the question details
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+
+    if not session:
+        return {"statusCode": 200, "body": "Session expired"}
+
+    # Find the question
+    framework = engine.framework
+    question = framework.get_question_by_id(question_id)
+
+    if not question:
+        return {"statusCode": 200, "body": "Question not found"}
+
+    # Create modal
+    slack = get_slack_service()
+    modal_view = {
+        "type": "modal",
+        "callback_id": f"foundation_text_submit_{session_id}_{question_id}",
+        "title": {"type": "plain_text", "text": "Answer Question"},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{question.question}*\n\n_{question.description}_"}
+            },
+            {
+                "type": "input",
+                "block_id": "answer_input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "answer_value",
+                    "placeholder": {"type": "plain_text", "text": question.default if question.default else "Enter your answer"},
+                },
+                "label": {"type": "plain_text", "text": "Answer"}
+            }
+        ]
+    }
+
+    # Open modal
+    slack.client.views_open(trigger_id=trigger_id, view=modal_view)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def _show_foundation_next_step(slack, channel: str, session_id: str, result: dict):
+    """Helper to show next question or recommendations after answer."""
+    if result["action"] == "ask_question":
+        # Show next question
+        question = result["question"]
+        progress = result["progress"]
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✓ Answer recorded",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Question {progress}:* {question['question']}\n\n_{question.get('description', '')}_",
+                },
+            },
+        ]
+
+        # Add interactive elements based on question type
+        if question.get('input_type') == 'select' and question.get('options'):
+            options = question['options']
+            if len(options) <= 5:
+                button_elements = []
+                for option in options:
+                    button_elements.append({
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": option['label'][:75]},
+                        "action_id": f"foundation_answer_{session_id}_{question['id']}_{option['value']}",
+                        "value": option['value']
+                    })
+                blocks.append({"type": "actions", "elements": button_elements})
+            else:
+                select_options = [
+                    {"text": {"type": "plain_text", "text": opt['label'][:75]}, "value": opt['value']}
+                    for opt in options
+                ]
+                blocks.append({
+                    "type": "actions",
+                    "elements": [{
+                        "type": "static_select",
+                        "action_id": f"foundation_select_{session_id}_{question['id']}",
+                        "placeholder": {"type": "plain_text", "text": "Select an option"},
+                        "options": select_options
+                    }]
+                })
+
+        elif question.get('input_type') == 'multi_select' and question.get('options'):
+            checkbox_options = [
+                {"text": {"type": "plain_text", "text": opt['label'][:75]}, "value": opt['value']}
+                for opt in question['options']
+            ]
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "checkboxes",
+                    "action_id": f"foundation_multiselect_{session_id}_{question['id']}",
+                    "options": checkbox_options
+                }]
+            })
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                    "action_id": f"foundation_multiselect_submit_{session_id}_{question['id']}",
+                    "style": "primary"
+                }]
+            })
+
+        elif question.get('input_type') in ['text', 'number']:
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Enter Answer"},
+                    "action_id": f"foundation_text_modal_{session_id}_{question['id']}",
+                    "style": "primary"
+                }]
+            })
+
+        slack.post_message(channel, blocks=blocks, text=question['question'])
+
+    elif result["action"] == "show_recommendations":
+        # Show recommendations
+        engine = get_decision_engine()
+        session = engine.get_session(session_id)
+        message = engine.format_recommendations_message(session)
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": message},
+            },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✓ Generate Terraform"},
+                        "action_id": f"foundation_accept_{session_id}",
+                        "style": "primary",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Start Over"},
+                        "action_id": f"foundation_change_{session_id}",
+                    },
+                ],
+            },
+        ]
+
+        slack.post_message(channel, blocks=blocks, text="Recommendations ready")
+
+
+def handle_foundation_text_submission(payload: dict) -> dict:
+    """Handle modal submission for text/number input."""
+    callback_id = payload.get("view", {}).get("callback_id", "")
+    parts = callback_id.replace("foundation_text_submit_", "").split("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid callback"}
+
+    session_id = parts[0]
+    question_id = parts[1]
+
+    # Get the answer value from modal
+    view_values = payload.get("view", {}).get("state", {}).get("values", {})
+    answer_value = ""
+
+    for block_id, block_value in view_values.items():
+        if "answer_value" in block_value:
+            answer_value = block_value["answer_value"].get("value", "")
+            break
+
+    if not answer_value:
+        return {"statusCode": 200, "body": "No answer provided"}
+
+    # Get channel from private_metadata or user info
+    user_id = payload.get("user", {}).get("id", "")
+
+    # Process the answer
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        # Can't send message directly from modal, user needs to retry
+        return {"statusCode": 200, "body": "Session expired"}
+
+    # Get channel from session
+    channel = session.get("channel_id", "")
+
+    result = engine.process_answer(session, question_id, answer_value)
+
+    # Show next question or recommendations in the channel
+    _show_foundation_next_step(slack, channel, session_id, result)
 
     return {"statusCode": 200, "body": ""}
 
