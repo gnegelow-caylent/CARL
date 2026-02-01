@@ -1023,10 +1023,15 @@ class DecisionEngine:
                 DecisionOption(
                     name=f"Enable {gap.service}",
                     description=gap.why_required,
+                    when_to_use=[gap.category, "SOC 2 compliance"],
+                    when_not_to_use=[],
                     pros=[f"Satisfies controls: {', '.join(gap.controls)}"],
                     cons=[],
-                    estimated_monthly_cost=gap.estimated_monthly_cost,
-                    use_cases=[gap.category]
+                    monthly_cost_range=(gap.estimated_monthly_cost, gap.estimated_monthly_cost * 1.5),
+                    cost_drivers=["Usage-based pricing"],
+                    soc2_controls=gap.controls,
+                    implementation_complexity="low",
+                    operational_overhead="low"
                 )
             ]
         )
