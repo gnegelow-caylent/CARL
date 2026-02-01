@@ -618,8 +618,10 @@ class DecisionEngine:
             questions = session.framework.questions
 
             # Find next question that meets dependency requirements
-            while session.current_question_index < len(questions):
-                fw_q = questions[session.current_question_index]
+            # Use a local variable to avoid modifying session state
+            index = session.current_question_index
+            while index < len(questions):
+                fw_q = questions[index]
 
                 # Check if question depends on a previous answer
                 if fw_q.depends_on:
@@ -634,7 +636,9 @@ class DecisionEngine:
 
                     if not dependencies_met:
                         # Skip this question, move to next
-                        session.current_question_index += 1
+                        index += 1
+                        # Update session index so next call knows where we are
+                        session.current_question_index = index
                         continue
 
                 # Dependencies met (or no dependencies), return this question
@@ -652,7 +656,8 @@ class DecisionEngine:
                     "max": fw_q.max
                 }
 
-            # Reached end of questions
+            # Reached end of questions - update session index
+            session.current_question_index = index
             return None
 
         # Original pattern mode: Use static REQUIREMENT_QUESTIONS
@@ -693,9 +698,6 @@ class DecisionEngine:
         # Move to next question
         session.current_question_index += 1
 
-        # Save updated session to DynamoDB
-        self._save_session_to_dynamodb(session)
-
         # Check if we have all requirements
         if session.current_question_index >= total_questions:
             session.current_phase = "decisions"
@@ -712,8 +714,24 @@ class DecisionEngine:
                 "session": session,
             }
 
-        # Return next question
+        # Get next question (this may skip questions based on depends_on)
         next_q = self.get_next_question(session)
+
+        # Save updated session to DynamoDB (after potential skips)
+        self._save_session_to_dynamodb(session)
+
+        if not next_q:
+            # All questions answered or skipped
+            session.current_phase = "decisions"
+            session.state = SessionState.REVIEWING_DECISIONS
+            self._generate_recommendations(session)
+            self._save_session_to_dynamodb(session)
+
+            return {
+                "action": "show_recommendations",
+                "session": session,
+            }
+
         return {
             "action": "ask_question",
             "question": next_q,
