@@ -327,10 +327,16 @@ framework:
         message: "Account name must be lowercase alphanumeric with hyphens"
       required: true
 
-  # VPC configuration uses existing show_vpc_config_modal with support for multiple VPCs
-  # VPC Flow Logs enabled for all VPCs by default
-  # Use /carl build networking/basic-vpc for VPC creation with proper CIDR/name/environment config
+    - id: vpc_count
+      question: "How many VPCs do you need?"
+      description: "You'll configure each VPC (CIDR, name, environment) in the next steps"
+      input_type: number
+      min: 1
+      max: 10
+      default: 1
+      required: true
 
+  # After vpc_count, show VPC config modal for each VPC using existing show_vpc_config_modal
   # Output is always GitHub PR using existing CodeUploader
   # No need to ask - just push to GitHub
 

@@ -5949,6 +5949,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_build_config_submission(payload)
         elif callback_id.startswith("foundation_text_submit_"):
             return handle_foundation_text_submission(payload)
+        elif callback_id.startswith("foundation_vpc_submit_"):
+            return handle_foundation_vpc_submission(payload)
 
     if action_type == "block_actions":
         actions = payload.get("actions", [])
@@ -5994,6 +5996,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_foundation_text_modal(payload, action)
             elif action_id.startswith("foundation_answer_"):
                 return handle_foundation_answer(payload, action)
+            elif action_id.startswith("foundation_vpc_config_"):
+                return handle_foundation_vpc_config_button(payload, action)
             elif action_id.startswith("foundation_accept_"):
                 return handle_foundation_accept(payload, action)
             elif action_id.startswith("foundation_change_"):
@@ -6707,10 +6711,234 @@ def handle_foundation_text_submission(payload: dict) -> dict:
     # Get channel from session
     channel = session.channel_id
 
+    # Special handling for vpc_count - trigger VPC config modal flow
+    if question_id == "vpc_count":
+        try:
+            vpc_count = int(answer_value)
+            if vpc_count < 1:
+                vpc_count = 1
+            elif vpc_count > 10:
+                vpc_count = 10
+
+            # Store VPC count and initialize VPC list in session
+            session.requirements["vpc_count"] = vpc_count
+            session.requirements["vpcs"] = []
+            session.requirements["vpc_config_index"] = 0
+            engine.save_session(session)
+
+            # Show VPC config modal for first VPC
+            slack.post_message(channel, text=f"✓ Configuring {vpc_count} VPC(s). Let's set up VPC 1/{vpc_count}...")
+
+            # Get trigger_id from original interaction if available, or post button
+            trigger_id = payload.get("trigger_id")
+            if trigger_id:
+                _show_foundation_vpc_modal(slack, trigger_id, session_id, 1, vpc_count)
+            else:
+                # Post a button to trigger the modal
+                slack.post_message(
+                    channel,
+                    blocks=[{
+                        "type": "actions",
+                        "elements": [{
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": f"Configure VPC 1/{vpc_count}"},
+                            "action_id": f"foundation_vpc_config_{session_id}_0",
+                            "style": "primary"
+                        }]
+                    }]
+                )
+            return {"statusCode": 200, "body": ""}
+        except ValueError:
+            slack.post_message(channel, text="❌ Please enter a valid number for VPC count.")
+            return {"statusCode": 200, "body": ""}
+
     result = engine.process_answer(session, question_id, answer_value)
 
     # Show next question or recommendations in the channel
     _show_foundation_next_step(slack, channel, session_id, result)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def _show_foundation_vpc_modal(slack, trigger_id: str, session_id: str, vpc_num: int, total_vpcs: int):
+    """Show modal to configure a single VPC in foundation flow."""
+    import json as json_lib
+
+    modal = {
+        "type": "modal",
+        "callback_id": f"foundation_vpc_submit_{session_id}_{vpc_num - 1}",
+        "private_metadata": json_lib.dumps({
+            "session_id": session_id,
+            "vpc_index": vpc_num - 1,
+            "total_vpcs": total_vpcs
+        }),
+        "title": {"type": "plain_text", "text": f"Configure VPC {vpc_num}/{total_vpcs}"},
+        "submit": {"type": "plain_text", "text": "Save VPC"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "vpc_cidr_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_cidr_input",
+                    "placeholder": {"type": "plain_text", "text": "10.0.0.0/16"},
+                    "initial_value": f"10.{vpc_num - 1}.0.0/16"
+                },
+                "label": {"type": "plain_text", "text": "VPC CIDR Block"},
+                "hint": {"type": "plain_text", "text": "e.g., 10.0.0.0/16 or 172.16.0.0/16"}
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_name_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_name_input",
+                    "placeholder": {"type": "plain_text", "text": "main"},
+                    "initial_value": f"vpc-{vpc_num}" if vpc_num > 1 else "main"
+                },
+                "label": {"type": "plain_text", "text": "VPC Name"},
+                "hint": {"type": "plain_text", "text": "Used for resource naming and tags"}
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_environment_block",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "vpc_environment_input",
+                    "placeholder": {"type": "plain_text", "text": "Select environment"},
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "Production"},
+                        "value": "production"
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Production"}, "value": "production"},
+                        {"text": {"type": "plain_text", "text": "Staging"}, "value": "staging"},
+                        {"text": {"type": "plain_text", "text": "Development"}, "value": "development"},
+                        {"text": {"type": "plain_text", "text": "Shared Services"}, "value": "shared"}
+                    ]
+                },
+                "label": {"type": "plain_text", "text": "Environment"}
+            }
+        ]
+    }
+
+    slack.client.views_open(trigger_id=trigger_id, view=modal)
+
+
+def handle_foundation_vpc_config_button(payload: dict, action: dict) -> dict:
+    """Handle button click to open VPC config modal."""
+    trigger_id = payload.get("trigger_id", "")
+    action_id = action.get("action_id", "")
+
+    # Parse: foundation_vpc_config_{session_id}_{vpc_index}
+    parts = action_id.replace("foundation_vpc_config_", "").rsplit("_", 1)
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": "Invalid action"}
+
+    session_id = parts[0]
+    vpc_index = int(parts[1])
+
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+
+    if not session:
+        return {"statusCode": 200, "body": "Session expired"}
+
+    total_vpcs = session.requirements.get("vpc_count", 1)
+    slack = get_slack_service()
+
+    _show_foundation_vpc_modal(slack, trigger_id, session_id, vpc_index + 1, total_vpcs)
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_foundation_vpc_submission(payload: dict) -> dict:
+    """Handle VPC config modal submission in foundation flow."""
+    import json as json_lib
+
+    callback_id = payload.get("view", {}).get("callback_id", "")
+    private_metadata = payload.get("view", {}).get("private_metadata", "{}")
+
+    try:
+        metadata = json_lib.loads(private_metadata)
+    except:
+        metadata = {}
+
+    session_id = metadata.get("session_id", "")
+    vpc_index = metadata.get("vpc_index", 0)
+    total_vpcs = metadata.get("total_vpcs", 1)
+
+    engine = get_decision_engine()
+    session = engine.get_session(session_id)
+    slack = get_slack_service()
+
+    if not session:
+        return {"statusCode": 200, "body": "Session expired"}
+
+    channel = session.channel_id
+
+    # Extract VPC config from modal
+    view_values = payload.get("view", {}).get("state", {}).get("values", {})
+    vpc_cidr = view_values.get("vpc_cidr_block", {}).get("vpc_cidr_input", {}).get("value", "10.0.0.0/16")
+    vpc_name = view_values.get("vpc_name_block", {}).get("vpc_name_input", {}).get("value", "main")
+    vpc_env_data = view_values.get("vpc_environment_block", {}).get("vpc_environment_input", {}).get("selected_option", {})
+    vpc_environment = vpc_env_data.get("value", "production") if vpc_env_data else "production"
+
+    # Store VPC config
+    vpc_config = {
+        "cidr": vpc_cidr,
+        "name": vpc_name,
+        "environment": vpc_environment
+    }
+
+    if "vpcs" not in session.requirements:
+        session.requirements["vpcs"] = []
+
+    # Add or update VPC at this index
+    while len(session.requirements["vpcs"]) <= vpc_index:
+        session.requirements["vpcs"].append({})
+    session.requirements["vpcs"][vpc_index] = vpc_config
+
+    engine.save_session(session)
+
+    # Check if more VPCs to configure
+    next_index = vpc_index + 1
+    if next_index < total_vpcs:
+        slack.post_message(
+            channel,
+            text=f"✓ VPC {vpc_index + 1} configured: *{vpc_name}* ({vpc_cidr})\n\nNext: Configure VPC {next_index + 1}/{total_vpcs}",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"✓ VPC {vpc_index + 1} configured: *{vpc_name}* ({vpc_cidr}, {vpc_environment})"}
+                },
+                {
+                    "type": "actions",
+                    "elements": [{
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": f"Configure VPC {next_index + 1}/{total_vpcs}"},
+                        "action_id": f"foundation_vpc_config_{session_id}_{next_index}",
+                        "style": "primary"
+                    }]
+                }
+            ]
+        )
+    else:
+        # All VPCs configured - show summary and continue
+        vpc_summary = "\n".join([
+            f"• *{v['name']}*: {v['cidr']} ({v['environment']})"
+            for v in session.requirements["vpcs"]
+        ])
+
+        slack.post_message(
+            channel,
+            text=f"✓ All {total_vpcs} VPC(s) configured!\n\n{vpc_summary}"
+        )
+
+        # Process the vpc_count answer to continue flow
+        result = engine.process_answer(session, "vpc_count", str(total_vpcs))
+        _show_foundation_next_step(slack, channel, session_id, result)
 
     return {"statusCode": 200, "body": ""}
 
