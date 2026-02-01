@@ -789,7 +789,7 @@ class DecisionEngine:
         ))
 
         # Transit (if multiple VPCs)
-        vpc_count = req.get("vpc_count", 1)
+        vpc_count = int(req.get("vpc_count", 1))
         if vpc_count > 1:
             transit_option = ai_selections.get("transit") or self._recommend_transit(req)
             session.decisions.append(DecisionResult(
@@ -903,7 +903,7 @@ class DecisionEngine:
         ))
 
         # Transit recommendation (if multiple VPCs)
-        vpc_count = req.get("vpc_count", 1)
+        vpc_count = int(req.get("vpc_count", 1))
         if vpc_count > 1:
             transit_option = self._recommend_transit(req)
             session.decisions.append(DecisionResult(
