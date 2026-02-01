@@ -608,17 +608,23 @@ class DecisionEngine:
 
         return session, gap_analysis
 
-    def get_next_question(self, session: DecisionSession) -> dict | None:
-        """Get the next requirement question for a session."""
+    def get_next_question(self, session: DecisionSession) -> tuple[dict | None, int]:
+        """
+        Get the next requirement question for a session.
+
+        Returns:
+            (question_dict, new_index) tuple
+            - question_dict: The question to show (or None if done)
+            - new_index: The index after skipping dependencies
+        """
         if session.current_phase != "requirements":
-            return None
+            return None, session.current_question_index
 
         # Framework mode: Use framework-defined questions
         if session.framework_mode and session.framework:
             questions = session.framework.questions
 
             # Find next question that meets dependency requirements
-            # Use a local variable to avoid modifying session state
             index = session.current_question_index
             while index < len(questions):
                 fw_q = questions[index]
@@ -637,8 +643,6 @@ class DecisionEngine:
                     if not dependencies_met:
                         # Skip this question, move to next
                         index += 1
-                        # Update session index so next call knows where we are
-                        session.current_question_index = index
                         continue
 
                 # Dependencies met (or no dependencies), return this question
@@ -654,17 +658,16 @@ class DecisionEngine:
                     "validation": fw_q.validation,
                     "min": fw_q.min,
                     "max": fw_q.max
-                }
+                }, index
 
-            # Reached end of questions - update session index
-            session.current_question_index = index
-            return None
+            # Reached end of questions
+            return None, index
 
         # Original pattern mode: Use static REQUIREMENT_QUESTIONS
         if session.current_question_index >= len(REQUIREMENT_QUESTIONS):
-            return None
+            return None, session.current_question_index
 
-        return REQUIREMENT_QUESTIONS[session.current_question_index]
+        return REQUIREMENT_QUESTIONS[session.current_question_index], session.current_question_index
 
     def process_answer(
         self,
@@ -714,10 +717,13 @@ class DecisionEngine:
                 "session": session,
             }
 
-        # Get next question (this may skip questions based on depends_on)
-        next_q = self.get_next_question(session)
+        # Get next question (returns question and updated index after skips)
+        next_q, new_index = self.get_next_question(session)
 
-        # Save updated session to DynamoDB (after potential skips)
+        # Update index to account for skipped questions
+        session.current_question_index = new_index
+
+        # Save updated session to DynamoDB (captures skipped questions)
         self._save_session_to_dynamodb(session)
 
         if not next_q:

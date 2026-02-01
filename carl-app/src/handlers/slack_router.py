@@ -6060,7 +6060,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
     if framework_id == "none":
         # Best practices mode (original 10-question flow)
         session = engine.create_session(user, channel)
-        first_question = engine.get_next_question(session)
+        first_question, _ = engine.get_next_question(session)
 
         slack.post_message(
             channel,
@@ -6143,7 +6143,7 @@ def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
         slack.post_message(channel, text=explanation)
 
         # Start asking framework questions
-        first_question = engine.get_next_question(session)
+        first_question, _ = engine.get_next_question(session)
         if first_question:
             question_num = 1
             total_questions = len(framework.questions)
