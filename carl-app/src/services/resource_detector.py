@@ -230,3 +230,59 @@ class ResourceDetector:
                 "internet_gateway": "exists" if vpc.internet_gateway_exists else "missing",
             }
         }
+
+    def scan(self) -> dict:
+        """
+        Unified scan method for framework gap analysis.
+
+        Scans both security and VPC resources and returns a unified dictionary
+        suitable for framework gap analysis.
+
+        Returns:
+            Dict mapping service names to their configuration details
+        """
+        try:
+            security = self.detect_security_resources()
+            vpc = self.detect_vpc_resources()
+
+            # Return unified dict with service details
+            return {
+                "guardduty": {
+                    "exists": security.guardduty_exists,
+                    "detector_id": security.guardduty_detector_id,
+                } if security.guardduty_exists else {},
+                "security_hub": {
+                    "exists": security.security_hub_exists,
+                    "arn": security.security_hub_arn,
+                } if security.security_hub_exists else {},
+                "config": {
+                    "exists": security.config_exists,
+                    "recorder_name": security.config_recorder_name,
+                } if security.config_exists else {},
+                "cloudtrail": {
+                    "exists": security.cloudtrail_exists,
+                    "name": security.cloudtrail_name,
+                    "bucket": security.cloudtrail_bucket,
+                    "retention_days": 90,  # Default assumption (would need additional API call to get actual)
+                } if security.cloudtrail_exists else {},
+                "vpc": {
+                    "exists": vpc.vpc_exists,
+                    "vpc_id": vpc.vpc_id,
+                    "cidr": vpc.vpc_cidr,
+                } if vpc.vpc_exists else {},
+                "vpc_flow_logs": {
+                    # TODO: Add VPC Flow Logs detection
+                    "exists": False,
+                },
+                "iam_password_policy": {
+                    # TODO: Add IAM password policy detection
+                    "exists": False,
+                },
+                "kms": {
+                    # TODO: Add KMS key detection
+                    "exists": False,
+                },
+            }
+        except Exception as e:
+            logger.error(f"Error scanning AWS resources: {e}", exc_info=True)
+            return {}
