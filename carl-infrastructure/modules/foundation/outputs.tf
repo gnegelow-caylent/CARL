@@ -238,3 +238,12 @@ output "pricing_prefetch_schedule" {
   description = "Pricing prefetch schedule (cron)"
   value       = aws_cloudwatch_event_rule.pricing_prefetch_schedule.schedule_expression
 }
+output "foundation_table_name" {
+  description = "Name of the foundation sessions table"
+  value       = aws_dynamodb_table.foundation.name
+}
+
+output "foundation_table_arn" {
+  description = "ARN of the foundation sessions table"
+  value       = aws_dynamodb_table.foundation.arn
+}
