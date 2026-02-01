@@ -879,8 +879,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return handle_intelligent_build(slack, channel_id, user_id, requirement, trigger_id)
 
     if event.get("action") == "generate_terraform_async":
-        from datetime import datetime
-
+        # datetime is imported at top of file (line 13)
         logger.info("Processing async Terraform generation")
         slack = get_slack_service()
         terraform_config = event.get("terraform_config", {})
