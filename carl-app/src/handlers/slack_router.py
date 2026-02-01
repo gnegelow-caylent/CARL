@@ -6919,9 +6919,7 @@ def handle_direct_message(event: dict) -> dict:
 def handle_interaction(payload: dict) -> dict:
     """Handle interactive components (buttons, modals)."""
     logger = get_logger(__name__)
-
-    try:
-        action_type = payload.get("type", "")
+    action_type = payload.get("type", "")
 
     if action_type == "view_submission":
         callback_id = payload.get("view", {}).get("callback_id", "")
@@ -7041,12 +7039,7 @@ def handle_interaction(payload: dict) -> dict:
                 drift_id = action_id.replace("drift_suppress_", "")
                 return handle_drift_suppress_button(payload, drift_id)
 
-        return {"statusCode": 200, "body": "OK"}
-
-    except Exception as e:
-        logger.error(f"Error in handle_interaction: {e}", exc_info=True)
-        # Always return 200 to acknowledge the interaction
-        return {"statusCode": 200, "body": f"Error: {str(e)}"}
+    return {"statusCode": 200, "body": "OK"}
 
 
 def handle_foundation_framework_selection(payload: dict, action: dict) -> dict:
