@@ -9,11 +9,14 @@ Hybrid approach:
 - Feedback loop enables continuous learning
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Optional
+from datetime import datetime, timedelta
 import uuid
 import json
+import os
+import boto3
 
 from knowledge.architecture_patterns import (
     ArchitectureDecision,
@@ -371,12 +374,21 @@ class DecisionEngine:
     - User feedback improves future recommendations
     """
 
-    def __init__(self, use_ai: bool = True, feedback_table: str = None):
+    def __init__(self, use_ai: bool = True, feedback_table: str = None, foundation_table: str = None):
         self.patterns = get_all_patterns()
-        self.sessions: dict[str, DecisionSession] = {}
+        self.sessions: dict[str, DecisionSession] = {}  # In-memory cache
         self.use_ai = use_ai
         self.feedback_table = feedback_table
+        self.foundation_table = foundation_table or os.environ.get("FOUNDATION_TABLE", "carl-dev-foundation")
         self._ai_architect = None
+        self._dynamodb = None
+
+    @property
+    def dynamodb(self):
+        """Lazy load DynamoDB client."""
+        if self._dynamodb is None:
+            self._dynamodb = boto3.resource('dynamodb')
+        return self._dynamodb
 
     @property
     def ai_architect(self):
@@ -390,15 +402,109 @@ class DecisionEngine:
                 self.use_ai = False
         return self._ai_architect
 
+    def _save_session_to_dynamodb(self, session: DecisionSession):
+        """Persist session to DynamoDB."""
+        try:
+            table = self.dynamodb.Table(self.foundation_table)
+
+            # Convert session to dict (handle complex types)
+            session_dict = {
+                'session_id': session.session_id,
+                'user_id': session.user_id,
+                'channel_id': session.channel_id,
+                'state': session.state.value,
+                'requirements': session.requirements,
+                'current_phase': session.current_phase,
+                'current_question_index': session.current_question_index,
+                'region': session.region.value if hasattr(session.region, 'value') else str(session.region),
+                'scale_tier': session.scale_tier,
+                'estimated_monthly_cost': session.estimated_monthly_cost,
+                'framework_mode': session.framework_mode,
+            }
+
+            # Store framework and gap analysis IDs (not full objects)
+            if session.framework:
+                session_dict['framework_id'] = session.framework.id
+            if session.gap_analysis:
+                session_dict['gap_analysis_compliance'] = session.gap_analysis.compliance_percentage
+                session_dict['gap_analysis_missing'] = session.gap_analysis.missing_count
+                session_dict['gap_analysis_misconfigured'] = session.gap_analysis.misconfigured_count
+
+            table.put_item(
+                Item={
+                    'pk': f'SESSION#{session.session_id}',
+                    'sk': 'METADATA',
+                    'data': json.dumps(session_dict),
+                    'ttl': int((datetime.now() + timedelta(hours=24)).timestamp()),  # 24 hour expiry
+                }
+            )
+            logger.info(f"Saved session {session.session_id} to DynamoDB")
+        except Exception as e:
+            logger.error(f"Failed to save session to DynamoDB: {e}", exc_info=True)
+
+    def _load_session_from_dynamodb(self, session_id: str) -> DecisionSession | None:
+        """Load session from DynamoDB."""
+        try:
+            table = self.dynamodb.Table(self.foundation_table)
+            response = table.get_item(
+                Key={
+                    'pk': f'SESSION#{session_id}',
+                    'sk': 'METADATA'
+                }
+            )
+
+            if 'Item' not in response:
+                return None
+
+            session_data = json.loads(response['Item']['data'])
+
+            # Reconstruct session
+            session = DecisionSession(
+                session_id=session_data['session_id'],
+                user_id=session_data['user_id'],
+                channel_id=session_data['channel_id'],
+                state=SessionState(session_data['state']),
+                requirements=session_data.get('requirements', {}),
+                current_phase=session_data.get('current_phase', 'requirements'),
+                current_question_index=session_data.get('current_question_index', 0),
+                scale_tier=session_data.get('scale_tier', 'startup'),
+                estimated_monthly_cost=session_data.get('estimated_monthly_cost', 0.0),
+                framework_mode=session_data.get('framework_mode', False),
+            )
+
+            # Reload framework if needed
+            if 'framework_id' in session_data:
+                try:
+                    loader = get_framework_loader()
+                    session.framework = loader.load(session_data['framework_id'])
+                except Exception as e:
+                    logger.warning(f"Could not reload framework: {e}")
+
+            logger.info(f"Loaded session {session_id} from DynamoDB")
+            return session
+
+        except Exception as e:
+            logger.error(f"Failed to load session from DynamoDB: {e}", exc_info=True)
+            return None
+
     def create_session(self, user_id: str, channel_id: str) -> DecisionSession:
         """Create a new decision session."""
         session = DecisionSession.create(user_id, channel_id)
         self.sessions[session.session_id] = session
+        self._save_session_to_dynamodb(session)
         return session
 
     def get_session(self, session_id: str) -> DecisionSession | None:
-        """Get an existing session."""
-        return self.sessions.get(session_id)
+        """Get an existing session (from memory or DynamoDB)."""
+        # Check memory cache first
+        if session_id in self.sessions:
+            return self.sessions[session_id]
+
+        # Load from DynamoDB
+        session = self._load_session_from_dynamodb(session_id)
+        if session:
+            self.sessions[session_id] = session  # Cache it
+        return session
 
     def get_user_session(self, user_id: str, channel_id: str) -> DecisionSession | None:
         """Get active session for a user in a channel."""
@@ -444,8 +550,9 @@ class DecisionEngine:
         gap_analysis = analyzer.analyze(framework, account_id, region)
         session.gap_analysis = gap_analysis
 
-        # Store session
+        # Store session (memory + DynamoDB)
         self.sessions[session.session_id] = session
+        self._save_session_to_dynamodb(session)
 
         logger.info(
             f"Framework session created: {framework.name}, "
@@ -521,6 +628,9 @@ class DecisionEngine:
         # Move to next question
         session.current_question_index += 1
 
+        # Save updated session to DynamoDB
+        self._save_session_to_dynamodb(session)
+
         # Check if we have all requirements
         if session.current_question_index >= total_questions:
             session.current_phase = "decisions"
@@ -528,6 +638,9 @@ class DecisionEngine:
 
             # Generate recommendations based on requirements
             self._generate_recommendations(session)
+
+            # Save session after generating recommendations
+            self._save_session_to_dynamodb(session)
 
             return {
                 "action": "show_recommendations",
