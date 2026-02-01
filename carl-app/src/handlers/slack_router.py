@@ -2917,11 +2917,16 @@ def handle_account_factory_framework_selection(payload: dict, action: dict) -> d
         if next_question["type"] in ["aft_email", "account_email"]:
             # Text input - use button to trigger modal
             blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "👇 *Click the button below to enter the email address:*"}
+            })
+            blocks.append({
                 "type": "actions",
                 "elements": [{
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Enter Email"},
+                    "text": {"type": "plain_text", "text": "📧 Enter Email Address"},
                     "action_id": f"account_factory_answer_{session_id}_{next_question['type']}",
+                    "style": "primary"
                 }]
             })
         elif next_question.get("options"):
@@ -3032,12 +3037,18 @@ def _show_account_factory_next_question(slack: SlackService, channel: str, sessi
     ]
 
     if question["type"] in ["aft_email", "account_email"]:
+        # Text input - use button to trigger modal with clear instructions
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "👇 *Click the button below to enter the email address:*"}
+        })
         blocks.append({
             "type": "actions",
             "elements": [{
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Enter Email"},
+                "text": {"type": "plain_text", "text": "📧 Enter Email Address"},
                 "action_id": f"account_factory_answer_{session_id}_{question['type']}",
+                "style": "primary"
             }]
         })
     elif question.get("options"):
