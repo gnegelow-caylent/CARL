@@ -6721,7 +6721,7 @@ def handle_foundation_text_submission(payload: dict) -> dict:
             session.requirements["vpc_count"] = vpc_count
             session.requirements["vpcs"] = []
             session.requirements["vpc_config_index"] = 0
-            engine.save_session(session)
+            engine._save_session_to_dynamodb(session)
 
             # Show VPC config modal for first VPC
             slack.post_message(channel, text=f"✓ Configuring {vpc_count} VPC(s). Let's set up VPC 1/{vpc_count}...")
@@ -6897,7 +6897,7 @@ def handle_foundation_vpc_submission(payload: dict) -> dict:
         session.requirements["vpcs"].append({})
     session.requirements["vpcs"][vpc_index] = vpc_config
 
-    engine.save_session(session)
+    engine._save_session_to_dynamodb(session)
 
     # Check if more VPCs to configure
     next_index = vpc_index + 1
