@@ -16,6 +16,8 @@ data "aws_region" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.id
+  # AgentCore names can only contain letters, numbers, and underscores (no hyphens)
+  safe_name_prefix = replace(var.name_prefix, "-", "_")
 }
 
 # IAM Role for AgentCore Runtime
@@ -126,7 +128,7 @@ resource "aws_iam_role_policy_attachment" "agentcore_managed" {
 
 # AgentCore Runtime for Ask Agent
 resource "aws_bedrockagentcore_agent_runtime" "ask" {
-  agent_runtime_name = "${var.name_prefix}-ask-agent"
+  agent_runtime_name = "${local.safe_name_prefix}_ask_agent"
   description        = "CARL Ask Agent - intelligent Q&A with AWS environment scanning"
   role_arn           = aws_iam_role.agentcore_execution.arn
 
@@ -163,7 +165,7 @@ resource "aws_bedrockagentcore_agent_runtime" "ask" {
 resource "aws_bedrockagentcore_memory" "ask" {
   count = var.enable_memory ? 1 : 0
 
-  name                  = "${var.name_prefix}-ask-memory"
+  name                  = "${local.safe_name_prefix}_ask_memory"
   description           = "Persistent memory for CARL Ask Agent"
   event_expiry_duration = 30 # 30 days (must be 7-365)
 
@@ -174,7 +176,7 @@ resource "aws_bedrockagentcore_memory" "ask" {
 resource "aws_bedrockagentcore_gateway" "ask_tools" {
   count = var.enable_gateway ? 1 : 0
 
-  name            = "${var.name_prefix}-ask-gateway"
+  name            = "${local.safe_name_prefix}_ask_gateway"
   description     = "Gateway for CARL scanning tools"
   protocol_type   = "MCP"
   authorizer_type = "AWS_IAM"
