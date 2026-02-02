@@ -54,8 +54,8 @@ logger.info("BedrockAgentCoreApp initialized successfully")
 
 # Environment variables (set by Terraform)
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-# Use Claude 3.5 Sonnet v2 which is widely available
-FOUNDATION_MODEL = os.environ.get("FOUNDATION_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+# Use inference profile ID (required for on-demand invocation)
+FOUNDATION_MODEL = os.environ.get("FOUNDATION_MODEL", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
 TOOL_LAMBDA_ARN = os.environ.get("TOOL_LAMBDA_ARN", "")
 
 logger.info(f"Configuration: AWS_REGION={AWS_REGION}, FOUNDATION_MODEL={FOUNDATION_MODEL}")
