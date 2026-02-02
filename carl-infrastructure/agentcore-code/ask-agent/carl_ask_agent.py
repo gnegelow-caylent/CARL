@@ -10,27 +10,55 @@ Entry Point: carl_ask_agent.py
 """
 
 import os
+import sys
 import json
 import logging
-import boto3
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-# AgentCore Runtime imports
-from bedrock_agentcore.runtime import BedrockAgentCoreApp
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging early to capture startup issues
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
 
+logger.info("=== CARL Ask Agent Starting ===")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Working directory: {os.getcwd()}")
+
+# Import boto3
+try:
+    import boto3
+    logger.info(f"boto3 imported successfully, version: {boto3.__version__}")
+except Exception as e:
+    logger.error(f"Failed to import boto3: {e}")
+    traceback.print_exc()
+
+# AgentCore Runtime imports
+try:
+    from bedrock_agentcore.runtime import BedrockAgentCoreApp
+    logger.info("BedrockAgentCoreApp imported successfully")
+except Exception as e:
+    logger.error(f"Failed to import BedrockAgentCoreApp: {e}")
+    traceback.print_exc()
+    raise
+
 # Initialize AgentCore app
-app = BedrockAgentCoreApp()
+logger.info("Initializing BedrockAgentCoreApp...")
+app = BedrockAgentCoreApp(debug=True)
+logger.info("BedrockAgentCoreApp initialized successfully")
 
 # Environment variables (set by Terraform)
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-FOUNDATION_MODEL = os.environ.get("FOUNDATION_MODEL", "anthropic.claude-sonnet-4-20250514-v1:0")
+# Use Claude 3.5 Sonnet v2 which is widely available
+FOUNDATION_MODEL = os.environ.get("FOUNDATION_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0")
 TOOL_LAMBDA_ARN = os.environ.get("TOOL_LAMBDA_ARN", "")
+
+logger.info(f"Configuration: AWS_REGION={AWS_REGION}, FOUNDATION_MODEL={FOUNDATION_MODEL}")
 
 
 @dataclass
@@ -437,39 +465,57 @@ def invoke(payload: dict, context: Any = None) -> dict:
         "result": "agent response here"
     }
     """
-    logger.info(f"Received payload: {json.dumps(payload, default=str)[:500]}...")
+    logger.info("=== INVOKE CALLED ===")
+    logger.info(f"Payload type: {type(payload)}")
+    logger.info(f"Payload: {json.dumps(payload, default=str)[:500]}")
+    logger.info(f"Context: {context}")
 
-    # Extract user input - AgentCore uses "prompt" key
-    question = payload.get("prompt", "")
-
-    if not question:
-        return {
-            "result": "Please provide a question. Example: 'What's my current MFA status?' or 'How should I design my VPC?'"
-        }
-
-    logger.info(f"Processing question: {question}")
-
-    # Classify the question
-    question_type = classify_question(question)
-    logger.info(f"Question type: {question_type}")
-
-    # Scan AWS environment
     try:
-        scanner = AWSResourceScanner(region=AWS_REGION)
-        scan_results = scanner.scan_all()
-        env_context = scan_results_to_context(scan_results)
+        # Extract user input - AgentCore uses "prompt" key
+        question = payload.get("prompt", "")
+
+        if not question:
+            return {
+                "result": "Please provide a question. Example: 'What's my current MFA status?' or 'How should I design my VPC?'"
+            }
+
+        logger.info(f"Processing question: {question}")
+
+        # Classify the question
+        question_type = classify_question(question)
+        logger.info(f"Question type: {question_type}")
+
+        # Scan AWS environment
+        try:
+            scanner = AWSResourceScanner(region=AWS_REGION)
+            scan_results = scanner.scan_all()
+            env_context = scan_results_to_context(scan_results)
+        except Exception as e:
+            logger.error(f"AWS scan failed: {e}")
+            env_context = f"Note: AWS environment scan failed with error: {str(e)}\n\nProceeding with general knowledge."
+
+        # Generate response
+        logger.info("Generating AI response...")
+        response_text = generate_response(question, env_context, question_type)
+        logger.info(f"Response generated, length: {len(response_text)}")
+
+        result = {"result": response_text}
+        logger.info("=== INVOKE COMPLETE ===")
+        return result
+
     except Exception as e:
-        logger.error(f"AWS scan failed: {e}")
-        env_context = f"Note: AWS environment scan failed with error: {str(e)}\n\nProceeding with general knowledge."
-
-    # Generate response
-    response_text = generate_response(question, env_context, question_type)
-
-    return {
-        "result": response_text
-    }
+        logger.error(f"Error in invoke: {e}")
+        traceback.print_exc()
+        return {"result": f"Error processing request: {str(e)}"}
 
 
 # AgentCore entry point
 if __name__ == "__main__":
-    app.run()
+    logger.info("=== Starting CARL Ask Agent Server ===")
+    logger.info(f"Listening on port 8080")
+    try:
+        app.run(port=8080)
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        traceback.print_exc()
+        sys.exit(1)

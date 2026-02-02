@@ -4,5 +4,10 @@
 # AgentCore SDK (REQUIRED for deployment)
 bedrock-agentcore
 
+# Web framework dependencies (required by BedrockAgentCoreApp)
+uvicorn
+starlette
+pydantic
+
 # AWS SDK
 boto3>=1.35.0
