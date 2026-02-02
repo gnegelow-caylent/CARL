@@ -172,6 +172,73 @@ def get_github_service() -> GitHubService:
     return _github_service
 
 
+def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
+    """
+    Invoke AgentCore Ask Agent for intelligent Q&A.
+
+    Args:
+        question: The user's question
+        session_id: Optional session ID for conversation continuity
+
+    Returns:
+        dict with 'response' (text) and 'success' (bool)
+    """
+    import uuid
+
+    runtime_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
+    if not runtime_arn:
+        return {"success": False, "response": "", "error": "AgentCore not configured"}
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
+        payload = {"prompt": question}
+
+        logger.info(f"Invoking AgentCore runtime: {runtime_arn}")
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            runtimeSessionId=session_id,
+            payload=json.dumps(payload).encode("utf-8")
+        )
+
+        # Process response - AgentCore returns an event stream
+        full_response = ""
+        event_stream = response.get("responseStream")
+        if event_stream:
+            for event in event_stream:
+                # AgentCore events contain chunks of the response
+                if "chunk" in event:
+                    chunk_data = event["chunk"]
+                    if "bytes" in chunk_data:
+                        chunk_text = chunk_data["bytes"].decode("utf-8")
+                        full_response += chunk_text
+                elif "trace" in event:
+                    # Trace events contain debugging info, skip for now
+                    pass
+
+        # Also check for direct response body
+        if not full_response:
+            resp = response.get("response")
+            if resp and hasattr(resp, "read"):
+                body = resp.read()
+                if isinstance(body, bytes):
+                    full_response = body.decode("utf-8")
+
+        if full_response:
+            logger.info(f"AgentCore response received: {len(full_response)} chars")
+            return {"success": True, "response": full_response, "session_id": session_id}
+        else:
+            logger.warning("AgentCore returned empty response")
+            return {"success": False, "response": "", "error": "Empty response from AgentCore"}
+
+    except Exception as e:
+        logger.error(f"AgentCore invocation failed: {e}", exc_info=True)
+        return {"success": False, "response": "", "error": str(e)}
+
+
 def verify_slack_signature(
     signing_secret: str,
     timestamp: str,
@@ -2192,119 +2259,53 @@ def handle_ask_command_sync(
     slack: SlackService, channel_id: str, user_id: str, question: str
 ) -> dict:
     """
-    Synchronous version of ask command - uses lightweight scanner for AWS resources.
+    Synchronous version of ask command - uses AgentCore for intelligent Q&A.
+    Falls back to local scanning if AgentCore is not configured or fails.
     """
     import os
-    import json
     import time
-    from services.aws_resource_scanner import AWSResourceScanner
+    import uuid
     from services.learning_service import LearningService
 
-    # Get Bedrock service for final response generation
-    bedrock = get_bedrock_service()
-
     logger.info(f"Processing ask command: {question}")
+    scan_start_time = time.time()
 
     # Classify question type first
     question_type = classify_question_type(question)
     logger.info(f"Question classified as: {question_type}")
 
-    # Route to appropriate handler
+    # Route architecture questions to architecture handler
     if question_type == "architecture":
         logger.info("Routing to architecture agent")
         return handle_architecture_question(slack, channel_id, user_id, question)
 
-    # Continue with compliance/scanning agent
-    logger.info("Processing as compliance question with comprehensive AWS scanning")
+    # Try AgentCore first (Phase 1 - intelligent Q&A with scanning)
+    agentcore_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
+    response = None
+    session_id = str(uuid.uuid4())
 
-    # Track for learning
-    scan_start_time = time.time()
-    scans_performed = []
-    resources_found = []
+    if agentcore_arn:
+        logger.info(f"Using AgentCore for /carl ask: {agentcore_arn}")
+        slack.post_message(channel_id, text="🤖 Analyzing your question with CARL AgentCore...")
 
-    context = ""
+        result = invoke_agentcore_ask(question, session_id)
 
-    # Use lightweight resource scanner (no storage overhead)
-    try:
-        logger.info("🔍 Performing comprehensive AWS environment scan...")
-        slack.post_message(channel_id, text="🔍 Scanning your AWS environment to answer your question...")
+        if result["success"]:
+            response = result["response"]
+            logger.info(f"AgentCore response: {len(response)} chars")
+        else:
+            logger.warning(f"AgentCore failed: {result.get('error')}, falling back to local scanning")
+            slack.post_message(channel_id, text="⚠️ AgentCore unavailable, falling back to local scanning...")
 
-        # Initialize lightweight scanner (no S3/DynamoDB storage)
-        from services.aws_resource_scanner import AWSResourceScanner
-        scanner = AWSResourceScanner(region=os.environ.get("AWS_REGION", "us-east-1"))
+    # Fallback to local scanning if AgentCore not configured or failed
+    if not response:
+        logger.info("Using local scanning fallback")
+        response = _handle_ask_with_local_scanning(slack, channel_id, question)
 
-        # Track progress
-        total_resources_scanned = 0
-
-        # Progress callback to post updates
-        def progress_callback(service_name, completed, total, resources_found):
-            nonlocal total_resources_scanned
-            total_resources_scanned += resources_found
-
-            # Post progress updates at milestones
-            percent = int((completed / total) * 100)
-
-            # Show progress at 25%, 50%, 75% or every service
-            if percent in [25, 50, 75] or completed == total:
-                slack.post_message(
-                    channel_id,
-                    text=f"⏳ Scanning progress: {completed}/{total} services ({percent}%) - {total_resources_scanned} resources found"
-                )
-
-        # Scan AWS resources with progress updates
-        scan_results = scanner.scan_all(progress_callback=progress_callback)
-
-        # Convert scan results to context summary for AI
-        environment_summary = _scan_results_to_context_summary(scan_results)
-
-        # Count resources for logging
-        total_resources = sum(len(items) for items in scan_results.values())
-        logger.info(f"✅ Scan complete: {total_resources} resources across {len(scan_results)} service categories")
-
-        # Initialize learning service
-        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
-        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
-
-        learning_service = LearningService(
-            scan_history_table=scan_history_table,
-            resource_graph_table=resource_graph_table
-        )
-
-        # Get learned context to make agent smarter
-        learned_context = learning_service.get_learned_context(question, interaction_type="ask")
-
-        # Build comprehensive context
-        context = environment_summary
-
-        # Add learned context if available
-        if learned_context:
-            context += f"\n\n{learned_context}"
-
-        # Track scans performed (all service categories)
-        scans_performed = list(scan_results.keys())
-
-        # Track resources found from scan
-        for category, scan_items in scan_results.items():
-            for scan_result in scan_items:
-                resources_found.append({
-                    "type": scan_result.resource_type,
-                    "id": scan_result.resource_id
-                })
-
-    except Exception as e:
-        logger.error(f"Comprehensive AWS scanning failed: {e}", exc_info=True)
-        context += f"\nNote: Environment scan encountered an error: {str(e)}\n\n"
-        slack.post_message(channel_id, text=f"⚠️ Environment scan encountered an error, proceeding with available information...")
-
-    # Generate AI response using scan data
-    # Note: No stored findings lookup - /carl ask is scan-first
-    # For stored findings, users should use /carl status or /carl findings
-    response = bedrock.ask_compliance_question(question, context)
-
-    # Calculate scan duration
+    # Calculate duration
     scan_duration_ms = int((time.time() - scan_start_time) * 1000)
 
-    # Log interaction for learning (fire and forget - don't block on errors)
+    # Log interaction for learning
     interaction_id = None
     try:
         learning_service = LearningService(
@@ -2315,60 +2316,355 @@ def handle_ask_command_sync(
         interaction_id = learning_service.log_interaction(
             user_id=user_id,
             question=question,
-            scans_performed=scans_performed,
-            resources_found=resources_found,
+            scans_performed=["agentcore"] if agentcore_arn else ["local_scanner"],
+            resources_found=[],
             scan_duration_ms=scan_duration_ms,
-            metadata={"channel_id": channel_id}
+            metadata={"channel_id": channel_id, "session_id": session_id}
         )
-
         logger.info(f"Logged interaction {interaction_id} for learning")
     except Exception as e:
         logger.warning(f"Failed to log interaction for learning: {e}")
 
-    # Format and post response with better structure
+    # Format and post response
     formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Response")
     for block_group in formatted_blocks:
         slack.post_message(channel_id, blocks=block_group)
 
+    # Add action buttons for follow-up actions
+    action_buttons = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "_Need more details?_"
+            }
+        },
+        {
+            "type": "actions",
+            "block_id": f"ask_actions_{session_id}",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔍 Deep Scan",
+                        "emoji": True
+                    },
+                    "value": json.dumps({"action": "deep_scan", "question": question, "session_id": session_id}),
+                    "action_id": "ask_deep_scan"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📊 Full Report",
+                        "emoji": True
+                    },
+                    "value": json.dumps({"action": "full_report", "question": question, "session_id": session_id}),
+                    "action_id": "ask_full_report"
+                }
+            ]
+        }
+    ]
+
     # Add feedback buttons if interaction was logged
     if interaction_id:
-        feedback_blocks = [
+        action_buttons.append({
+            "type": "divider"
+        })
+        action_buttons.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "_Was this answer helpful?_"
+            }
+        })
+        action_buttons.append({
+            "type": "actions",
+            "block_id": f"feedback_{interaction_id}",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "👍 Yes",
+                        "emoji": True
+                    },
+                    "value": f"{interaction_id}:helpful",
+                    "action_id": "feedback_positive"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "👎 No",
+                        "emoji": True
+                    },
+                    "value": f"{interaction_id}:not_helpful",
+                    "action_id": "feedback_negative"
+                }
+            ]
+        })
+
+    slack.post_message(channel_id, blocks=action_buttons)
+
+
+def _handle_ask_with_local_scanning(slack: SlackService, channel_id: str, question: str) -> str:
+    """
+    Fallback handler that uses local AWS scanning (original implementation).
+    Used when AgentCore is not configured or fails.
+    """
+    import os
+    from services.aws_resource_scanner import AWSResourceScanner
+    from services.learning_service import LearningService
+
+    bedrock = get_bedrock_service()
+    context = ""
+
+    try:
+        logger.info("🔍 Performing local AWS environment scan...")
+        slack.post_message(channel_id, text="🔍 Scanning your AWS environment...")
+
+        scanner = AWSResourceScanner(region=os.environ.get("AWS_REGION", "us-east-1"))
+
+        total_resources_scanned = 0
+
+        def progress_callback(service_name, completed, total, resources_found):
+            nonlocal total_resources_scanned
+            total_resources_scanned += resources_found
+            percent = int((completed / total) * 100)
+            if percent in [25, 50, 75] or completed == total:
+                slack.post_message(
+                    channel_id,
+                    text=f"⏳ Scanning: {completed}/{total} services ({percent}%) - {total_resources_scanned} resources"
+                )
+
+        scan_results = scanner.scan_all(progress_callback=progress_callback)
+        environment_summary = _scan_results_to_context_summary(scan_results)
+
+        total_resources = sum(len(items) for items in scan_results.values())
+        logger.info(f"✅ Scan complete: {total_resources} resources")
+
+        # Get learned context
+        learning_service = LearningService(
+            scan_history_table=os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history"),
+            resource_graph_table=os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+        )
+        learned_context = learning_service.get_learned_context(question, interaction_type="ask")
+
+        context = environment_summary
+        if learned_context:
+            context += f"\n\n{learned_context}"
+
+    except Exception as e:
+        logger.error(f"Local scanning failed: {e}", exc_info=True)
+        context += f"\nNote: Environment scan error: {str(e)}\n"
+        slack.post_message(channel_id, text="⚠️ Scan error, proceeding with available information...")
+
+    return bedrock.ask_compliance_question(question, context)
+
+
+def handle_ask_deep_scan(payload: dict, action: dict) -> dict:
+    """
+    Handle Deep Scan button click from /carl ask response.
+    Runs a comprehensive scan with more detail.
+    """
+    import os
+    from services.aws_resource_scanner import AWSResourceScanner
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    # Parse the action value
+    try:
+        action_data = json.loads(action.get("value", "{}"))
+        question = action_data.get("question", "")
+        session_id = action_data.get("session_id", "")
+    except json.JSONDecodeError:
+        question = ""
+        session_id = ""
+
+    # Update the message to show scanning is in progress
+    message_ts = payload.get("message", {}).get("ts", "")
+    slack.post_message(channel, text=f"🔬 *Deep Scan requested* - Running comprehensive AWS scan...\n_Original question: {question}_")
+
+    # Perform comprehensive scan
+    try:
+        scanner = AWSResourceScanner(region=os.environ.get("AWS_REGION", "us-east-1"))
+        scan_results = scanner.scan_all()
+
+        # Build detailed summary
+        total_resources = sum(len(items) for items in scan_results.values())
+
+        # Convert to context for AI
+        environment_summary = _scan_results_to_context_summary(scan_results)
+
+        # Generate deep analysis using AgentCore or Bedrock
+        agentcore_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
+        deep_prompt = f"""The user asked: "{question}"
+
+They requested a DEEP SCAN for more details. Here is comprehensive AWS environment data:
+
+{environment_summary}
+
+Please provide a DETAILED analysis with:
+1. Specific resource names, IDs, and configurations
+2. Any compliance concerns or security issues found
+3. Specific recommendations with remediation steps
+4. Resource counts and statistics
+
+Be thorough and specific - the user wants maximum detail."""
+
+        if agentcore_arn:
+            result = invoke_agentcore_ask(deep_prompt, session_id)
+            if result["success"]:
+                response = result["response"]
+            else:
+                bedrock = get_bedrock_service()
+                response = bedrock.ask_compliance_question(deep_prompt, "")
+        else:
+            bedrock = get_bedrock_service()
+            response = bedrock.ask_compliance_question(deep_prompt, "")
+
+        # Post deep scan results
+        formatted_blocks = format_markdown_to_blocks(response, "🔬 Deep Scan Results")
+        for block_group in formatted_blocks:
+            slack.post_message(channel, blocks=block_group)
+
+    except Exception as e:
+        logger.error(f"Deep scan failed: {e}", exc_info=True)
+        slack.post_message(channel, text=f"❌ Deep scan failed: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_ask_full_report(payload: dict, action: dict) -> dict:
+    """
+    Handle Full Report button click from /carl ask response.
+    Generates a comprehensive compliance report.
+    """
+    import os
+    from services.aws_resource_scanner import AWSResourceScanner
+
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    # Parse the action value
+    try:
+        action_data = json.loads(action.get("value", "{}"))
+        question = action_data.get("question", "")
+        session_id = action_data.get("session_id", "")
+    except json.JSONDecodeError:
+        question = ""
+        session_id = ""
+
+    slack.post_message(channel, text=f"📊 *Full Report requested* - Generating comprehensive compliance report...\n_Original question: {question}_")
+
+    try:
+        # Run comprehensive scan
+        scanner = AWSResourceScanner(region=os.environ.get("AWS_REGION", "us-east-1"))
+        scan_results = scanner.scan_all()
+
+        environment_summary = _scan_results_to_context_summary(scan_results)
+        total_resources = sum(len(items) for items in scan_results.values())
+
+        # Generate full report using AgentCore or Bedrock
+        report_prompt = f"""Generate a FULL COMPLIANCE REPORT for this AWS environment.
+
+User's original question: "{question}"
+
+AWS Environment Data:
+{environment_summary}
+
+Generate a comprehensive compliance report with the following sections:
+
+## Executive Summary
+- Overall compliance posture (percentage estimate)
+- Key findings summary
+- Critical issues requiring immediate attention
+
+## Resource Inventory
+- List all resources found by category
+- Include resource IDs and key configurations
+
+## Compliance Findings
+For each finding:
+- Severity (CRITICAL/HIGH/MEDIUM/LOW)
+- Resource affected
+- Issue description
+- SOC 2 control mapping
+- Remediation recommendation
+
+## Recommendations
+- Prioritized list of actions
+- Quick wins (easy to fix)
+- Strategic improvements
+
+## Next Steps
+- Specific actions the team should take
+
+Format this as a professional compliance report."""
+
+        agentcore_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
+
+        if agentcore_arn:
+            result = invoke_agentcore_ask(report_prompt, session_id)
+            if result["success"]:
+                response = result["response"]
+            else:
+                bedrock = get_bedrock_service()
+                response = bedrock.ask_compliance_question(report_prompt, "")
+        else:
+            bedrock = get_bedrock_service()
+            response = bedrock.ask_compliance_question(report_prompt, "")
+
+        # Post full report
+        formatted_blocks = format_markdown_to_blocks(response, "📊 Full Compliance Report")
+        for block_group in formatted_blocks:
+            slack.post_message(channel, blocks=block_group)
+
+        # Add follow-up actions
+        report_actions = [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "_Was this answer helpful?_"
+                    "text": "_Report generated. What would you like to do next?_"
                 }
             },
             {
                 "type": "actions",
-                "block_id": f"feedback_{interaction_id}",
                 "elements": [
                     {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "👍 Yes",
+                            "text": "📥 Export to PDF",
                             "emoji": True
                         },
-                        "value": f"{interaction_id}:helpful",
-                        "action_id": "feedback_positive"
+                        "value": "export_pdf",
+                        "action_id": "report_export_pdf"
                     },
                     {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "👎 No",
+                            "text": "🎫 Create Jira Tickets",
                             "emoji": True
                         },
-                        "value": f"{interaction_id}:not_helpful",
-                        "action_id": "feedback_negative"
+                        "value": "create_tickets",
+                        "action_id": "report_create_tickets"
                     }
                 ]
             }
         ]
+        slack.post_message(channel, blocks=report_actions)
 
-        slack.post_message(channel_id, blocks=feedback_blocks)
+    except Exception as e:
+        logger.error(f"Full report generation failed: {e}", exc_info=True)
+        slack.post_message(channel, text=f"❌ Report generation failed: {str(e)}")
 
     return {"statusCode": 200, "body": ""}
 
@@ -7428,6 +7724,10 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_foundation_compare(payload, action)
             elif action_id == "feedback_positive" or action_id == "feedback_negative":
                 return handle_learning_feedback(payload, action)
+            elif action_id == "ask_deep_scan":
+                return handle_ask_deep_scan(payload, action)
+            elif action_id == "ask_full_report":
+                return handle_ask_full_report(payload, action)
             elif action_id == "deploy_infrastructure":
                 return handle_deploy_review(payload, action)
             elif action_id == "confirm_deploy":

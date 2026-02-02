@@ -1002,6 +1002,9 @@ resource "aws_lambda_function" "carl" {
       COMPLIANCE_AGENT_ID       = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : ""
       COMPLIANCE_AGENT_ALIAS_ID = "PROD"
 
+      # AgentCore Ask Agent (Phase 1 - intelligent Q&A)
+      AGENTCORE_ASK_RUNTIME_ARN = var.enable_agentcore_ask ? module.agentcore_ask[0].runtime_arn : ""
+
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
