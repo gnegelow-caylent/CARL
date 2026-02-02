@@ -2,192 +2,316 @@
 
 **Status:** Planning
 **Last Updated:** February 1, 2026
+**Goal:** Migrate entire CARL application to AgentCore
 
 ---
 
 ## Overview
 
-Migrate CARL's custom `AgentCore` implementation to **[AWS Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/)** - an agentic platform for building, deploying, and operating effective agents securely at scale.
+Migrate CARL from Lambda + custom agent orchestration to **[AWS Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/)** - a managed agentic platform for building, deploying, and operating AI agents at scale.
 
 ### What is AgentCore?
 
-AgentCore is AWS's managed agentic platform that provides:
+AgentCore is AWS's managed agentic platform (currently in preview) that provides:
 
-**Build:**
-- Persistent memory systems
-- Gateway for connecting tools with minimal code
-- Secure browser runtime for web-based workflows
-- Code execution for data visualization
-
-**Deploy:**
-- Complete session isolation
-- Support for workloads up to 8 hours (vs Lambda's 15 min limit)
-- Native identity provider integration
-- Fine-grained access policies
-
-**Monitor:**
-- Real-time performance dashboards via CloudWatch
-- Quality evaluation (correctness, helpfulness, safety)
-- OpenTelemetry integration for observability
-
-**Note:** AgentCore is different from standard Bedrock Agents (`aws_bedrockagent_agent`). AgentCore is a comprehensive platform with memory, long-running tasks, and monitoring - not just agent orchestration.
-
-### Why Migrate?
-
-| Benefit | Description |
+| Service | Description |
 |---------|-------------|
-| **Reduced code** | Remove ~2,000 lines of custom agent orchestration |
-| **Enterprise features** | Persistent memory, 8-hour tasks, code interpreter |
-| **No timeout limits** | Current Lambda limited to 15 minutes |
-| **AWS-managed** | Scaling, monitoring, security handled by AWS |
-| **Cost** | ~$0.40/month platform fee (acceptable trade-off) |
+| **Runtime** | Serverless compute with 8-hour support, session isolation, fast cold starts |
+| **Memory** | Persistent short-term (STM) and long-term memory (LTM) across sessions |
+| **Gateway** | Converts APIs/Lambda functions into MCP tools with OAuth support |
+| **Code Interpreter** | Sandboxed code execution for data analysis |
+| **Browser** | Cloud-based web automation |
+| **Observability** | OpenTelemetry tracing, CloudWatch dashboards |
+| **Identity** | AWS and third-party authentication integration |
+
+**Key Difference:** AgentCore is NOT standard Bedrock Agents (`aws_bedrockagent_agent`). It's a comprehensive deployment platform with memory, long-running tasks, and monitoring.
+
+### Why Migrate the Entire App?
+
+| Current Pain Point | AgentCore Solution |
+|-------------------|-------------------|
+| Lambda 15-min timeout | 8-hour runtime support |
+| Custom session state (DynamoDB) | Built-in persistent memory |
+| Manual tool registration | Gateway auto-converts to MCP tools |
+| Custom orchestration (~2,000 lines) | Managed Runtime |
+| DIY observability | Built-in OpenTelemetry + dashboards |
+| Complex multi-step wizards lose state | Memory persists across sessions |
 
 ---
 
-## Current State
+## Current Architecture
 
-### Custom Implementation
+### What We Have Today
 
-| Component | File | Lines | Purpose |
-|-----------|------|-------|---------|
-| AgentCore class | `agent_core.py` | ~500 | Agent orchestration, tool calling |
-| Learning service | `learning_service.py` | ~580 | Interaction logging, pattern analysis |
-| Scanning tools | `scanning_tools.py` | ~340 | AWS resource scanning tools |
-| Architecture tools | `architecture_tools.py` | ~940 | Pattern retrieval, pricing, Terraform |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Current CARL Architecture                 │
+├─────────────────────────────────────────────────────────────┤
+│  Slack → API Gateway → Lambda (15 min limit)                │
+│                           │                                  │
+│                           ├── agent_core.py (orchestration)  │
+│                           ├── scanning_tools.py              │
+│                           ├── architecture_tools.py          │
+│                           ├── learning_service.py            │
+│                           └── bedrock_service.py             │
+│                                                              │
+│  State: DynamoDB (foundation, scan_history, resource_graph)  │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Custom DynamoDB Tables
+### Code to Remove After Migration
 
-| Table | Purpose | Can AgentCore Replace? |
-|-------|---------|------------------------|
-| `scan_history` | Interaction logging | Yes - AgentCore Memory |
-| `resource_graph` | Resource relationships | Yes - AgentCore Memory |
-| `foundation` | Session state | Yes - AgentCore Sessions |
+| File | Lines | Purpose |
+|------|-------|---------|
+| `agent_core.py` | ~500 | Custom agent orchestration |
+| `learning_service.py` | ~580 | Interaction logging, pattern analysis |
+| `scanning_tools.py` | ~340 | Tool definitions (move to Gateway) |
+| `architecture_tools.py` | ~940 | Tool definitions (move to Gateway) |
+| **Total** | **~2,360** | Replaced by AgentCore Runtime + Memory |
 
-### Current Agents
+### DynamoDB Tables to Retire
 
-| Agent | Command | Status |
-|-------|---------|--------|
-| Advisory Agent | `/carl ask` | Uses custom AgentCore |
-| Architecture Agent | `/carl architect` | Uses custom AgentCore |
-| Terraform Generation | `/carl foundation`, `/carl account-factory`, `/carl build` | Uses custom AgentCore |
-| Drift Scan | `/carl drift` | Uses custom AgentCore |
+| Table | Purpose | Replaced By |
+|-------|---------|-------------|
+| `scan_history` | Interaction logging | AgentCore Memory (STM) |
+| `resource_graph` | Resource relationships | AgentCore Memory (LTM) |
+| `foundation` | Session state | AgentCore Sessions |
 
 ---
 
-## Target State
+## Target Architecture
 
-### AWS Bedrock AgentCore Components
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Target CARL Architecture                  │
+├─────────────────────────────────────────────────────────────┤
+│  Slack → API Gateway → AgentCore Runtime (8 hr support)     │
+│                           │                                  │
+│                           ├── AgentCore Memory (STM + LTM)   │
+│                           ├── AgentCore Gateway (MCP Tools)  │
+│                           │      ├── scan_iam                │
+│                           │      ├── scan_vpc                │
+│                           │      ├── scan_s3                 │
+│                           │      ├── get_pricing             │
+│                           │      ├── generate_terraform      │
+│                           │      └── ... (all tools)         │
+│                           └── AgentCore Observability        │
+│                                                              │
+│  State: AgentCore Memory (replaces custom DynamoDB)          │
+└─────────────────────────────────────────────────────────────┘
+```
 
-| Component | Replaces | Benefit |
-|-----------|----------|---------|
-| AgentCore Runtime | `agent_core.py` | Managed orchestration |
-| AgentCore Memory | `learning_service.py`, DynamoDB tables | Persistent learning |
-| AgentCore Gateway | Manual tool registration | Standardized tool management |
-| AgentCore Observability | Custom CloudWatch logging | Built-in monitoring |
-| AgentCore Policy | Custom IAM | Enterprise access control |
+---
+
+## AgentCore SDK & Deployment
+
+### Installation
+
+```bash
+pip install bedrock-agentcore
+```
+
+### Basic Agent Structure
+
+```python
+from bedrock_agentcore import BedrockAgentCoreApp
+
+app = BedrockAgentCoreApp()
+
+@app.entrypoint
+def carl_agent(request):
+    """Main CARL agent entrypoint."""
+    prompt = request.get("prompt")
+    session_id = request.get("session_id")
+
+    # AgentCore handles orchestration, memory, tool calling
+    return process_carl_request(prompt, session_id)
+
+app.run()
+```
+
+### Deployment Commands
+
+```bash
+# 1. Configure agent
+agentcore configure \
+  --entrypoint carl_agent.py \
+  --name carl-agent \
+  --runtime PYTHON_3_12
+
+# 2. Deploy to AWS
+agentcore launch
+
+# 3. Test invocation
+agentcore invoke '{"prompt": "What is my S3 compliance status?"}'
+
+# 4. Cleanup (if needed)
+agentcore destroy
+```
+
+### Memory Configuration
+
+```bash
+# With short-term + long-term memory (recommended for CARL)
+agentcore configure -e carl_agent.py --name carl-agent
+
+# Without memory (for stateless commands)
+agentcore configure -e carl_agent.py --name carl-agent --disable-memory
+```
 
 ---
 
 ## Migration Phases
 
-### Phase 1: Migrate `/carl ask` Only
+### Phase 1: `/carl ask` (Proof of Concept)
 
-**Goal:** Move just `/carl ask` to AgentCore as proof of concept
+**Goal:** Migrate simplest command to learn the platform
 
-**Scope:** ONLY `/carl ask` - nothing else changes
+**Why Start Here:**
+- Single request/response (no complex state)
+- Uses scanning tools (tests Gateway integration)
+- Low risk - can easily compare to existing implementation
 
-- [ ] **1.1 Create AgentCore Agent in AWS**
-  - [ ] Enable Bedrock AgentCore in account
-  - [ ] Create agent with scanning instructions
-  - [ ] Configure IAM permissions
+**Tasks:**
 
-- [ ] **1.2 Register Scanning Tools**
-  - [ ] `scan_iam` → AgentCore action group
-  - [ ] `scan_vpc` → AgentCore action group
-  - [ ] `scan_s3` → AgentCore action group
-  - [ ] `scan_cloudtrail` → AgentCore action group
-  - [ ] `scan_security_hub` → AgentCore action group
+- [ ] **1.1 Setup AgentCore Environment**
+  - [ ] Install `bedrock-agentcore` SDK
+  - [ ] Configure AWS credentials with AgentCore permissions
+  - [ ] Verify AgentCore available in us-east-1
 
-- [ ] **1.3 Update Slack Router**
-  - [ ] Add feature flag `USE_AGENTCORE_ASK=true/false`
-  - [ ] Call AgentCore instead of custom Agent for `/carl ask`
-  - [ ] Keep custom Agent as fallback
+- [ ] **1.2 Create Ask Agent**
+  - [ ] Create `carl_ask_agent.py` with entrypoint
+  - [ ] Port scanning tools to AgentCore Gateway
+  - [ ] Configure agent with `agentcore configure`
+  - [ ] Deploy with `agentcore launch`
 
-- [ ] **1.4 Test & Deploy**
-  - [ ] Test in dev environment
-  - [ ] Compare responses to custom implementation
-  - [ ] Deploy with feature flag OFF
-  - [ ] Enable for testing
+- [ ] **1.3 Integrate with Slack**
+  - [ ] Add `USE_AGENTCORE_ASK` feature flag
+  - [ ] Update slack_router.py to call AgentCore endpoint
+  - [ ] Keep Lambda fallback for rollback
 
-**Deliverable:** `/carl ask` working on AgentCore (feature-flagged)
+- [ ] **1.4 Test & Validate**
+  - [ ] Compare response quality
+  - [ ] Measure latency
+  - [ ] Verify tool calling works
+  - [ ] Test error handling
 
----
-
-### Phase 2: Evaluation (Week 2)
-
-**Goal:** Decide whether to proceed with full migration
-
-- [ ] **2.1 Performance Comparison**
-  - [ ] Response time: Custom vs AgentCore (target: <5s)
-  - [ ] Accuracy: Same questions, compare answers
-  - [ ] Tool calling: Verify correct tools selected
-  - [ ] Memory: Verify learning persists across sessions
-
-- [ ] **2.2 Cost Analysis**
-  - [ ] Track AgentCore costs for 1 week
-  - [ ] Compare to current Bedrock API costs
-  - [ ] Calculate monthly projection
-  - [ ] Document cost breakdown
-
-- [ ] **2.3 Feature Evaluation**
-  - [ ] Test persistent memory across sessions
-  - [ ] Test long-running tasks (>15 min)
-  - [ ] Evaluate code interpreter capability
-  - [ ] Test session isolation
-
-- [ ] **2.4 Decision Point**
-  - [ ] Document pros/cons
-  - [ ] Get stakeholder input
-  - [ ] **GO / NO-GO decision**
-
-**Deliverable:** Decision document with recommendation
+**Deliverable:** `/carl ask` running on AgentCore with feature flag
 
 ---
 
-### Phase 3: Migrate Other Commands (Future)
+### Phase 2: Evaluation & Decision
 
-**Goal:** Migrate remaining commands IF Phase 1 & 2 succeed
+**Goal:** Determine if AgentCore is right for full migration
 
-*Only proceed after `/carl ask` is stable on AgentCore*
+**Metrics to Track:**
 
-- [ ] **3.1 `/carl architect`**
-  - [ ] Register architecture tools with AgentCore
-  - [ ] Test pattern recommendations
-  - [ ] Deploy with feature flag
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Response time | <5s | CloudWatch |
+| Tool accuracy | Same as Lambda | Side-by-side test |
+| Cost | <$10/month increase | Cost Explorer |
+| Memory persistence | Works across sessions | Manual test |
+| Reliability | 99.9% uptime | CloudWatch |
 
-- [ ] **3.2 `/carl build`, `/carl foundation`, `/carl account-factory`**
-  - [ ] Register Terraform generation tools
-  - [ ] Test interactive workflows
-  - [ ] Deploy with feature flag
+**Tasks:**
 
-- [ ] **3.3 Cleanup (After All Migrated)**
-  - [ ] Remove custom `agent_core.py`
-  - [ ] Remove `learning_service.py` (if AgentCore Memory works)
-  - [ ] Update documentation
+- [ ] **2.1 Run for 2 weeks in production**
+- [ ] **2.2 Collect performance data**
+- [ ] **2.3 Analyze costs**
+- [ ] **2.4 Document issues encountered**
+- [ ] **2.5 GO / NO-GO decision**
 
-**Deliverable:** All commands on AgentCore, custom code removed
+**Deliverable:** Decision document with data
+
+---
+
+### Phase 3: Migrate `/carl recommend` & `/carl architect`
+
+**Goal:** Migrate architecture advisory commands
+
+**Why Next:**
+- Uses pricing tools and pattern retrieval
+- Tests Gateway with more complex tools
+- Benefits from memory (user preferences)
+
+**Tasks:**
+
+- [ ] **3.1 Port architecture tools to Gateway**
+- [ ] **3.2 Create architecture agent**
+- [ ] **3.3 Test pattern recommendations**
+- [ ] **3.4 Deploy with feature flag**
+
+---
+
+### Phase 4: Migrate `/carl foundation` & `/carl account-factory`
+
+**Goal:** Migrate complex multi-step wizards
+
+**Why This Phase:**
+- **Biggest benefit** - persistent memory for wizard state
+- Currently uses DynamoDB for session state
+- Multi-step flows can span multiple interactions
+
+**Tasks:**
+
+- [ ] **4.1 Port Terraform generation tools**
+- [ ] **4.2 Configure LTM for session persistence**
+- [ ] **4.3 Test multi-step wizard flows**
+- [ ] **4.4 Retire `foundation` DynamoDB table**
+
+---
+
+### Phase 5: Migrate Remaining Commands
+
+**Commands:**
+- `/carl compliance assess`
+- `/carl evidence collect`
+- `/carl drift scan`
+- `/carl report`
+
+**Tasks:**
+
+- [ ] **5.1 Port all remaining tools to Gateway**
+- [ ] **5.2 Create unified CARL agent**
+- [ ] **5.3 Test all commands end-to-end**
+- [ ] **5.4 Remove feature flags, make AgentCore default**
+
+---
+
+### Phase 6: Cleanup
+
+**Goal:** Remove legacy code and infrastructure
+
+**Tasks:**
+
+- [ ] **6.1 Delete custom agent code**
+  - [ ] Remove `agent_core.py`
+  - [ ] Remove `learning_service.py`
+  - [ ] Remove tool definition files (now in Gateway)
+
+- [ ] **6.2 Retire DynamoDB tables**
+  - [ ] Remove `scan_history` table
+  - [ ] Remove `resource_graph` table
+  - [ ] Remove `foundation` table
+
+- [ ] **6.3 Update documentation**
+- [ ] **6.4 Archive Lambda-based implementation**
+
+**Deliverable:** Clean codebase, ~2,000+ lines removed
 
 ---
 
 ## Success Criteria
 
-| Metric | Target | How to Measure |
-|--------|--------|----------------|
-| Response time | <5 seconds | CloudWatch latency metrics |
-| Accuracy | Same as current | Side-by-side comparison |
-| Cost | <$5/month increase | AWS Cost Explorer |
-| Code reduction | >1,500 lines removed | Git diff |
-| Uptime | 99.9% | CloudWatch availability |
+| Metric | Target |
+|--------|--------|
+| Code reduction | >2,000 lines removed |
+| Response time | <5 seconds (same or better) |
+| Cost increase | <$20/month |
+| Memory working | Session state persists |
+| All commands migrated | 100% |
+| Zero Lambda dependency | Complete |
 
 ---
 
@@ -195,22 +319,36 @@ AgentCore is AWS's managed agentic platform that provides:
 
 | Risk | Mitigation |
 |------|------------|
-| AgentCore doesn't support our tools | Keep custom AgentCore as fallback |
-| Performance regression | A/B test before full switch |
-| Cost higher than expected | Set billing alerts, abort if >$20/month |
-| Memory doesn't work as expected | Keep DynamoDB tables, use hybrid approach |
-| Breaking changes during migration | Feature flag allows instant rollback |
+| AgentCore preview instability | Feature flags for instant rollback |
+| Higher costs than expected | Set billing alerts, abort threshold $50/month |
+| Memory doesn't fit our use case | Hybrid approach (AgentCore + DynamoDB) |
+| Tool compatibility issues | Keep Lambda tools as fallback |
+| Performance regression | A/B testing before full switch |
 
 ---
 
 ## Rollback Plan
 
-If migration fails at any phase:
+At any phase, if issues occur:
 
-1. Set `USE_AGENTCORE=false` in environment
-2. Redeploy with custom AgentCore
-3. Document issues encountered
-4. Reassess in 3 months
+1. Set `USE_AGENTCORE=false` environment variable
+2. Lambda implementation takes over immediately
+3. Document issues for future resolution
+4. AgentCore resources remain for debugging
+
+---
+
+## Timeline (Estimated)
+
+| Phase | Duration | Dependencies |
+|-------|----------|--------------|
+| Phase 1 | 1 week | None |
+| Phase 2 | 2 weeks | Phase 1 complete |
+| Phase 3 | 1 week | Phase 2 GO decision |
+| Phase 4 | 2 weeks | Phase 3 complete |
+| Phase 5 | 1 week | Phase 4 complete |
+| Phase 6 | 1 week | Phase 5 complete |
+| **Total** | **~8 weeks** | |
 
 ---
 
@@ -218,17 +356,22 @@ If migration fails at any phase:
 
 | Date | Phase | Status | Notes |
 |------|-------|--------|-------|
-| 2026-02-01 | Planning | Complete | Migration plan created |
-| | Phase 1 | Not Started | |
-| | Phase 2 | Not Started | |
-| | Phase 3 | Not Started | |
+| 2026-02-01 | Planning | Complete | Full migration plan created |
+| | Phase 1 | Not Started | `/carl ask` POC |
+| | Phase 2 | Not Started | Evaluation |
+| | Phase 3 | Not Started | Architecture commands |
+| | Phase 4 | Not Started | Foundation/Account Factory |
+| | Phase 5 | Not Started | Remaining commands |
+| | Phase 6 | Not Started | Cleanup |
 
 ---
 
 ## References
 
 - [AWS Bedrock AgentCore Product Page](https://aws.amazon.com/bedrock/agentcore/)
-- [AWS Bedrock Agents Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/agents.html)
+- [AgentCore Python SDK](https://github.com/aws/bedrock-agentcore-sdk-python)
+- [AgentCore Starter Toolkit](https://github.com/aws/bedrock-agentcore-starter-toolkit)
+- [AgentCore Samples](https://github.com/awslabs/amazon-bedrock-agentcore-samples)
+- [AgentCore CLI Reference](https://aws.github.io/bedrock-agentcore-starter-toolkit/api-reference/cli.html)
 - [CARL Design Principles](./CARL_DESIGN_PRINCIPLES.md) - Principle #7
-- [CARL Architecture](./ARCHITECTURE.md) - Agent section
-- [Current AgentCore Implementation](./carl-app/src/services/agent_core.py)
+- [CARL Architecture](./ARCHITECTURE.md)
