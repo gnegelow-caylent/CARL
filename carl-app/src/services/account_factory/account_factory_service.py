@@ -48,6 +48,7 @@ class VPCConfig:
     availability_zones: int = 2
     enable_nat_gateway: bool = True
     enable_vpc_endpoints: bool = True
+    attach_transit_gateway: bool = True  # SOC2 recommended for centralized egress/inspection
 
 
 @dataclass

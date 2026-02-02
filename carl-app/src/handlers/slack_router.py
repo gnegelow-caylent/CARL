@@ -3505,6 +3505,22 @@ def _show_account_factory_vpc_modal(slack: SlackService, trigger_id: str, sessio
                     "initial_option": {"text": {"type": "plain_text", "text": "Yes (S3, DynamoDB, SSM)"}, "value": "true"}
                 },
                 "label": {"type": "plain_text", "text": "Enable VPC Endpoints?"}
+            },
+            {
+                "type": "input",
+                "block_id": "transit_gateway",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "select",
+                    "placeholder": {"type": "plain_text", "text": "Transit Gateway"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Yes - Attach to TGW (SOC2 recommended)"}, "value": "true"},
+                        {"text": {"type": "plain_text", "text": "No - Isolated VPC"}, "value": "false"},
+                    ],
+                    "initial_option": {"text": {"type": "plain_text", "text": "Yes - Attach to TGW (SOC2 recommended)"}, "value": "true"}
+                },
+                "label": {"type": "plain_text", "text": "Attach to Transit Gateway?"},
+                "hint": {"type": "plain_text", "text": "Requires Network account with TGW. Enables centralized egress/inspection."}
             }
         ]
     }
@@ -3518,7 +3534,7 @@ def _show_account_factory_vpc_modal(slack: SlackService, trigger_id: str, sessio
 def handle_account_factory_vpc_submission(payload: dict) -> dict:
     """Handle VPC configuration modal submission for Account Factory."""
     from services.account_factory import get_account_factory_service
-    from services.account_factory.models import VPCConfig
+    from services.account_factory.account_factory_service import VPCConfig
 
     logger = get_logger(__name__)
     callback_id = payload.get("view", {}).get("callback_id", "")
@@ -3535,8 +3551,9 @@ def handle_account_factory_vpc_submission(payload: dict) -> dict:
     az_count = int(values.get("az_count", {}).get("select", {}).get("selected_option", {}).get("value", "2"))
     nat_gateway = values.get("nat_gateway", {}).get("select", {}).get("selected_option", {}).get("value", "true") == "true"
     vpc_endpoints = values.get("vpc_endpoints", {}).get("select", {}).get("selected_option", {}).get("value", "true") == "true"
+    transit_gateway = values.get("transit_gateway", {}).get("select", {}).get("selected_option", {}).get("value", "true") == "true"
 
-    logger.info(f"VPC submission - session: {session_id}, account: {account_name}, cidr: {vpc_cidr}")
+    logger.info(f"VPC submission - session: {session_id}, account: {account_name}, cidr: {vpc_cidr}, tgw: {transit_gateway}")
 
     service = get_account_factory_service()
     session = service.get_session(session_id)
@@ -3556,12 +3573,14 @@ def handle_account_factory_vpc_submission(payload: dict) -> dict:
         availability_zones=az_count,
         enable_nat_gateway=nat_gateway,
         enable_vpc_endpoints=vpc_endpoints,
+        attach_transit_gateway=transit_gateway,
     )
 
     result = service.add_vpc_to_account(session, account_name, vpc_config)
 
     if result.get("success"):
-        slack.post_message(channel, text=f"✓ VPC *{vpc_name}* configured for *{account_name}* ({vpc_cidr})")
+        tgw_status = " + TGW attachment" if transit_gateway else " (isolated)"
+        slack.post_message(channel, text=f"✓ VPC *{vpc_name}* configured for *{account_name}* ({vpc_cidr}{tgw_status})")
     else:
         slack.post_message(channel, text=f"❌ Failed to configure VPC: {result.get('error')}")
         return {"statusCode": 200, "body": ""}
