@@ -1,0 +1,4 @@
+# CARL Ask Agent - AgentCore Runtime Dependencies
+# Python 3.12 runtime
+
+boto3>=1.35.0

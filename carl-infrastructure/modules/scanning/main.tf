@@ -247,7 +247,7 @@ resource "aws_config_conformance_pack" "soc2" {
 
   depends_on = [aws_config_configuration_recorder_status.carl]
 
-  tags = local.common_tags
+  # Note: tags not supported on aws_config_conformance_pack in AWS provider v6.x
 }
 
 # -----------------------------------------------------------------------------

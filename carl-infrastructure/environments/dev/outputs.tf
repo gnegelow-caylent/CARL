@@ -39,3 +39,19 @@ output "slack_router_function" {
   description = "Slack router Lambda function name"
   value       = module.scanning.slack_router_name
 }
+
+# AgentCore Ask Agent
+output "agentcore_ask_runtime_id" {
+  description = "AgentCore Ask Agent Runtime ID"
+  value       = module.agentcore_ask.runtime_id
+}
+
+output "agentcore_ask_runtime_arn" {
+  description = "AgentCore Ask Agent Runtime ARN"
+  value       = module.agentcore_ask.runtime_arn
+}
+
+output "agentcore_ask_memory_id" {
+  description = "AgentCore Ask Agent Memory ID (if enabled)"
+  value       = module.agentcore_ask.memory_id
+}

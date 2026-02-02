@@ -42,6 +42,7 @@ module "foundation" {
   aws_region           = var.aws_region
   slack_bot_token      = var.slack_bot_token
   slack_signing_secret = var.slack_signing_secret
+  lambda_package_path  = var.lambda_package_path
 
   evidence_retention_days = 90 # Shorter for dev
 }
@@ -80,4 +81,35 @@ module "scanning" {
   lambda_package_path = var.lambda_package_path
   bedrock_model_id    = "anthropic.claude-3-haiku-20240307-v1:0"
   log_level           = "DEBUG"
+}
+
+# -----------------------------------------------------------------------------
+# AgentCore Ask Agent Module (Phase 1)
+# -----------------------------------------------------------------------------
+
+module "agentcore_ask" {
+  source = "../../modules/agentcore-ask"
+
+  name_prefix        = "carl-dev"
+  code_bucket_name   = module.foundation.evidence_bucket_name
+  code_bucket_arn    = module.foundation.evidence_bucket_arn
+  code_object_prefix = "agentcore/ask-agent"
+  tool_lambda_arn    = module.scanning.slack_router_arn
+
+  # Use Claude Sonnet for intelligent responses
+  foundation_model = "anthropic.claude-sonnet-4-20250514-v1:0"
+
+  # Enable memory for persistent learning
+  enable_memory  = true
+  enable_gateway = false # Direct Lambda invocation for Phase 1
+
+  environment_variables = {
+    ENVIRONMENT = "dev"
+  }
+
+  tags = {
+    Application = "CARL"
+    Environment = "dev"
+    Component   = "AgentCore-Ask"
+  }
 }

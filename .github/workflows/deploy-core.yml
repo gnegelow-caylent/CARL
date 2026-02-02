@@ -10,6 +10,8 @@ on:
     paths:
       - 'carl-infrastructure/core/**'
       - 'carl-infrastructure/modules/**'
+      - 'carl-infrastructure/environments/**'
+      - 'carl-infrastructure/agentcore-code/**'
       - 'carl-app/src/**'
       - 'carl-app/requirements.txt'
       - 'carl-app/Dockerfile'
@@ -23,6 +25,8 @@ on:
     paths:
       - 'carl-infrastructure/core/**'
       - 'carl-infrastructure/modules/**'
+      - 'carl-infrastructure/environments/**'
+      - 'carl-infrastructure/agentcore-code/**'
       - 'carl-app/src/**'
       - 'carl-app/requirements.txt'
       - 'carl-app/Dockerfile'
@@ -253,6 +257,21 @@ jobs:
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
+
+      - name: Upload AgentCore Ask Agent Code to S3
+        run: |
+          # Get the evidence bucket name from Terraform state or use convention
+          BUCKET_NAME="carl-dev-evidence"
+          S3_PREFIX="agentcore/ask-agent"
+
+          # Upload agent code to S3
+          cd carl-infrastructure/agentcore-code/ask-agent
+
+          # Upload individual files (AgentCore expects files, not zip)
+          aws s3 cp carl_ask_agent.py s3://${BUCKET_NAME}/${S3_PREFIX}/carl_ask_agent.py
+          aws s3 cp requirements.txt s3://${BUCKET_NAME}/${S3_PREFIX}/requirements.txt
+
+          echo "Uploaded AgentCore ask-agent code to s3://${BUCKET_NAME}/${S3_PREFIX}/"
 
       - name: Terraform Init
         run: |

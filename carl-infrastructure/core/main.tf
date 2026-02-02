@@ -1196,6 +1196,35 @@ module "foundation" {
   })
 }
 
+# AgentCore Ask Agent Module (Phase 1 - Intelligent Q&A)
+module "agentcore_ask" {
+  source = "../modules/agentcore-ask"
+  count  = var.enable_agentcore_ask ? 1 : 0
+
+  name_prefix        = local.name_prefix
+  code_bucket_name   = var.enable_foundation ? module.foundation[0].evidence_bucket_name : "${local.name_prefix}-evidence"
+  code_bucket_arn    = var.enable_foundation ? module.foundation[0].evidence_bucket_arn : "arn:aws:s3:::${local.name_prefix}-evidence"
+  code_object_prefix = "agentcore/ask-agent"
+  tool_lambda_arn    = aws_lambda_function.carl.arn
+
+  # Use Claude Sonnet for intelligent responses
+  foundation_model = "anthropic.claude-sonnet-4-20250514-v1:0"
+
+  # Enable memory for persistent learning
+  enable_memory  = true
+  enable_gateway = false # Direct Lambda invocation for Phase 1
+
+  environment_variables = {
+    ENVIRONMENT = var.environment
+  }
+
+  tags = merge(var.tags, {
+    Feature = "agentcore_ask"
+  })
+
+  depends_on = [module.foundation]
+}
+
 # Real-Time Security Monitor Module (Instant security alerts)
 module "realtime_monitor" {
   source = "../modules/realtime-monitor"
@@ -1395,4 +1424,14 @@ output "compliance_agent_id" {
 output "compliance_agent_alias_id" {
   description = "Bedrock Compliance Agent Alias ID (PROD)"
   value       = var.enable_compliance_agent ? module.compliance_agent[0].agent_alias_id : null
+}
+
+output "agentcore_ask_runtime_id" {
+  description = "AgentCore Ask Agent Runtime ID (if enabled)"
+  value       = var.enable_agentcore_ask ? module.agentcore_ask[0].runtime_id : "Not enabled - set enable_agentcore_ask=true to deploy"
+}
+
+output "agentcore_ask_runtime_arn" {
+  description = "AgentCore Ask Agent Runtime ARN"
+  value       = var.enable_agentcore_ask ? module.agentcore_ask[0].runtime_arn : null
 }
