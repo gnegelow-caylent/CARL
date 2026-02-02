@@ -208,4 +208,4 @@ resource "aws_bedrockagentcore_gateway" "ask_tools" {
 # Note: Gateway Target removed for Phase 1 POC
 # The agent invokes Lambda tools directly via IAM permissions
 # Gateway targets with full tool schemas can be added later if needed
-# Trigger deploy
+# Trigger deploy - broader IAM permissions
