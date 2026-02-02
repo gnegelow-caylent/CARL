@@ -182,8 +182,16 @@ class AWSResourceScanner:
                     rules = enc_config.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
                     if rules:
                         encryption = rules[0].get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm", "unknown")
-                except self.s3.exceptions.ClientError:
-                    encryption = "none"
+                except self.s3.exceptions.ClientError as e:
+                    error_code = e.response.get('Error', {}).get('Code', '')
+                    if error_code == 'ServerSideEncryptionConfigurationNotFoundError':
+                        encryption = "none"  # No encryption configured
+                    elif error_code == 'AccessDenied':
+                        encryption = "access_denied"
+                        logger.warning(f"Access denied checking encryption for {bucket_name}")
+                    else:
+                        encryption = "none"
+                        logger.warning(f"Error checking encryption for {bucket_name}: {error_code}")
 
                 # Check public access block
                 public_access = {}
