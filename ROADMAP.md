@@ -234,30 +234,9 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.3 Account Baseline Deployment Automation (Week 5-6)
-**Goal:** Automate account baseline deployment across all accounts
+#### ~~1.3 Account Baseline Deployment Automation~~ ✅ **COVERED BY EXISTING FEATURES**
 
-**Tasks:**
-- [ ] Create account baseline automation service
-  - Enable EBS encryption by default
-  - Deploy S3 Block Public Access
-  - Enable IMDSv2 requirement
-  - Configure IAM password policy
-  - Deploy Config rules (conformance packs)
-  - Enable GuardDuty/Security Hub/Inspector
-  - Deploy VPC Flow Logs
-- [ ] Terraform module generation for baselines
-- [ ] StackSets deployment option
-- [ ] Baseline drift detection
-- [ ] Baseline compliance reporting
-
-**Deliverables:**
-- Account baseline service
-- Terraform modules for baselines
-- `/carl baseline deploy` command
-- Baseline compliance dashboard
-
-**Estimated Effort:** 2 weeks
+**Status:** Functionality covered by Foundation Builder (single account) and Account Factory (multi-account with AFT).
 
 ---
 

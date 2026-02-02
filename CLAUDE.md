@@ -1216,9 +1216,8 @@ See `ROADMAP.md` for detailed priority list.
 
 **High Priority (Next):**
 1. Migrate to AWS Bedrock AgentCore
-2. Account baseline deployment automation
-3. Regression testing framework
-4. Secrets Manager lifecycle patterns
+2. Regression testing framework
+3. CARL uninstall & cleanup process
 
 **Medium Priority:**
 - Compute security patterns (EC2, ECS, EKS, Lambda)
