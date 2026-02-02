@@ -1096,11 +1096,15 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         try:
             # Progress update
-            slack.post_message(channel_id, text="⏳ Step 1/5: Generating Terraform modules...")
+            slack.post_message(channel_id, text="⏳ Step 1/5: Generating Terraform modules (AI-driven)...")
 
-            # Generate the code
+            # Progress callback to show which module is being generated
+            def progress_callback(message: str):
+                slack.post_message(channel_id, text=f"   🔧 {message}")
+
+            # Generate the code with progress updates
             builder = get_foundation_builder()
-            modules = builder.generate_foundation(session)
+            modules = builder.generate_foundation(session, progress_callback=progress_callback)
 
             if not modules:
                 slack.post_message(channel_id, text="❌ No Terraform code was generated. Please try again.")

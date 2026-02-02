@@ -67,16 +67,36 @@ class FoundationBuilder:
         # In production, these would be loaded from files
         pass
 
-    def generate_foundation(self, session: DecisionSession) -> list[TerraformModule]:
-        """Generate Terraform modules based on session decisions."""
+    def generate_foundation(
+        self,
+        session: DecisionSession,
+        progress_callback: callable = None,
+    ) -> list[TerraformModule]:
+        """
+        Generate Terraform modules based on session decisions.
+
+        Args:
+            session: The decision session with user choices
+            progress_callback: Optional callback(message: str) for progress updates
+        """
         modules = []
+        total_decisions = len(session.decisions) + 1  # +1 for security services
+        current = 0
 
         for decision in session.decisions:
+            current += 1
+            if progress_callback:
+                progress_callback(f"Generating {decision.category} module ({current}/{total_decisions})...")
+
             module = self._generate_module_for_decision(decision, session)
             if module:
                 modules.append(module)
 
         # Add base security services module
+        current += 1
+        if progress_callback:
+            progress_callback(f"Generating security services module ({current}/{total_decisions})...")
+
         security_module = self._generate_security_services_module(session)
         modules.append(security_module)
 
