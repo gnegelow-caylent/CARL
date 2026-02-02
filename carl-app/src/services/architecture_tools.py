@@ -23,7 +23,7 @@ from knowledge.architecture_patterns import get_all_patterns
 from knowledge.vpc_patterns import get_vpc_patterns
 from knowledge.security_tooling_patterns import get_security_tooling_patterns
 from knowledge.identity_patterns import get_identity_patterns
-from knowledge.cloudwatch_alerting_patterns import get_cloudwatch_alerting_patterns
+from knowledge.cloudwatch_alerting_patterns import get_cloudwatch_patterns as get_cloudwatch_alerting_patterns
 from knowledge.waf_patterns import get_waf_patterns
 from knowledge.certificate_manager_patterns import get_certificate_manager_patterns
 # Rewritten patterns (using correct ArchitectureDecision API)

@@ -21,9 +21,13 @@ class ArchitectureDecision:
     """Represents an architecture decision with full context."""
     question: str
     options: list["DecisionOption"]
-    recommendation_logic: str
-    soc2_relevance: str
-    common_mistakes: list[str]
+    recommendation_logic: str = ""
+    soc2_relevance: str = ""
+    common_mistakes: list[str] = field(default_factory=list)
+    # Optional fields used by some pattern files
+    estimated_implementation_time: str = ""
+    recommendation_strategy: str = ""
+    common_pitfalls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -40,6 +44,9 @@ class DecisionOption:
     soc2_controls: list[str]
     implementation_complexity: str  # low, medium, high
     operational_overhead: str       # low, medium, high
+    # Optional fields with defaults (used by some pattern files)
+    implementation_guidance: str = ""
+    validation_checklist: list[str] = field(default_factory=list)
 
 
 # =============================================================================
