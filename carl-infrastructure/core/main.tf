@@ -1209,8 +1209,8 @@ module "agentcore_ask" {
   container_image_tag = "agentcore-ask"
   tool_lambda_arn     = aws_lambda_function.carl.arn
 
-  # Use Claude Sonnet for intelligent responses
-  foundation_model = "anthropic.claude-sonnet-4-20250514-v1:0"
+  # Use Claude Sonnet inference profile (required for on-demand invocation)
+  foundation_model = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
   # Enable memory for persistent learning
   enable_memory  = true
