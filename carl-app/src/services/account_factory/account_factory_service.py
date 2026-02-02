@@ -28,6 +28,15 @@ from services.architecture_tools import generate_terraform_code
 logger = logging.getLogger(__name__)
 
 
+# US AWS Regions
+US_REGIONS = {
+    "us-east-1": "US East (N. Virginia)",
+    "us-east-2": "US East (Ohio)",
+    "us-west-1": "US West (N. California)",
+    "us-west-2": "US West (Oregon)",
+}
+
+
 class AccountFactoryState(Enum):
     """States for Account Factory session."""
     STARTED = "started"
@@ -288,10 +297,29 @@ class AccountFactoryService:
         session: AccountFactorySession,
         region: str
     ) -> dict:
-        """Set primary region for the organization."""
+        """
+        Set primary region for the organization.
+
+        Automatically enables all other US regions for multi-region resilience.
+        """
         session.primary_region = region
+
+        # Auto-enable all other US regions
+        session.additional_regions = [
+            r for r in US_REGIONS.keys()
+            if r != region  # Exclude the primary region
+        ]
+
         self._save_session(session)
-        return {"success": True, "primary_region": region}
+
+        logger.info(f"Primary region set to {region}. Additional regions: {', '.join(session.additional_regions)}")
+
+        return {
+            "success": True,
+            "primary_region": region,
+            "additional_regions": session.additional_regions,
+            "message": f"✅ Primary region: {region}\n✅ Additional regions enabled: {', '.join(session.additional_regions)}"
+        }
 
     def set_account_emails(
         self,
@@ -407,12 +435,10 @@ class AccountFactoryService:
             return {
                 "type": "primary_region",
                 "question": "Which AWS region should be the primary region?",
-                "description": "CloudTrail, Config aggregator, and centralized logging will be in this region.",
+                "description": "CloudTrail, Config aggregator, and centralized logging will be in this region. All other US regions will be automatically enabled for multi-region resilience.",
                 "options": [
-                    {"value": "us-east-1", "label": "US East (N. Virginia)"},
-                    {"value": "us-west-2", "label": "US West (Oregon)"},
-                    {"value": "eu-west-1", "label": "Europe (Ireland)"},
-                    {"value": "eu-central-1", "label": "Europe (Frankfurt)"},
+                    {"value": region, "label": name}
+                    for region, name in US_REGIONS.items()
                 ],
             }
 
