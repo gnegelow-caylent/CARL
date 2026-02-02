@@ -527,7 +527,22 @@ class AccountFactoryService:
         """
         files = {}
         framework = session.framework
-        total_steps = 10  # Approximate number of major generation steps
+
+        # Calculate actual total steps dynamically
+        vpc_count = sum(len(acc.vpcs) for acc in session.accounts)
+        total_steps = (
+            3 +  # AFT main, providers, variables
+            1 +  # Account requests (parallel)
+            1 +  # Account customizations (parallel)
+            1 +  # Global customizations
+            1 +  # SCPs (parallel)
+            1 +  # Security services
+            1 +  # CloudWatch alarms
+            1 +  # Config rules
+            1 +  # CloudTrail
+            1 +  # Central logging bucket
+            (1 if vpc_count > 0 else 0)  # VPCs (parallel, conditional)
+        )  # = 13 steps total (or 12 if no VPCs)
         current_step = 0
 
         def update_status(message: str):
