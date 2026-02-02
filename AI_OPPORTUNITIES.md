@@ -225,26 +225,28 @@ risk_score = bedrock.calculate_contextual_risk(
 
 CARL's problems are **multi-step workflows**, perfect for agents:
 
-1. **Advisory Agent** ✅ **BUILT** - "How do I stand up a web server?"
+1. **Advisory Agent** ✅ **BUILT** - "How do I stand up a web server?" (`/carl ask`)
    - Analyzes question to understand intent
    - Scans relevant AWS resources based on question
    - Provides tailored recommendations using YOUR environment
    - Factors in SOC 2 compliance requirements
    - Asks clarifying questions when needed
    - Hands off to Architect Agent for code generation
-   - Uses AWS Bedrock Agents for multi-step reasoning
 
-2. **Architect/CodeBuild Agent** - "Build me a production VPC"
-   - Asks clarifying questions (traffic, public/private, HA?)
+2. **Architecture Agent** ✅ **BUILT** - "What's the best pattern for X?" (`/carl architect`)
+   - Uses 148+ architecture patterns as context
+   - Provides recommendations with cost estimates
+   - Real-time AWS pricing via pricing tool
+   - SOC 2 compliance mapping
+
+3. **Build Agent** ✅ **BUILT** - "Build me a production VPC" (`/carl build`)
    - Scans existing environment (what's already there?)
-   - Selects appropriate patterns (43+ available)
-   - Customizes Terraform code to requirements
-   - Validates against best practices
-   - Estimates costs accurately
+   - Asks clarifying questions (traffic, public/private, HA?)
+   - Generates Terraform code via `generate_terraform` tool
    - Creates PR with architectural justification
-   - Responds to review feedback
+   - Interactive session-based workflow
 
-3. **Remediation Agent** - "Fix this finding"
+4. **Remediation Agent** - "Fix this finding" (PLANNED)
    - Investigates the resource
    - Determines root cause
    - Generates fix (Terraform/CLI)
@@ -252,16 +254,7 @@ CARL's problems are **multi-step workflows**, perfect for agents:
    - Creates PR or applies change
    - Verifies fix succeeded
 
-4. **Compliance Agent** - "Get us SOC 2 ready"
-   - Scans environment
-   - Identifies gaps
-   - Prioritizes by impact
-   - Generates remediation plan
-   - Creates Jira tickets
-   - Tracks progress
-   - Reports status
-
-5. **Incident Response Agent** - "Handle this critical finding"
+5. **Incident Response Agent** - "Handle this critical finding" (PLANNED)
    - Assesses severity
    - Checks if related to known incidents
    - Determines impact scope

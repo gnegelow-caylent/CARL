@@ -935,7 +935,7 @@ Complete AWS environment bootstrap automation from scratch.
 
 ### Overview
 
-CARL uses **AWS Bedrock Agents** for autonomous multi-step workflows. Each agent is specialized for a specific domain and can reason, plan, use tools, and collaborate with other agents.
+CARL uses **AgentCore** (`agent_core.py`) for autonomous multi-step workflows. Each agent is specialized for a specific domain and can reason, plan, use tools, and collaborate with other agents.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -946,20 +946,19 @@ CARL uses **AWS Bedrock Agents** for autonomous multi-step workflows. Each agent
 │       │                                                               │
 │       ▼                                                               │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │               Agent Orchestrator (Future)                       │  │
-│  │  - Routes tasks to specialized agents                           │  │
-│  │  - Manages agent sessions and state                             │  │
-│  │  - Handles inter-agent communication                            │  │
-│  │  - Aggregates results                                           │  │
+│  │                    slack_router.py                              │  │
+│  │  - Routes commands to appropriate agent                         │  │
+│  │  - Manages sessions and state                                   │  │
+│  │  - Handles responses and formatting                             │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │       │                                                               │
-│       ├────────────┬──────────────┬──────────────┬──────────────┐    │
-│       ▼            ▼              ▼              ▼              ▼    │
-│  ┌─────────┐  ┌────────────┐  ┌─────────┐  ┌──────────┐  ┌────────┐│
-│  │Advisory │  │ Architect/ │  │Remedia- │  │Compliance│  │Incident││
-│  │ Agent   │  │ CodeBuild  │  │tion     │  │  Agent   │  │Response││
-│  │   ✅    │  │  Agent     │  │ Agent   │  │          │  │ Agent  ││
-│  └─────────┘  └────────────┘  └─────────┘  └──────────┘  └────────┘│
+│       ├──────────────┬──────────────┬──────────────┬──────────────┐  │
+│       ▼              ▼              ▼              ▼              ▼  │
+│  ┌──────────┐  ┌────────────┐  ┌─────────┐  ┌──────────┐  ┌────────┐│
+│  │ Advisory │  │ Architect  │  │  Build  │  │Remedia-  │  │Incident││
+│  │  Agent   │  │   Agent    │  │  Agent  │  │tion Agent│  │Response││
+│  │    ✅    │  │     ✅     │  │    ✅   │  │ (Planned)│  │(Planned)│
+│  └──────────┘  └────────────┘  └─────────┘  └──────────┘  └────────┘│
 │                                                                       │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -970,87 +969,61 @@ CARL uses **AWS Bedrock Agents** for autonomous multi-step workflows. Each agent
 
 **Purpose:** Intelligent Q&A with environment awareness and compliance knowledge
 
+**Command:** `/carl ask <question>`
+
 **What It Does:**
 - Analyzes complex questions to understand user intent
 - Scans relevant AWS resources based on question context
 - Provides tailored recommendations using actual environment data
 - Factors in SOC 2 compliance requirements
 - Asks clarifying questions when more information is needed
-- Hands off to other agents (Architect) for code generation
 
-**Example:**
-```
-User: "How do I stand up a web server?"
+**Tools:** `scan_iam`, `scan_vpc`, `scan_s3`, `scan_cloudtrail`, `scan_security_hub`, `scan_all`
 
-Agent autonomously:
-1. Scans VPCs, subnets, security groups, load balancers
-2. Retrieves SOC 2 requirements for web servers
-3. Analyzes current architecture
-4. Provides specific recommendation:
-   "I see you have VPC vpc-abc123 with 3 public subnets. For a
-   SOC 2-compliant web server, I recommend..."
-5. Offers to hand off to Architect Agent for Terraform generation
-```
-
-**Tools:**
-- `scan_environment` - Targeted AWS resource scanning
-- `get_compliance_requirements` - SOC 2 requirements lookup
-- `analyze_architecture` - Current setup analysis
-- `get_best_practices` - AWS best practices retrieval
-- `check_existing_resources` - Resource existence checks
-- `ask_clarification` - Interactive follow-up questions
-- `handoff_to_architect` - Transfer to code generation agent
-
-**Cost:** ~$0.003/question | **Implementation:** `advisory_agent.py` | **Docs:** `ADVISORY_AGENT.md`
-
-**Commands:** `/carl ask <question>`
+**Implementation:** `slack_router.py` (handle_ask_command) + `agent_core.py` + `scanning_tools.py`
 
 ---
 
-**2. Architect/CodeBuild Agent** (Planned)
+**2. Architecture Agent** ✅ **LIVE**
 
-**Purpose:** AI-driven infrastructure code generation with pattern selection
+**Purpose:** Pattern-based architecture recommendations with cost estimates
+
+**Command:** `/carl architect <question>`
 
 **What It Does:**
-- Interactive requirements gathering (asks questions about HA, traffic, etc.)
-- Scans existing environment to avoid duplicates
-- Selects appropriate architecture patterns from 43+ available
-- Generates customized Terraform code
-- Validates against AWS best practices
-- Estimates costs accurately
-- Creates GitHub PRs with architectural justification
-- Responds to review feedback
+- Uses 148+ architecture patterns as context
+- Provides recommendations with pros/cons
+- Real-time AWS pricing via pricing tool
+- SOC 2 compliance mapping
 
-**Example:**
-```
-User: "/carl build networking/production-vpc"
+**Tools:** `get_architecture_patterns`, `get_aws_pricing`, `get_compliance_requirements`, `compare_architecture_options`
 
-Agent autonomously:
-1. Scans existing VPCs, Transit Gateways
-2. Asks clarifying questions (traffic volume, HA needs)
-3. Selects patterns (multi-AZ VPC, VPC endpoints, TGW attachment)
-4. Generates Terraform code (850 lines)
-5. Validates (flow logs ✓, multi-AZ ✓, endpoints ✓)
-6. Calculates cost (~$220/month)
-7. Creates PR with justification
-8. Posts to Slack with summary
-```
-
-**Tools:**
-- Architecture patterns (43+)
-- AWS pricing data
-- Resource detection
-- Terraform generation
-- GitHub PR creation
-- Cost estimation
-
-**Status:** Planned for Phase 2 | **Priority:** HIGH
-
-**Commands:** `/carl build <blueprint>`, `/carl architect <question>`
+**Implementation:** `slack_router.py` (handle_architect_command) + `agent_core.py` + `architecture_tools.py`
 
 ---
 
-**3. Remediation Agent** (Planned)
+**3. Terraform Generation Service** ✅ **LIVE**
+
+**Purpose:** AI-driven Terraform code generation grounded by architecture patterns
+
+**Commands:** `/carl foundation`, `/carl account-factory`, `/carl build`
+
+**What It Does:**
+- Uses Claude AI with 148+ architecture patterns as grounding context
+- Generates compliant Terraform for VPCs, security services, SCPs, etc.
+- Validates generated code
+- Includes SOC 2 control mappings
+
+**Used By:**
+- **Foundation Builder** (`/carl foundation`) - Single account setup
+- **Account Factory** (`/carl account-factory`) - Multi-account with AFT
+- **Build Command** (`/carl build`) - Interactive blueprint builds
+
+**Implementation:** `ai_terraform_generator.py` + `generate_terraform_code()` in `architecture_tools.py`
+
+---
+
+**4. Remediation Agent** (Planned)
 
 **Purpose:** Autonomous issue remediation with validation
 
@@ -1088,48 +1061,6 @@ Agent autonomously:
 **Status:** Planned for Phase 2 | **Priority:** HIGH
 
 **Commands:** `/carl fix <finding-id>`, `/carl remediate <resource>`
-
----
-
-**4. Compliance Agent** (Planned)
-
-**Purpose:** End-to-end SOC 2 compliance management
-
-**What It Does:**
-- Full environment scan across all accounts
-- Maps findings to 43 SOC 2 controls
-- Identifies compliance gaps
-- Generates 4-phase remediation plan
-- Creates Jira epic with child stories
-- Tracks remediation progress
-- Reports compliance status
-- Generates audit-ready reports
-
-**Example:**
-```
-User: "/carl compliance get-ready-for-soc2"
-
-Agent autonomously:
-1. Scans environment (156 resources)
-2. Analyzes findings against SOC 2
-3. Calculates coverage (23/43 controls = 53%)
-4. Generates 4-phase remediation plan
-5. Creates Jira epic with 37 stories
-6. Posts roadmap to Slack
-Result: Clear path from 53% → 100% in 4-6 weeks
-```
-
-**Tools:**
-- Environment scanner
-- SOC 2 control mapping
-- Gap analysis
-- Remediation planning
-- Jira integration
-- Report generation
-
-**Status:** Planned for Phase 3 | **Priority:** HIGH
-
-**Commands:** `/carl compliance assess`, `/carl compliance status`
 
 ---
 

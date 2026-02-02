@@ -881,46 +881,6 @@ vpc (47), security (38), database (31), mfa (22), connectivity (19)
 
 See `CONTINUOUS_LEARNING.md` for complete architecture, troubleshooting, and monitoring guide.
 
-### Compliance Agent Released 🤖 (January 29, 2026)
-
-**Revolutionary New Capability:** Full autonomous SOC 2 compliance assessment with a single command!
-
-**What's New:**
-1. ✅ **Compliance Agent** - Autonomous end-to-end compliance management using AWS Bedrock Agents
-2. ✅ **Intelligent Evidence Collection** - Smart prioritization, pattern detection, root cause analysis
-3. ✅ **SOC 2 Gap Analysis** - Maps findings to 43 SOC 2 controls, calculates coverage %
-4. ✅ **Remediation Planning** - 4-phase plan with dependencies, effort estimates
-5. ✅ **Jira Epic Creation** - Automatically creates epic + stories for tracking
-6. ✅ **Async Processing** - 3-5 minute workflow without Lambda timeout
-
-**New Command:**
-- `/carl compliance assess` - Run complete autonomous SOC 2 assessment
-
-**What It Does:**
-```
-User: /carl compliance assess
-
-Agent autonomously (3-5 minutes):
-1. Scans AWS environment (~150 resources intelligently)
-2. Detects patterns and root causes
-3. Analyzes SOC 2 control coverage (e.g., 53%)
-4. Generates 4-phase remediation plan (37 tasks)
-5. Creates Jira epic CARLSEC-EPIC-1 with child stories
-6. Posts results to Slack with roadmap
-
-Result: Complete compliance roadmap from 53% → 100% in 4-6 weeks
-```
-
-**Files Added:**
-- `compliance_agent.py` - Full agent implementation (800+ lines)
-- `COMPLIANCE_AGENT.md` - Complete configuration guide
-- Enhanced `jira_service.py` with epic/story creation
-- Slack commands: `/carl compliance assess|status`
-
-**Cost:** ~$2/month | **ROI:** 1,000x (saves 20 hours/month)
-
-See `COMPLIANCE_AGENT.md` and `AI_OPPORTUNITIES.md` for complete details.
-
 ### Real-Time AWS Pricing Tool 💰 (January 29, 2026)
 
 **New Capability:** Real-time AWS pricing for cost-aware recommendations!
