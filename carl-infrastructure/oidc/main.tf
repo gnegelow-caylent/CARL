@@ -536,10 +536,10 @@ resource "aws_iam_policy" "carl_deployer_agentcore" {
         Sid      = "AgentCoreServiceLinkedRole"
         Effect   = "Allow"
         Action   = "iam:CreateServiceLinkedRole"
-        Resource = "arn:aws:iam::*:role/aws-service-role/agentcore.bedrock.amazonaws.com/*"
+        Resource = "*"
         Condition = {
-          StringEquals = {
-            "iam:AWSServiceName" = "agentcore.bedrock.amazonaws.com"
+          StringLike = {
+            "iam:AWSServiceName" = "*.bedrock.amazonaws.com"
           }
         }
       }
