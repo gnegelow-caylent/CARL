@@ -90,6 +90,12 @@ variable "enable_compliance_agent" {
   default     = true
 }
 
+variable "enable_ask_agent" {
+  description = "Enable AWS Bedrock Ask Agent for /carl ask command (AgentCore migration Phase 1)"
+  type        = bool
+  default     = false  # Off by default until tested
+}
+
 # ============================================================================
 # GITHUB INTEGRATION (For automatic feature deployment)
 # ============================================================================

@@ -1001,6 +1001,11 @@ resource "aws_lambda_function" "carl" {
       COMPLIANCE_AGENT_ID       = var.enable_compliance_agent ? module.compliance_agent[0].agent_id : ""
       COMPLIANCE_AGENT_ALIAS_ID = "PROD"
 
+      # Bedrock Ask Agent (AgentCore Migration Phase 1)
+      ASK_AGENT_ID       = var.enable_ask_agent ? module.ask_agent[0].agent_id : ""
+      ASK_AGENT_ALIAS_ID = var.enable_ask_agent ? module.ask_agent[0].agent_alias_id : ""
+      USE_ASK_AGENT      = var.enable_ask_agent ? "true" : "false"
+
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
       SLACK_SIGNING_SECRET_SSM = "/${var.environment}/carl/slack/signing-secret"
@@ -1259,6 +1264,21 @@ module "compliance_agent" {
   })
 }
 
+# Ask Agent for /carl ask command (AgentCore Migration Phase 1)
+module "ask_agent" {
+  source = "../modules/ask-agent"
+  count  = var.enable_ask_agent ? 1 : 0
+
+  name_prefix      = local.name_prefix
+  region           = var.region
+  tool_lambda_arn  = aws_lambda_function.carl.arn
+  tool_lambda_name = aws_lambda_function.carl.function_name
+
+  tags = merge(var.tags, {
+    Feature = "ask_agent"
+  })
+}
+
 # ============================================================================
 # KEEP LAMBDA WARM (Reduces cold starts for better Slack responsiveness)
 # ============================================================================
@@ -1395,4 +1415,14 @@ output "compliance_agent_id" {
 output "compliance_agent_alias_id" {
   description = "Bedrock Compliance Agent Alias ID (PROD)"
   value       = var.enable_compliance_agent ? module.compliance_agent[0].agent_alias_id : null
+}
+
+output "ask_agent_id" {
+  description = "Bedrock Ask Agent ID (if enabled)"
+  value       = var.enable_ask_agent ? module.ask_agent[0].agent_id : "Not enabled - set enable_ask_agent=true to deploy"
+}
+
+output "ask_agent_alias_id" {
+  description = "Bedrock Ask Agent Alias ID (PROD)"
+  value       = var.enable_ask_agent ? module.ask_agent[0].agent_alias_id : null
 }
