@@ -85,32 +85,10 @@ module "scanning" {
 
 # -----------------------------------------------------------------------------
 # AgentCore Ask Agent Module (Phase 1)
+# NOTE: AgentCore deployment is handled via core/main.tf workflow, not this file
+# This environment config is for modular deployment approach (not currently used)
 # -----------------------------------------------------------------------------
-
-module "agentcore_ask" {
-  source = "../../modules/agentcore-ask"
-
-  name_prefix        = "carl-dev"
-  agent_source_path  = "${path.module}/../../agentcore-code/ask-agent"
-  code_bucket_name   = module.foundation.evidence_bucket_name
-  code_bucket_arn    = module.foundation.evidence_bucket_arn
-  code_object_prefix = "agentcore/ask-agent"
-  tool_lambda_arn    = module.scanning.slack_router_arn
-
-  # Use Claude Sonnet for intelligent responses
-  foundation_model = "anthropic.claude-sonnet-4-20250514-v1:0"
-
-  # Enable memory for persistent learning
-  enable_memory  = true
-  enable_gateway = false # Direct Lambda invocation for Phase 1
-
-  environment_variables = {
-    ENVIRONMENT = "dev"
-  }
-
-  tags = {
-    Application = "CARL"
-    Environment = "dev"
-    Component   = "AgentCore-Ask"
-  }
-}
+# To enable AgentCore in this modular setup, you would need to:
+# 1. Add ECR repository to foundation module
+# 2. Pass ECR URL/ARN to agentcore_ask module
+# For now, use the core/main.tf deployment which includes AgentCore

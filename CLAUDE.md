@@ -86,7 +86,16 @@ An AI-powered AWS compliance bot that:
    - ✅ Reading repository contents
    - Note: GitHub Actions workflows may deploy to AWS, but that's user-controlled
 
-4. **Terraform Validation (Special Rules)**
+4. **MCP Tools (ALWAYS Prefer Over Local CLI)**
+   - ✅ **ALWAYS use MCP tools where available** instead of local AWS CLI via Bash
+   - ✅ `mcp__aws-api-global__call_aws` - For AWS CLI commands
+   - ✅ `mcp__aws-api-global__suggest_aws_commands` - For finding AWS commands
+   - ✅ `mcp__aws-docs__*` - For AWS documentation
+   - ✅ `mcp__agentcore-docs__*` - For AgentCore documentation
+   - ⚠️ If an MCP tool doesn't support a specific operation (returns error), THEN fall back to local CLI with `AWS_PROFILE=carl-dev`
+   - Example: `mcp__aws-api-global__call_aws` doesn't support `bedrock-agentcore invoke-agent-runtime`, so use local CLI for that
+
+5. **Terraform Validation (Special Rules)**
    - ✅ `terraform validate -backend=false` (validates syntax without backend)
    - ✅ `terraform fmt` (format code)
    - ⚠️ **CRITICAL**: If validation creates ANY state files, you MUST clean them up:

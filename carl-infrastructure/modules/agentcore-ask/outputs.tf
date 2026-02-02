@@ -15,6 +15,11 @@ output "role_arn" {
   value       = aws_iam_role.agentcore_execution.arn
 }
 
+output "container_image_uri" {
+  description = "Full container image URI used by the AgentCore runtime"
+  value       = "${var.ecr_repository_url}:${var.container_image_tag}"
+}
+
 output "memory_id" {
   description = "ID of the AgentCore Memory (if enabled)"
   value       = var.enable_memory ? aws_bedrockagentcore_memory.ask[0].id : null

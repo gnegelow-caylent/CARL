@@ -230,23 +230,44 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push Docker Image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU (for ARM64 builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push Lambda Container
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build Docker image with PDF generation dependencies
+          # Build Lambda container (AMD64 for Lambda)
           cd carl-app
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
-          # Push both tagged and latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          # Push both tagged and lambda
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
           # Save image URI for Terraform
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build and Push AgentCore Ask Agent Container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build AgentCore container (ARM64 required by AgentCore Runtime)
+          cd carl-infrastructure/agentcore-code/ask-agent
+          docker buildx build --platform linux/arm64 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+            --push .
+
+          echo "Pushed AgentCore ask-agent container to $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask"
 
       - name: Create Placeholder Lambda Package
         run: |
@@ -257,21 +278,6 @@ jobs:
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
-
-      - name: Upload AgentCore Ask Agent Code to S3
-        run: |
-          # Get the evidence bucket name from Terraform state or use convention
-          BUCKET_NAME="carl-dev-evidence"
-          S3_PREFIX="agentcore/ask-agent"
-
-          # Upload agent code to S3
-          cd carl-infrastructure/agentcore-code/ask-agent
-
-          # Upload individual files (AgentCore expects files, not zip)
-          aws s3 cp carl_ask_agent.py s3://${BUCKET_NAME}/${S3_PREFIX}/carl_ask_agent.py
-          aws s3 cp requirements.txt s3://${BUCKET_NAME}/${S3_PREFIX}/requirements.txt
-
-          echo "Uploaded AgentCore ask-agent code to s3://${BUCKET_NAME}/${S3_PREFIX}/"
 
       - name: Terraform Init
         run: |
@@ -339,23 +345,42 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push Docker Image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU (for ARM64 builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push Lambda Container
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build Docker image with PDF generation dependencies
+          # Build Lambda container (AMD64 for Lambda)
           cd carl-app
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
-          # Push both tagged and latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          # Push both tagged and lambda
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
           # Save image URI for Terraform
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build and Push AgentCore Ask Agent Container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build AgentCore container (ARM64 required by AgentCore Runtime)
+          cd carl-infrastructure/agentcore-code/ask-agent
+          docker buildx build --platform linux/arm64 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+            --push .
 
       - name: Create Placeholder Lambda Package
         run: |
@@ -411,23 +436,42 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push Docker Image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU (for ARM64 builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push Lambda Container
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build Docker image with PDF generation dependencies
+          # Build Lambda container (AMD64 for Lambda)
           cd carl-app
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
-          # Push both tagged and latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          # Push both tagged and lambda
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda
 
           # Save image URI for Terraform
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build and Push AgentCore Ask Agent Container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: carl-lambda
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build AgentCore container (ARM64 required by AgentCore Runtime)
+          cd carl-infrastructure/agentcore-code/ask-agent
+          docker buildx build --platform linux/arm64 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+            --push .
 
       - name: Create Placeholder Lambda Package
         run: |

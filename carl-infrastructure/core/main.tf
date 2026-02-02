@@ -960,8 +960,9 @@ variable "lambda_image_uri" {
 
 resource "aws_lambda_function" "carl" {
   # Container image configuration
+  # Uses shared ECR repo with tag "lambda" (AgentCore uses tag "agentcore-ask")
   package_type = "Image"
-  image_uri    = var.lambda_image_uri != "" ? var.lambda_image_uri : "${aws_ecr_repository.carl_lambda.repository_url}:latest"
+  image_uri    = var.lambda_image_uri != "" ? var.lambda_image_uri : "${aws_ecr_repository.carl_lambda.repository_url}:lambda"
 
   function_name = "${local.name_prefix}-api"
   role          = aws_iam_role.lambda.arn
@@ -1197,16 +1198,16 @@ module "foundation" {
 }
 
 # AgentCore Ask Agent Module (Phase 1 - Intelligent Q&A)
+# Container is built and pushed by GitHub Actions to carl-lambda ECR repo with tag "agentcore-ask"
 module "agentcore_ask" {
   source = "../modules/agentcore-ask"
   count  = var.enable_agentcore_ask ? 1 : 0
 
-  name_prefix        = local.name_prefix
-  agent_source_path  = "${path.module}/../agentcore-code/ask-agent"
-  code_bucket_name   = var.enable_foundation ? module.foundation[0].evidence_bucket_name : "${local.name_prefix}-evidence"
-  code_bucket_arn    = var.enable_foundation ? module.foundation[0].evidence_bucket_arn : "arn:aws:s3:::${local.name_prefix}-evidence"
-  code_object_prefix = "agentcore/ask-agent"
-  tool_lambda_arn    = aws_lambda_function.carl.arn
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.carl_lambda.repository_url
+  ecr_repository_arn  = aws_ecr_repository.carl_lambda.arn
+  container_image_tag = "agentcore-ask"
+  tool_lambda_arn     = aws_lambda_function.carl.arn
 
   # Use Claude Sonnet for intelligent responses
   foundation_model = "anthropic.claude-sonnet-4-20250514-v1:0"
@@ -1222,8 +1223,6 @@ module "agentcore_ask" {
   tags = merge(var.tags, {
     Feature = "agentcore_ask"
   })
-
-  depends_on = [module.foundation]
 }
 
 # Real-Time Security Monitor Module (Instant security alerts)

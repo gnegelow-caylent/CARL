@@ -1,29 +1,25 @@
 # Variables for AgentCore Ask Agent Module
+# Container is built by GitHub Actions and pushed to shared ECR repo
 
 variable "name_prefix" {
   description = "Prefix for resource names (e.g., carl-dev)"
   type        = string
 }
 
-variable "code_bucket_name" {
-  description = "S3 bucket name containing agent code"
+variable "ecr_repository_url" {
+  description = "URL of the shared ECR repository (e.g., 123456789.dkr.ecr.us-east-1.amazonaws.com/carl-lambda)"
   type        = string
 }
 
-variable "code_bucket_arn" {
-  description = "S3 bucket ARN containing agent code"
+variable "ecr_repository_arn" {
+  description = "ARN of the shared ECR repository for IAM permissions"
   type        = string
 }
 
-variable "code_object_prefix" {
-  description = "S3 prefix for agent code (directory containing carl_ask_agent.py)"
+variable "container_image_tag" {
+  description = "Tag for the AgentCore container image"
   type        = string
-  default     = "agentcore/ask-agent"
-}
-
-variable "agent_source_path" {
-  description = "Path to the directory containing agent source code (carl_ask_agent.py and requirements.txt)"
-  type        = string
+  default     = "agentcore-ask"
 }
 
 variable "tool_lambda_arn" {

@@ -1,15 +1,12 @@
 # AWS Bedrock AgentCore Ask Agent Module
-# Deploys the /carl ask command to AgentCore Runtime
+# Deploys the /carl ask command to AgentCore Runtime using container deployment
+# Container is built and pushed by GitHub Actions to shared ECR repo with tag "agentcore-ask"
 
 terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.18"
-    }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.0"
     }
   }
 }
@@ -22,23 +19,6 @@ locals {
   region     = data.aws_region.current.id
   # AgentCore names can only contain letters, numbers, and underscores (no hyphens)
   safe_name_prefix = replace(var.name_prefix, "-", "_")
-}
-
-# Create zip archive of agent code
-data "archive_file" "agent_code" {
-  type        = "zip"
-  source_dir  = var.agent_source_path
-  output_path = "${path.module}/.build/ask-agent.zip"
-}
-
-# Upload agent code to S3
-resource "aws_s3_object" "agent_code" {
-  bucket = var.code_bucket_name
-  key    = "${var.code_object_prefix}/ask-agent.zip"
-  source = data.archive_file.agent_code.output_path
-  etag   = data.archive_file.agent_code.output_md5
-
-  tags = var.tags
 }
 
 # IAM Role for AgentCore Runtime
@@ -121,13 +101,22 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "arn:aws:bedrock:*:*:inference-profile/*anthropic*"
         ]
       },
-      # S3 Code Access
+      # ECR Image Pull
       {
         Effect = "Allow"
         Action = [
-          "s3:GetObject"
+          "ecr:GetAuthorizationToken"
         ]
-        Resource = "${var.code_bucket_arn}/*"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = var.ecr_repository_arn
       },
       # Invoke Lambda tools
       {
@@ -136,36 +125,45 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "lambda:InvokeFunction"
         ]
         Resource = var.tool_lambda_arn
+      },
+      # AWS API Read permissions for scanning
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:ListUsers",
+          "iam:ListMFADevices",
+          "iam:GetAccountPasswordPolicy",
+          "s3:ListAllMyBuckets",
+          "s3:GetBucketEncryption",
+          "s3:GetPublicAccessBlock",
+          "s3:GetBucketVersioning",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeFlowLogs",
+          "ec2:DescribeInstances",
+          "sts:GetCallerIdentity"
+        ]
+        Resource = "*"
       }
     ]
   })
 }
 
-# Note: AmazonBedrockAgentCoreFullAccess managed policy doesn't exist yet
-# AgentCore permissions are included in the inline policy above
-
 # AgentCore Runtime for Ask Agent
+# NOTE: Container image must be pushed to ECR before creating the runtime.
+# The GitHub Actions workflow handles this: push image first, then terraform apply.
 resource "aws_bedrockagentcore_agent_runtime" "ask" {
   agent_runtime_name = "${local.safe_name_prefix}_ask_agent"
   description        = "CARL Ask Agent - intelligent Q&A with AWS environment scanning"
   role_arn           = aws_iam_role.agentcore_execution.arn
 
-  # S3 code deployment (zip file required)
+  # Container deployment (ARM64 built by GitHub Actions)
+  # Uses shared ECR repo with tag "agentcore-ask"
   agent_runtime_artifact {
-    code_configuration {
-      entry_point = ["carl_ask_agent.py"]
-      runtime     = "PYTHON_3_12"
-
-      code {
-        s3 {
-          bucket = var.code_bucket_name
-          prefix = "${var.code_object_prefix}/ask-agent.zip"
-        }
-      }
+    container_configuration {
+      container_uri = "${var.ecr_repository_url}:${var.container_image_tag}"
     }
   }
-
-  depends_on = [aws_s3_object.agent_code]
 
   environment_variables = merge(var.environment_variables, {
     AWS_REGION       = local.region
@@ -204,8 +202,3 @@ resource "aws_bedrockagentcore_gateway" "ask_tools" {
 
   tags = var.tags
 }
-
-# Note: Gateway Target removed for Phase 1 POC
-# The agent invokes Lambda tools directly via IAM permissions
-# Gateway targets with full tool schemas can be added later if needed
-# Trigger deploy - broader IAM permissions
