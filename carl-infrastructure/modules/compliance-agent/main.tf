@@ -111,17 +111,17 @@ IMPORTANT CONSTRAINTS:
 - Be specific with resource names and IDs
 EOT
 
-  idle_session_ttl_in_seconds = 1800 # 30 minutes
+  idle_session_ttl_in_seconds = 1800  # 30 minutes
 
   tags = var.tags
 }
 
 # Action Group for Agent Tools
 resource "aws_bedrockagent_agent_action_group" "compliance_tools" {
-  agent_id                   = aws_bedrockagent_agent.compliance.agent_id
-  agent_version              = "DRAFT"
-  action_group_name          = "ComplianceTools"
-  description                = "Tools for compliance assessment and remediation planning"
+  agent_id             = aws_bedrockagent_agent.compliance.agent_id
+  agent_version        = "DRAFT"
+  action_group_name    = "ComplianceTools"
+  description          = "Tools for compliance assessment and remediation planning"
   skip_resource_in_use_check = true
 
   action_group_executor {
@@ -133,8 +133,8 @@ resource "aws_bedrockagent_agent_action_group" "compliance_tools" {
     payload = jsonencode({
       openapi = "3.0.0"
       info = {
-        title       = "CARL Compliance Agent Tools"
-        version     = "1.0.0"
+        title   = "CARL Compliance Agent Tools"
+        version = "1.0.0"
         description = "Tools for compliance assessment and remediation"
       }
       paths = {
@@ -175,9 +175,9 @@ resource "aws_bedrockagent_agent_action_group" "compliance_tools" {
                     schema = {
                       type = "object"
                       properties = {
-                        success           = { type = "boolean" }
+                        success = { type = "boolean" }
                         scanned_resources = { type = "integer" }
-                        evidence          = { type = "object" }
+                        evidence = { type = "object" }
                       }
                     }
                   }
@@ -216,7 +216,7 @@ resource "aws_bedrockagent_agent_action_group" "compliance_tools" {
                     schema = {
                       type = "object"
                       properties = {
-                        success  = { type = "boolean" }
+                        success = { type = "boolean" }
                         patterns = { type = "array" }
                       }
                     }
@@ -290,8 +290,8 @@ resource "aws_bedrockagent_agent_action_group" "compliance_tools" {
                   schema = {
                     type = "object"
                     properties = {
-                      remediation_plan = { type = "object" }
-                      coverage_percent = { type = "integer" }
+                      remediation_plan  = { type = "object" }
+                      coverage_percent  = { type = "integer" }
                     }
                   }
                 }

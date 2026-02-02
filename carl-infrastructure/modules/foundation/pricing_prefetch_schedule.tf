@@ -9,8 +9,8 @@ resource "aws_lambda_function" "pricing_prefetch" {
   role          = aws_iam_role.pricing_prefetch_role.arn
   handler       = "handlers.pricing_prefetch.handler"
   runtime       = "python3.11"
-  timeout       = 600 # 10 minutes (prefetch is slow but runs infrequently)
-  memory_size   = 512 # More memory for faster execution
+  timeout       = 600  # 10 minutes (prefetch is slow but runs infrequently)
+  memory_size   = 512  # More memory for faster execution
 
   filename         = var.lambda_package_path
   source_code_hash = filebase64sha256(var.lambda_package_path)
@@ -128,7 +128,7 @@ resource "aws_iam_role_policy" "pricing_prefetch_cloudwatch" {
 resource "aws_cloudwatch_event_rule" "pricing_prefetch_schedule" {
   name                = "${var.project_name}-${var.environment}-pricing-prefetch-schedule"
   description         = "Trigger pricing prefetch on 1st of month at 3am UTC"
-  schedule_expression = "cron(0 3 1 * ? *)" # 1st of month at 3am UTC
+  schedule_expression = "cron(0 3 1 * ? *)"  # 1st of month at 3am UTC
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-pricing-prefetch-schedule"

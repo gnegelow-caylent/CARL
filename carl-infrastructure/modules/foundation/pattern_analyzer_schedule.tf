@@ -5,7 +5,7 @@
 resource "aws_cloudwatch_event_rule" "pattern_analysis" {
   name                = "${var.project_name}-${var.environment}-pattern-analysis"
   description         = "Trigger pattern analysis daily at 2am UTC"
-  schedule_expression = "cron(0 2 * * ? *)" # 2am UTC daily
+  schedule_expression = "cron(0 2 * * ? *)"  # 2am UTC daily
 
   tags = merge(
     var.tags,
@@ -21,7 +21,7 @@ resource "aws_lambda_function" "pattern_analyzer" {
   role          = aws_iam_role.lambda_execution.arn
   handler       = "handlers.pattern_analyzer.handler"
   runtime       = "python3.11"
-  timeout       = 60 # 1 minute should be enough for pattern analysis
+  timeout       = 60  # 1 minute should be enough for pattern analysis
   memory_size   = 512
 
   # Code is deployed via GitHub Actions workflow
@@ -30,10 +30,10 @@ resource "aws_lambda_function" "pattern_analyzer" {
 
   environment {
     variables = {
-      ENVIRONMENT          = var.environment
-      SCAN_HISTORY_TABLE   = aws_dynamodb_table.scan_history.name
-      RESOURCE_GRAPH_TABLE = aws_dynamodb_table.resource_graph.name
-      LOG_LEVEL            = var.log_level
+      ENVIRONMENT            = var.environment
+      SCAN_HISTORY_TABLE     = aws_dynamodb_table.scan_history.name
+      RESOURCE_GRAPH_TABLE   = aws_dynamodb_table.resource_graph.name
+      LOG_LEVEL              = var.log_level
     }
   }
 
