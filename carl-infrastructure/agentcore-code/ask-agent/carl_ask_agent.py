@@ -13,13 +13,19 @@ import os
 import json
 import logging
 import boto3
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
+
+# AgentCore Runtime imports
+from bedrock_agentcore import BedrockAgentCoreApp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize AgentCore app
+app = BedrockAgentCoreApp()
 
 # Environment variables (set by Terraform)
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
@@ -416,37 +422,29 @@ Please provide a detailed, helpful response based on the actual AWS environment 
         return f"I apologize, but I encountered an error generating a response: {str(e)}"
 
 
-def handler(event: dict, context: Any) -> dict:
+@app.entrypoint
+def invoke(payload: dict, context: Any = None) -> dict:
     """
-    AgentCore Runtime event handler.
+    AgentCore Runtime entrypoint.
 
-    Event structure:
+    Payload structure:
     {
-        "input": {
-            "text": "user question here"
-        },
-        "session_id": "...",
-        "agent_id": "..."
+        "prompt": "user question here"
     }
 
     Returns:
     {
-        "output": {
-            "text": "agent response here"
-        }
+        "result": "agent response here"
     }
     """
-    logger.info(f"Received event: {json.dumps(event, default=str)[:500]}...")
+    logger.info(f"Received payload: {json.dumps(payload, default=str)[:500]}...")
 
-    # Extract user input
-    user_input = event.get("input", {})
-    question = user_input.get("text", "")
+    # Extract user input - AgentCore uses "prompt" key
+    question = payload.get("prompt", "")
 
     if not question:
         return {
-            "output": {
-                "text": "Please provide a question. Example: 'What's my current MFA status?' or 'How should I design my VPC?'"
-            }
+            "result": "Please provide a question. Example: 'What's my current MFA status?' or 'How should I design my VPC?'"
         }
 
     logger.info(f"Processing question: {question}")
@@ -459,27 +457,19 @@ def handler(event: dict, context: Any) -> dict:
     try:
         scanner = AWSResourceScanner(region=AWS_REGION)
         scan_results = scanner.scan_all()
-        context = scan_results_to_context(scan_results)
+        env_context = scan_results_to_context(scan_results)
     except Exception as e:
         logger.error(f"AWS scan failed: {e}")
-        context = f"Note: AWS environment scan failed with error: {str(e)}\n\nProceeding with general knowledge."
+        env_context = f"Note: AWS environment scan failed with error: {str(e)}\n\nProceeding with general knowledge."
 
     # Generate response
-    response_text = generate_response(question, context, question_type)
+    response_text = generate_response(question, env_context, question_type)
 
     return {
-        "output": {
-            "text": response_text
-        }
+        "result": response_text
     }
 
 
-# For local testing
+# AgentCore entry point
 if __name__ == "__main__":
-    test_event = {
-        "input": {
-            "text": "What's my current MFA status for IAM users?"
-        }
-    }
-    result = handler(test_event, None)
-    print(json.dumps(result, indent=2))
+    app.run()
