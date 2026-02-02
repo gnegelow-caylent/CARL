@@ -969,7 +969,7 @@ resource "aws_lambda_function" "carl" {
   # Performance optimization: 1024MB provides 2x CPU, faster cold starts
   # Cost is similar since execution is 2x faster (GB-seconds remain constant)
   memory_size = 1024 # Faster cold starts, enough for Bedrock calls
-  timeout     = 300  # Terraform generation with max_tokens=16000 can take 120-180s
+  timeout     = 900  # Account factory can generate 20+ files, each taking 10-30s (~5-10min total)
 
   # Force update when code changes
   publish = true

@@ -9,6 +9,7 @@ accounts, SCPs, and security requirements.
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
@@ -574,9 +575,11 @@ class AccountFactoryService:
         )
         files["variables.tf"] = variables_result.get("content", "# Error generating variables.tf")
 
-        # Account requests - one per account
-        update_status(f"Generating {len(session.accounts)} account request modules...")
-        for account in session.accounts:
+        # Account requests - one per account (PARALLEL)
+        update_status(f"Generating {len(session.accounts)} account request modules in parallel...")
+
+        def generate_account_request(account):
+            """Generate account request Terraform (runs in parallel)."""
             result = generate_terraform_code(
                 module_type="aft_account_request",
                 requirements={
@@ -589,13 +592,22 @@ class AccountFactoryService:
                 },
                 compliance_framework=framework.name,
             )
-            files[f"account-requests/{account.name}.tf"] = result.get("content", f"# Error generating {account.name}")
             logger.info(f"Generated account request for {account.name}")
+            return f"account-requests/{account.name}.tf", result.get("content", f"# Error generating {account.name}")
 
-        # Account customizations per OU type
-        update_status("Generating account customizations per OU...")
+        # Execute in parallel (max 5 concurrent to avoid rate limits)
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(generate_account_request, acc) for acc in session.accounts]
+            for future in as_completed(futures):
+                filename, content = future.result()
+                files[filename] = content
+
+        # Account customizations per OU type (PARALLEL)
+        update_status("Generating account customizations per OU in parallel...")
         customization_types = set(acc.ou_name.lower() for acc in session.accounts)
-        for cust_type in customization_types:
+
+        def generate_customization(cust_type):
+            """Generate OU customization Terraform (runs in parallel)."""
             result = generate_terraform_code(
                 module_type="account_customization",
                 requirements={
@@ -606,8 +618,15 @@ class AccountFactoryService:
                 },
                 compliance_framework=framework.name,
             )
-            files[f"account-customizations/{cust_type}/main.tf"] = result.get("content", "# Error")
             logger.info(f"Generated customization for OU: {cust_type}")
+            return f"account-customizations/{cust_type}/main.tf", result.get("content", "# Error")
+
+        # Execute in parallel
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(generate_customization, ct) for ct in customization_types]
+            for future in as_completed(futures):
+                filename, content = future.result()
+                files[filename] = content
 
         # Global customizations
         update_status("Generating global customizations...")
@@ -622,9 +641,11 @@ class AccountFactoryService:
         )
         files["global-customizations/main.tf"] = global_result.get("content", "# Error")
 
-        # SCPs from framework
-        update_status(f"Generating {len(framework.scps)} Service Control Policies...")
-        for scp in framework.scps:
+        # SCPs from framework (PARALLEL)
+        update_status(f"Generating {len(framework.scps)} Service Control Policies in parallel...")
+
+        def generate_scp(scp):
+            """Generate SCP Terraform (runs in parallel)."""
             result = generate_terraform_code(
                 module_type="scp",
                 requirements={
@@ -635,8 +656,15 @@ class AccountFactoryService:
                 },
                 compliance_framework=framework.name,
             )
-            files[f"scps/{scp.name}.tf"] = result.get("content", f"# Error generating {scp.name}")
             logger.info(f"Generated SCP: {scp.name}")
+            return f"scps/{scp.name}.tf", result.get("content", f"# Error generating {scp.name}")
+
+        # Execute in parallel
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(generate_scp, scp) for scp in framework.scps]
+            for future in as_completed(futures):
+                filename, content = future.result()
+                files[filename] = content
 
         # Security baseline
         update_status("Generating security services baseline...")
@@ -697,27 +725,39 @@ class AccountFactoryService:
         )
         files["logging/central-logging-bucket.tf"] = logging_result.get("content", "# Error")
 
-        # VPCs for workload accounts
+        # VPCs for workload accounts (PARALLEL)
         vpc_count = sum(len(acc.vpcs) for acc in session.accounts)
         if vpc_count > 0:
-            update_status(f"Generating {vpc_count} VPC configurations...")
-            for account in session.accounts:
-                for vpc in account.vpcs:
-                    result = generate_terraform_code(
-                        module_type="vpc",
-                        requirements={
-                            "vpc_name": f"{account.name}-{vpc.name}",
-                            "cidr": vpc.cidr,
-                            "azs": vpc.availability_zones,
-                            "enable_nat": vpc.enable_nat_gateway,
-                            "enable_flow_logs": True,
-                            "enable_endpoints": vpc.enable_vpc_endpoints,
-                            "environment": vpc.environment,
-                        },
-                        compliance_framework=framework.name,
-                    )
-                    files[f"vpcs/{account.name}-{vpc.name}.tf"] = result.get("content", "# Error")
-                    logger.info(f"Generated VPC: {account.name}-{vpc.name}")
+            update_status(f"Generating {vpc_count} VPC configurations in parallel...")
+
+            def generate_vpc(account, vpc):
+                """Generate VPC Terraform (runs in parallel)."""
+                result = generate_terraform_code(
+                    module_type="vpc",
+                    requirements={
+                        "vpc_name": f"{account.name}-{vpc.name}",
+                        "cidr": vpc.cidr,
+                        "azs": vpc.availability_zones,
+                        "enable_nat": vpc.enable_nat_gateway,
+                        "enable_flow_logs": True,
+                        "enable_endpoints": vpc.enable_vpc_endpoints,
+                        "environment": vpc.environment,
+                    },
+                    compliance_framework=framework.name,
+                )
+                logger.info(f"Generated VPC: {account.name}-{vpc.name}")
+                return f"vpcs/{account.name}-{vpc.name}.tf", result.get("content", "# Error")
+
+            # Execute in parallel
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = []
+                for account in session.accounts:
+                    for vpc in account.vpcs:
+                        futures.append(executor.submit(generate_vpc, account, vpc))
+
+                for future in as_completed(futures):
+                    filename, content = future.result()
+                    files[filename] = content
 
         logger.info(f"Generated {len(files)} Terraform files for AFT configuration")
         return files
