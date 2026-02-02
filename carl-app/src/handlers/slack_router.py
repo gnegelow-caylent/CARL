@@ -125,6 +125,65 @@ def get_foundation_builder() -> FoundationBuilder:
     return _foundation_builder
 
 
+def invoke_ask_agent(question: str, session_id: str = None) -> str:
+    """
+    Invoke the AWS Bedrock Ask Agent to answer compliance questions.
+
+    The Ask Agent has built-in scanning tools (scan_iam, scan_vpc, scan_s3,
+    scan_cloudtrail, scan_security_hub) and will autonomously decide what
+    to scan based on the question.
+
+    Args:
+        question: User's compliance question
+        session_id: Optional session ID for conversation continuity
+
+    Returns:
+        Agent's response text
+
+    Raises:
+        Exception if agent invocation fails
+    """
+    import uuid
+
+    agent_id = os.environ.get("ASK_AGENT_ID")
+    agent_alias_id = os.environ.get("ASK_AGENT_ALIAS_ID", "PROD")
+
+    if not agent_id:
+        raise ValueError("ASK_AGENT_ID environment variable not set")
+
+    # Create bedrock-agent-runtime client
+    bedrock_agent_runtime = boto3.client(
+        "bedrock-agent-runtime",
+        region_name=os.environ.get("AWS_REGION", "us-east-1")
+    )
+
+    # Generate session ID if not provided
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    logger.info(f"Invoking Ask Agent: agent_id={agent_id}, alias={agent_alias_id}, session={session_id}")
+
+    # Invoke the agent
+    response = bedrock_agent_runtime.invoke_agent(
+        agentId=agent_id,
+        agentAliasId=agent_alias_id,
+        sessionId=session_id,
+        inputText=question
+    )
+
+    # Collect the streaming response
+    completion = ""
+    for event in response.get("completion", []):
+        if "chunk" in event:
+            chunk_data = event["chunk"]
+            if "bytes" in chunk_data:
+                completion += chunk_data["bytes"].decode("utf-8")
+
+    logger.info(f"Ask Agent response received: {len(completion)} chars")
+
+    return completion
+
+
 def get_github_app_auth() -> GitHubAppAuth:
     """Get or create GitHub App authentication instance."""
     global _github_app_auth
@@ -2214,7 +2273,35 @@ def handle_ask_command_sync(
         logger.info("Routing to architecture agent")
         return handle_architecture_question(slack, channel_id, user_id, question)
 
-    # Continue with compliance/scanning agent
+    # Check if Bedrock Ask Agent is enabled (AgentCore migration Phase 1)
+    use_ask_agent = os.environ.get("USE_ASK_AGENT", "false").lower() == "true"
+
+    if use_ask_agent:
+        logger.info("Using Bedrock Ask Agent (AgentCore)")
+        try:
+            slack.post_message(channel_id, text="🤖 Consulting CARL's Ask Agent...")
+
+            # Invoke the Bedrock Ask Agent - it will autonomously scan as needed
+            response = invoke_ask_agent(question, session_id=f"{user_id}-{channel_id}")
+
+            if response:
+                # Format and post the agent's response
+                formatted_blocks = format_markdown_to_blocks(response, "💬 CARL's Response")
+                for block_group in formatted_blocks:
+                    slack.post_message(channel_id, blocks=block_group)
+
+                logger.info("Bedrock Ask Agent response posted successfully")
+                return {"statusCode": 200, "body": ""}
+            else:
+                logger.warning("Bedrock Ask Agent returned empty response, falling back to local scanning")
+                slack.post_message(channel_id, text="⚠️ Agent returned no response, trying local scan...")
+
+        except Exception as e:
+            logger.error(f"Bedrock Ask Agent failed: {e}", exc_info=True)
+            slack.post_message(channel_id, text=f"⚠️ Ask Agent unavailable, falling back to local scan...")
+            # Fall through to local scanning
+
+    # Continue with compliance/scanning agent (fallback or primary if agent disabled)
     logger.info("Processing as compliance question with comprehensive AWS scanning")
 
     # Track for learning
