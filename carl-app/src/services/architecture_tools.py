@@ -813,6 +813,46 @@ def generate_terraform_code(
                 delete_default_vpcs=requirements.get("delete_default_vpcs", True),
                 compliance=compliance_framework,
             )
+        elif module_type_lower == "providers":
+            # Terraform provider configuration
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type="providers",
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context="Generate Terraform provider configuration for AWS, including region setup and required providers block.",
+                )
+            )
+        elif module_type_lower == "variables":
+            # Terraform variables
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type="variables",
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context="Generate Terraform variable definitions for the specified requirements.",
+                )
+            )
+        elif module_type_lower == "account_customization":
+            # AFT account customizations per OU
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type="account_customization",
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context=f"Generate AFT account customization Terraform for {requirements.get('customization_type', 'default')} OU with security services.",
+                )
+            )
+        elif module_type_lower == "global_customization":
+            # AFT global customizations
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type="global_customization",
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context="Generate AFT global customizations including IAM password policy, S3 block public access, and EBS encryption defaults.",
+                )
+            )
         else:
             # Generic generation using the base method
             result = generator.generate_terraform(

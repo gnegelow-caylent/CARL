@@ -1013,11 +1013,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             return {"statusCode": 200, "body": ""}
 
         try:
-            # Progress update
-            slack.post_message(channel_id, text="⏳ Generating AFT Terraform configuration...")
+            # Create status callback for live updates
+            def status_update(message: str):
+                """Post status updates to Slack."""
+                slack.post_message(channel_id, text=message)
 
-            # Generate AFT Terraform
-            result = service.generate_aft_terraform(session)
+            # Initial status
+            status_update("⏳ Starting AFT Terraform generation...")
+
+            # Generate AFT Terraform with status updates
+            result = service.generate_aft_terraform(session, status_callback=status_update)
 
             if not result["success"]:
                 slack.post_message(channel_id, text=f"❌ Error: {result.get('error', 'Unknown error')}")

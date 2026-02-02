@@ -290,7 +290,67 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.4 AI-Driven Terraform Generation Migration (Week 7-8)
+#### 1.5 CARL Uninstall & Cleanup Process (Week 7-8)
+**Goal:** Provide a clean, safe way to uninstall CARL and remove all AWS resources
+
+**Problem:**
+- No documented process for uninstalling CARL infrastructure
+- Long-running operations (account factory, foundation builder) lack detailed status tracking
+- Users need visibility into what resources will be deleted
+- Risk of orphaned resources or incomplete cleanup
+
+**Tasks:**
+- [ ] **Uninstall Command**
+  - Create `/carl uninstall` command with confirmation workflow
+  - List all resources that will be deleted
+  - Require multi-step confirmation (type "DELETE CARL" to proceed)
+  - Generate Terraform destroy plan before execution
+  - Option to preserve data (findings, evidence, reports) in S3
+
+- [ ] **Resource Inventory**
+  - Scan and list all CARL-managed resources
+  - Show resource dependencies and deletion order
+  - Estimate time for complete cleanup
+  - Warn about potential costs during cleanup
+
+- [ ] **Enhanced Status Tracking for Long Operations**
+  - Add detailed status updates for Account Factory AFT generation:
+    * "⏳ Step 1/5: Analyzing account requirements..."
+    * "⏳ Step 2/5: Generating AFT Terraform configuration..."
+    * "⏳ Step 3/5: Validating Terraform syntax..."
+    * "⏳ Step 4/5: Uploading to GitHub..."
+    * "✅ Step 5/5: Complete - PR created"
+  - Add progress bars for Foundation Builder steps
+  - Add ETA estimates for operations >30 seconds
+  - Store operation logs in DynamoDB for troubleshooting
+
+- [ ] **Cleanup Verification**
+  - Post-uninstall verification script
+  - Check for orphaned resources
+  - Confirm all DynamoDB tables deleted
+  - Confirm all S3 buckets deleted or preserved
+  - Confirm all Lambda functions deleted
+  - Generate uninstall report with any manual cleanup steps needed
+
+- [ ] **Documentation**
+  - UNINSTALL.md guide with step-by-step instructions
+  - FAQ for common uninstall scenarios
+  - Troubleshooting guide for failed cleanup
+  - Cost implications of uninstall (final AWS charges)
+
+**Deliverables:**
+- `/carl uninstall` command with safety confirmations
+- Improved status tracking for account factory (slack_router.py:1017)
+- Uninstall verification script
+- Complete uninstall documentation
+
+**Estimated Effort:** 1-2 weeks
+
+**Priority:** Medium - Not urgent but important for production deployments
+
+---
+
+#### 1.7 AI-Driven Terraform Generation Migration (Week 9-10)
 **Goal:** Migrate all remaining Terraform generators to use AI-driven generation with architecture patterns as grounding
 
 **Background:**
@@ -339,7 +399,7 @@ User Request → Agent decides what to generate → generate_terraform tool
 
 ---
 
-#### 1.5 Terraform Module Generation (Week 9-10)
+#### 1.8 Terraform Module Generation (Week 11-12)
 **Goal:** Generate Terraform code for all bootstrap components
 
 **Tasks:**
@@ -360,7 +420,7 @@ User Request → Agent decides what to generate → generate_terraform tool
 
 ---
 
-#### 1.5 Regression Testing Framework (Week 5-6)
+#### 1.9 Regression Testing Framework (Week 13-14)
 **Goal:** Ensure changes don't break existing functionality
 
 **Problem:**

@@ -463,9 +463,13 @@ class AccountFactoryService:
                 })
         return options
 
-    def generate_aft_terraform(self, session: AccountFactorySession) -> dict:
+    def generate_aft_terraform(self, session: AccountFactorySession, status_callback=None) -> dict:
         """
         Generate complete AFT Terraform configuration.
+
+        Args:
+            session: The account factory session
+            status_callback: Optional callback function(message: str) for status updates
 
         Returns dict with:
         - terraform_files: dict[filename, content]
@@ -479,7 +483,10 @@ class AccountFactoryService:
 
         try:
             # Generate AFT modules using AI-driven generation
-            terraform_files = self._generate_aft_with_ai(session)
+            terraform_files = self._generate_aft_with_ai(session, status_callback)
+
+            if status_callback:
+                status_callback("⏳ Calculating cost estimates...")
 
             # Calculate cost estimate
             estimated_cost = self._estimate_monthly_cost(session)
@@ -487,6 +494,9 @@ class AccountFactoryService:
 
             session.state = AccountFactoryState.COMPLETE
             self._save_session(session)
+
+            if status_callback:
+                status_callback(f"✅ Generation complete! Estimated cost: ${estimated_cost:.2f}/month")
 
             return {
                 "success": True,
@@ -502,9 +512,12 @@ class AccountFactoryService:
             }
         except Exception as e:
             logger.exception(f"Failed to generate AFT Terraform: {e}")
-            return {"success": False, "error": str(e)}
+            error_message = str(e)
+            if "generate_terraform_code" in error_message:
+                error_message = f"AI generation failed: {error_message}"
+            return {"success": False, "error": error_message}
 
-    def _generate_aft_with_ai(self, session: AccountFactorySession) -> dict[str, str]:
+    def _generate_aft_with_ai(self, session: AccountFactorySession, status_callback=None) -> dict[str, str]:
         """
         Generate complete AFT Terraform configuration using AI-driven generation.
 
@@ -513,8 +526,18 @@ class AccountFactoryService:
         """
         files = {}
         framework = session.framework
+        total_steps = 10  # Approximate number of major generation steps
+        current_step = 0
+
+        def update_status(message: str):
+            """Helper to send status updates."""
+            nonlocal current_step
+            current_step += 1
+            if status_callback:
+                status_callback(f"⏳ Step {current_step}/{total_steps}: {message}")
 
         # Core AFT setup
+        update_status("Generating AFT main configuration...")
         aft_main_result = generate_terraform_code(
             module_type="aft_main",
             requirements={
@@ -528,6 +551,7 @@ class AccountFactoryService:
         files["aft-main.tf"] = aft_main_result.get("content", "# Error generating aft-main.tf")
 
         # Providers (generic, can use AI)
+        update_status("Generating provider configurations...")
         providers_result = generate_terraform_code(
             module_type="providers",
             requirements={
@@ -539,6 +563,7 @@ class AccountFactoryService:
         files["providers.tf"] = providers_result.get("content", "# Error generating providers.tf")
 
         # Variables
+        update_status("Generating variable definitions...")
         variables_result = generate_terraform_code(
             module_type="variables",
             requirements={
@@ -550,6 +575,7 @@ class AccountFactoryService:
         files["variables.tf"] = variables_result.get("content", "# Error generating variables.tf")
 
         # Account requests - one per account
+        update_status(f"Generating {len(session.accounts)} account request modules...")
         for account in session.accounts:
             result = generate_terraform_code(
                 module_type="aft_account_request",
@@ -564,8 +590,10 @@ class AccountFactoryService:
                 compliance_framework=framework.name,
             )
             files[f"account-requests/{account.name}.tf"] = result.get("content", f"# Error generating {account.name}")
+            logger.info(f"Generated account request for {account.name}")
 
         # Account customizations per OU type
+        update_status("Generating account customizations per OU...")
         customization_types = set(acc.ou_name.lower() for acc in session.accounts)
         for cust_type in customization_types:
             result = generate_terraform_code(
@@ -579,8 +607,10 @@ class AccountFactoryService:
                 compliance_framework=framework.name,
             )
             files[f"account-customizations/{cust_type}/main.tf"] = result.get("content", "# Error")
+            logger.info(f"Generated customization for OU: {cust_type}")
 
         # Global customizations
+        update_status("Generating global customizations...")
         global_result = generate_terraform_code(
             module_type="global_customization",
             requirements={
@@ -593,6 +623,7 @@ class AccountFactoryService:
         files["global-customizations/main.tf"] = global_result.get("content", "# Error")
 
         # SCPs from framework
+        update_status(f"Generating {len(framework.scps)} Service Control Policies...")
         for scp in framework.scps:
             result = generate_terraform_code(
                 module_type="scp",
@@ -605,8 +636,10 @@ class AccountFactoryService:
                 compliance_framework=framework.name,
             )
             files[f"scps/{scp.name}.tf"] = result.get("content", f"# Error generating {scp.name}")
+            logger.info(f"Generated SCP: {scp.name}")
 
         # Security baseline
+        update_status("Generating security services baseline...")
         security_result = generate_terraform_code(
             module_type="security_services",
             requirements={
@@ -620,6 +653,7 @@ class AccountFactoryService:
         files["security-baseline/security-services.tf"] = security_result.get("content", "# Error")
 
         # CloudWatch alarms
+        update_status("Generating CloudWatch alarms...")
         alarms_result = generate_terraform_code(
             module_type="cloudwatch_alarms",
             requirements={
@@ -631,6 +665,7 @@ class AccountFactoryService:
         files["security-baseline/cloudwatch-alarms.tf"] = alarms_result.get("content", "# Error")
 
         # Config rules
+        update_status("Generating AWS Config rules...")
         config_result = generate_terraform_code(
             module_type="config_rules",
             requirements={"enable_org_rules": True},
@@ -639,6 +674,7 @@ class AccountFactoryService:
         files["security-baseline/config-rules.tf"] = config_result.get("content", "# Error")
 
         # CloudTrail
+        update_status("Generating CloudTrail organization trail...")
         cloudtrail_result = generate_terraform_code(
             module_type="cloudtrail",
             requirements={
@@ -662,23 +698,28 @@ class AccountFactoryService:
         files["logging/central-logging-bucket.tf"] = logging_result.get("content", "# Error")
 
         # VPCs for workload accounts
-        for account in session.accounts:
-            for vpc in account.vpcs:
-                result = generate_terraform_code(
-                    module_type="vpc",
-                    requirements={
-                        "vpc_name": f"{account.name}-{vpc.name}",
-                        "cidr": vpc.cidr,
-                        "azs": vpc.availability_zones,
-                        "enable_nat": vpc.enable_nat_gateway,
-                        "enable_flow_logs": True,
-                        "enable_endpoints": vpc.enable_vpc_endpoints,
-                        "environment": vpc.environment,
-                    },
-                    compliance_framework=framework.name,
-                )
-                files[f"vpcs/{account.name}-{vpc.name}.tf"] = result.get("content", "# Error")
+        vpc_count = sum(len(acc.vpcs) for acc in session.accounts)
+        if vpc_count > 0:
+            update_status(f"Generating {vpc_count} VPC configurations...")
+            for account in session.accounts:
+                for vpc in account.vpcs:
+                    result = generate_terraform_code(
+                        module_type="vpc",
+                        requirements={
+                            "vpc_name": f"{account.name}-{vpc.name}",
+                            "cidr": vpc.cidr,
+                            "azs": vpc.availability_zones,
+                            "enable_nat": vpc.enable_nat_gateway,
+                            "enable_flow_logs": True,
+                            "enable_endpoints": vpc.enable_vpc_endpoints,
+                            "environment": vpc.environment,
+                        },
+                        compliance_framework=framework.name,
+                    )
+                    files[f"vpcs/{account.name}-{vpc.name}.tf"] = result.get("content", "# Error")
+                    logger.info(f"Generated VPC: {account.name}-{vpc.name}")
 
+        logger.info(f"Generated {len(files)} Terraform files for AFT configuration")
         return files
 
     def _estimate_monthly_cost(self, session: AccountFactorySession) -> float:
