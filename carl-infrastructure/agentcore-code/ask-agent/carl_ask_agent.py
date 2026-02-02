@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 # AgentCore Runtime imports
-from bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
