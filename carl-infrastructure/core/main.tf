@@ -1202,6 +1202,7 @@ module "agentcore_ask" {
   count  = var.enable_agentcore_ask ? 1 : 0
 
   name_prefix        = local.name_prefix
+  agent_source_path  = "${path.module}/../agentcore-code/ask-agent"
   code_bucket_name   = var.enable_foundation ? module.foundation[0].evidence_bucket_name : "${local.name_prefix}-evidence"
   code_bucket_arn    = var.enable_foundation ? module.foundation[0].evidence_bucket_arn : "arn:aws:s3:::${local.name_prefix}-evidence"
   code_object_prefix = "agentcore/ask-agent"

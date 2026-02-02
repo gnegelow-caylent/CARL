@@ -21,6 +21,11 @@ variable "code_object_prefix" {
   default     = "agentcore/ask-agent"
 }
 
+variable "agent_source_path" {
+  description = "Path to the directory containing agent source code (carl_ask_agent.py and requirements.txt)"
+  type        = string
+}
+
 variable "tool_lambda_arn" {
   description = "ARN of Lambda function that handles tool calls"
   type        = string

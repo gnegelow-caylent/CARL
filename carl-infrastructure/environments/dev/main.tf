@@ -91,6 +91,7 @@ module "agentcore_ask" {
   source = "../../modules/agentcore-ask"
 
   name_prefix        = "carl-dev"
+  agent_source_path  = "${path.module}/../../agentcore-code/ask-agent"
   code_bucket_name   = module.foundation.evidence_bucket_name
   code_bucket_arn    = module.foundation.evidence_bucket_arn
   code_object_prefix = "agentcore/ask-agent"
