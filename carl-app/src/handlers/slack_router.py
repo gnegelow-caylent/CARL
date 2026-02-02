@@ -174,7 +174,7 @@ def get_github_service() -> GitHubService:
 
 def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
     """
-    Invoke AgentCore Ask Agent for intelligent Q&A.
+    Invoke AgentCore Ask Agent for intelligent Q&A (Phase 1).
 
     Args:
         question: The user's question
