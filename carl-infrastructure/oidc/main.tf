@@ -478,6 +478,44 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = ["*"]
   }
 
+  # Bedrock AgentCore (Runtime, Memory, Gateway)
+  statement {
+    sid    = "BedrockAgentCoreManagement"
+    effect = "Allow"
+    actions = [
+      "bedrock-agentcore:CreateAgentRuntime",
+      "bedrock-agentcore:UpdateAgentRuntime",
+      "bedrock-agentcore:DeleteAgentRuntime",
+      "bedrock-agentcore:GetAgentRuntime",
+      "bedrock-agentcore:ListAgentRuntimes",
+      "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+      "bedrock-agentcore:UpdateAgentRuntimeEndpoint",
+      "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+      "bedrock-agentcore:GetAgentRuntimeEndpoint",
+      "bedrock-agentcore:ListAgentRuntimeEndpoints",
+      "bedrock-agentcore:InvokeAgentRuntime",
+      "bedrock-agentcore:CreateMemory",
+      "bedrock-agentcore:UpdateMemory",
+      "bedrock-agentcore:DeleteMemory",
+      "bedrock-agentcore:GetMemory",
+      "bedrock-agentcore:ListMemories",
+      "bedrock-agentcore:CreateGateway",
+      "bedrock-agentcore:UpdateGateway",
+      "bedrock-agentcore:DeleteGateway",
+      "bedrock-agentcore:GetGateway",
+      "bedrock-agentcore:ListGateways",
+      "bedrock-agentcore:CreateGatewayTarget",
+      "bedrock-agentcore:UpdateGatewayTarget",
+      "bedrock-agentcore:DeleteGatewayTarget",
+      "bedrock-agentcore:GetGatewayTarget",
+      "bedrock-agentcore:ListGatewayTargets",
+      "bedrock-agentcore:TagResource",
+      "bedrock-agentcore:UntagResource",
+      "bedrock-agentcore:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
   # EC2 (for VPC resource discovery)
   statement {
     sid    = "EC2ReadOnly"

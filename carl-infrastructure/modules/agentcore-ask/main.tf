@@ -120,11 +120,8 @@ resource "aws_iam_role_policy" "agentcore_execution" {
   })
 }
 
-# Attach managed policy for AgentCore
-resource "aws_iam_role_policy_attachment" "agentcore_managed" {
-  role       = aws_iam_role.agentcore_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonBedrockAgentCoreFullAccess"
-}
+# Note: AmazonBedrockAgentCoreFullAccess managed policy doesn't exist yet
+# AgentCore permissions are included in the inline policy above
 
 # AgentCore Runtime for Ask Agent
 resource "aws_bedrockagentcore_agent_runtime" "ask" {
