@@ -184,6 +184,130 @@ def invoke_ask_agent(question: str, session_id: str = None) -> str:
     return completion
 
 
+def handle_bedrock_agent_action(event: dict) -> dict:
+    """
+    Handle Bedrock Agent action group invocations (tool calls).
+
+    The Bedrock Ask Agent calls this Lambda when it needs to execute
+    scanning tools. We route to the appropriate scanning function.
+
+    Args:
+        event: Bedrock Agent action group event containing:
+            - actionGroup: Name of the action group (e.g., "ScanningTools")
+            - apiPath: The API path (e.g., "/tools/scan-iam")
+            - httpMethod: HTTP method (POST)
+            - parameters: Optional parameters
+            - requestBody: Optional request body
+
+    Returns:
+        Bedrock Agent response format with scan results
+    """
+    from services.evidence_collector import EvidenceCollector
+
+    action_group = event.get("actionGroup", "")
+    api_path = event.get("apiPath", "")
+    request_body = event.get("requestBody", {})
+
+    logger.info(f"Bedrock Agent action: group={action_group}, path={api_path}")
+
+    # Initialize evidence collector for scanning
+    evidence_collector = EvidenceCollector(
+        region=os.environ.get("AWS_REGION", "us-east-1")
+    )
+
+    try:
+        result = {}
+
+        # Route to appropriate scan based on API path
+        if "/scan-iam" in api_path:
+            logger.info("Executing IAM scan for Bedrock Agent")
+            iam_evidence = evidence_collector.scan_iam()
+            result = {
+                "users": [e.to_dict() for e in iam_evidence if "user" in getattr(e, "resource_type", "")],
+                "roles": [e.to_dict() for e in iam_evidence if "role" in getattr(e, "resource_type", "")],
+                "policies": [e.to_dict() for e in iam_evidence if "policy" in getattr(e, "resource_type", "")],
+                "summary": f"Scanned {len(iam_evidence)} IAM resources"
+            }
+
+        elif "/scan-vpc" in api_path:
+            logger.info("Executing VPC scan for Bedrock Agent")
+            vpc_evidence = evidence_collector.scan_vpc()
+            result = {
+                "vpcs": [e.to_dict() for e in vpc_evidence if "vpc" in getattr(e, "resource_type", "").lower()],
+                "subnets": [e.to_dict() for e in vpc_evidence if "subnet" in getattr(e, "resource_type", "").lower()],
+                "security_groups": [e.to_dict() for e in vpc_evidence if "security" in getattr(e, "resource_type", "").lower()],
+                "summary": f"Scanned {len(vpc_evidence)} VPC resources"
+            }
+
+        elif "/scan-s3" in api_path:
+            logger.info("Executing S3 scan for Bedrock Agent")
+            s3_evidence = evidence_collector.scan_s3()
+            result = {
+                "buckets": [e.to_dict() for e in s3_evidence],
+                "summary": f"Scanned {len(s3_evidence)} S3 buckets"
+            }
+
+        elif "/scan-cloudtrail" in api_path:
+            logger.info("Executing CloudTrail scan for Bedrock Agent")
+            cloudtrail_evidence = evidence_collector.scan_cloudtrail()
+            result = {
+                "trails": [e.to_dict() for e in cloudtrail_evidence],
+                "summary": f"Scanned {len(cloudtrail_evidence)} CloudTrail trails"
+            }
+
+        elif "/scan-security-hub" in api_path:
+            logger.info("Executing Security Hub scan for Bedrock Agent")
+            # Get severity filter from request body if provided
+            content = request_body.get("content", {})
+            app_json = content.get("application/json", {})
+            properties = app_json.get("properties", {})
+            severity = properties.get("severity")
+            max_findings = properties.get("max_findings", 50)
+
+            security_hub_evidence = evidence_collector.scan_security_hub()
+            result = {
+                "findings": [e.to_dict() for e in security_hub_evidence][:max_findings],
+                "summary": f"Retrieved {len(security_hub_evidence)} Security Hub findings"
+            }
+
+        else:
+            logger.warning(f"Unknown API path: {api_path}")
+            result = {"error": f"Unknown action: {api_path}"}
+
+        # Return in Bedrock Agent expected format
+        return {
+            "messageVersion": "1.0",
+            "response": {
+                "actionGroup": action_group,
+                "apiPath": api_path,
+                "httpMethod": event.get("httpMethod", "POST"),
+                "httpStatusCode": 200,
+                "responseBody": {
+                    "application/json": {
+                        "body": json.dumps(result)
+                    }
+                }
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Bedrock Agent action failed: {e}", exc_info=True)
+        return {
+            "messageVersion": "1.0",
+            "response": {
+                "actionGroup": action_group,
+                "apiPath": api_path,
+                "httpMethod": event.get("httpMethod", "POST"),
+                "httpStatusCode": 500,
+                "responseBody": {
+                    "application/json": {
+                        "body": json.dumps({"error": str(e)})
+                    }
+                }
+            }
+        }
+
+
 def get_github_app_auth() -> GitHubAppAuth:
     """Get or create GitHub App authentication instance."""
     global _github_app_auth
@@ -769,6 +893,11 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "version": "1.0"
             })
         }
+
+    # Handle Bedrock Agent action group invocations
+    if event.get("actionGroup"):
+        logger.info(f"Bedrock Agent action group invocation: {event.get('actionGroup')}")
+        return handle_bedrock_agent_action(event)
 
     # Keep-warm ping from CloudWatch Events (reduces cold starts)
     if event.get("action") == "keep_warm":
