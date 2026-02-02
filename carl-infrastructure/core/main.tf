@@ -1003,7 +1003,7 @@ resource "aws_lambda_function" "carl" {
 
       # Bedrock Ask Agent (AgentCore Migration Phase 1)
       ASK_AGENT_ID       = var.enable_ask_agent ? module.ask_agent[0].agent_id : ""
-      ASK_AGENT_ALIAS_ID = var.enable_ask_agent ? module.ask_agent[0].agent_alias_id : ""
+      ASK_AGENT_ALIAS_ID = "PROD" # Hardcoded to avoid circular dependency
       USE_ASK_AGENT      = var.enable_ask_agent ? "true" : "false"
 
       # Slack
