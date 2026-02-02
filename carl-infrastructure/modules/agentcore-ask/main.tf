@@ -158,8 +158,8 @@ resource "aws_bedrockagentcore_agent_runtime" "ask" {
 
       code {
         s3 {
-          bucket     = var.code_bucket_name
-          object_key = aws_s3_object.agent_code.key
+          bucket = var.code_bucket_name
+          prefix = "${var.code_object_prefix}/ask-agent.zip"
         }
       }
     }
