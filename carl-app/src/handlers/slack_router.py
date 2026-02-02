@@ -3581,6 +3581,14 @@ def handle_account_factory_vpc_submission(payload: dict) -> dict:
     if result.get("success"):
         tgw_status = " + TGW attachment" if transit_gateway else " (isolated)"
         slack.post_message(channel, text=f"✓ VPC *{vpc_name}* configured for *{account_name}* ({vpc_cidr}{tgw_status})")
+
+        # Notify if Network account was auto-added for TGW
+        if result.get("network_account_added"):
+            slack.post_message(
+                channel,
+                text="📡 *Network account added* - Transit Gateway requires a dedicated Network account in Shared Services OU. "
+                     "This account will host the TGW for centralized egress and inspection (SOC2 best practice)."
+            )
     else:
         slack.post_message(channel, text=f"❌ Failed to configure VPC: {result.get('error')}")
         return {"statusCode": 200, "body": ""}

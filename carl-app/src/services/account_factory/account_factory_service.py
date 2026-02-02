@@ -321,15 +321,60 @@ class AccountFactoryService:
         for account in session.accounts:
             if account.name == account_name:
                 account.vpcs.append(vpc_config)
+
+                # If TGW attachment is enabled, ensure Network account exists
+                network_account_added = False
+                if vpc_config.attach_transit_gateway:
+                    network_account_added = self._ensure_network_account(session)
+
                 self._save_session(session)
                 return {
                     "success": True,
                     "account": account_name,
                     "vpc": vpc_config.name,
                     "total_vpcs": len(account.vpcs),
+                    "network_account_added": network_account_added,
                 }
 
         return {"success": False, "error": f"Account '{account_name}' not found"}
+
+    def _ensure_network_account(self, session: AccountFactorySession) -> bool:
+        """
+        Ensure a Network account exists for Transit Gateway.
+
+        Network account hosts the Transit Gateway and provides centralized
+        egress/inspection for SOC2 compliance.
+        """
+        # Check if network account already exists
+        for account in session.accounts:
+            if account.name == "network" or "network" in account.name.lower():
+                return False  # Already exists
+
+        # Add Network account to Shared Services OU
+        network_account = AccountConfig(
+            name="network",
+            email="",  # User must provide
+            ou_name="Shared Services",
+            purpose="Transit Gateway, centralized egress, network inspection",
+            enable_guardduty=True,
+            enable_security_hub=True,
+            enable_config=True,
+            enable_cloudtrail=False,  # Org-level trail
+            enable_inspector=False,
+            tags={
+                "OU": "Shared Services",
+                "Purpose": "Network Hub",
+                "ManagedBy": "CARL-AccountFactory",
+            }
+        )
+        session.accounts.append(network_account)
+
+        # Also move AFT to Shared Services if it's in Infrastructure
+        for account in session.accounts:
+            if account.name == "aft-management" and account.ou_name == "Infrastructure":
+                account.ou_name = "Shared Services"
+
+        return True
 
     def get_next_question(self, session: AccountFactorySession) -> Optional[dict]:
         """
