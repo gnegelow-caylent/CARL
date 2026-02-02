@@ -76,17 +76,12 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 **Impact:** CARL now scans your AWS environment and generates intelligent infrastructure code. No duplicate resources, no manual configuration, cleaner code.
 
-### Bootstrap Automation (January 27, 2026)
+### Pattern Expansion (January 27, 2026)
 - ✅ VPC Endpoints & PrivateLink patterns (3 patterns)
 - ✅ KMS key management patterns (4 patterns)
-- ✅ Organizations bootstrap automation (OU structure + SCPs)
-- ✅ IAM Identity Center automation (permission sets + groups + assignments)
-- ✅ Security services delegated admin (Security Hub, GuardDuty, Inspector, Config, Macie, Detective)
-- ✅ Complete environment orchestration (3-phase bootstrap)
 - ✅ Pattern count increased: 36 → 43+
-- ✅ 3,100+ lines of new code
 
-**Impact:** CARL can now bootstrap complete AWS environments from scratch through code. Critical security gaps (VPC endpoints, KMS) closed.
+**Note:** Bootstrap automation code was removed (Feb 1, 2026) as redundant with Account Factory and Foundation Builder.
 
 ### Jira Integration - Phase 1A (January 28, 2026)
 - ✅ Core Jira service (Jira Cloud REST API integration)
@@ -137,33 +132,9 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ## 🔴 High Priority (Next 4-8 weeks)
 
-### Phase 1: Bootstrap Integration & Missing Security Patterns
+### Phase 1: Missing Security Patterns & AgentCore Migration
 
-#### 1.1 Bootstrap Integration (Week 1-2)
-**Goal:** Make bootstrap automation accessible through CARL's existing interfaces
-
-**Tasks:**
-- [ ] Integrate `BootstrapOrchestrator` with Foundation Builder workflow
-- [ ] Add Slack command handlers for `/carl bootstrap` commands
-  - `/carl bootstrap start` - Interactive wizard
-  - `/carl bootstrap quickstart --admin-account <id>` - AWS recommended
-  - `/carl bootstrap minimal` - Basic setup
-  - `/carl bootstrap status` - Progress tracking
-  - `/carl bootstrap config show` - View configuration
-- [ ] Create interactive approval workflows (Slack buttons/modals)
-- [ ] Add bootstrap progress tracking to DynamoDB
-- [ ] Create example/demo scripts for testing
-
-**Deliverables:**
-- Slack commands functional
-- Interactive bootstrap wizard in Slack
-- Progress tracking visible to users
-
-**Estimated Effort:** 2 weeks
-
----
-
-#### 1.2 Migrate to AWS Bedrock AgentCore (Week 3-6)
+#### 1.1 Migrate to AWS Bedrock AgentCore (Week 1-4)
 **Goal:** Refactor custom AgentCore to use AWS Bedrock AgentCore managed platform (Design Principle #7: Use AWS Managed Services)
 
 **Why:**
@@ -223,7 +194,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.3 Remaining Critical Security Patterns ~~(Week 3-4)~~ ✅ **COMPLETED January 31, 2026**
+#### 1.2 Remaining Critical Security Patterns ~~(Week 3-4)~~ ✅ **COMPLETED January 31, 2026**
 **Goal:** Complete security service coverage
 
 **Tasks:**
@@ -263,7 +234,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
-#### 1.4 Account Baseline Deployment Automation (Week 7-8)
+#### 1.3 Account Baseline Deployment Automation (Week 5-6)
 **Goal:** Automate account baseline deployment across all accounts
 
 **Tasks:**
@@ -281,7 +252,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 - [ ] Baseline compliance reporting
 
 **Deliverables:**
-- `account_baseline_bootstrap.py`
+- Account baseline service
 - Terraform modules for baselines
 - `/carl baseline deploy` command
 - Baseline compliance dashboard
@@ -400,7 +371,7 @@ User Request → Agent decides what to generate → generate_terraform tool
 ---
 
 #### 1.8 Terraform Module Generation (Week 11-12)
-**Goal:** Generate Terraform code for all bootstrap components
+**Goal:** Generate Terraform code for infrastructure modules
 
 **Tasks:**
 - [ ] Organizations Terraform module generator
@@ -412,8 +383,8 @@ User Request → Agent decides what to generate → generate_terraform tool
 - [ ] Complete environment Terraform generator (orchestrated)
 
 **Deliverables:**
-- `/carl bootstrap generate-terraform` command
-- Complete Terraform codebase for bootstrapped environment
+- Terraform generation for Account Factory modules
+- Complete Terraform codebase for multi-account environment
 - Modular, reusable Terraform modules
 
 **Estimated Effort:** 2 weeks
@@ -1080,7 +1051,7 @@ User: /carl ask sync my findings to Jira
 
 | Phase | Timeframe | Focus | Key Deliverables |
 |-------|-----------|-------|------------------|
-| **Phase 1** | Weeks 1-8 | Bootstrap Integration & Security Patterns | Slack integration, 8+ patterns, Terraform generation |
+| **Phase 1** | Weeks 1-8 | AgentCore Migration & Security Patterns | AgentCore migration, patterns, Terraform generation |
 | **Phase 2** | Weeks 9-16 | Architecture Patterns | 37+ patterns (compute, database, application, storage) |
 | **Phase 3** | Weeks 17-30 | Intelligence & Multi-Framework | Adaptive monitoring, auto-remediation, HIPAA/PCI/ISO |
 
@@ -1091,10 +1062,10 @@ User: /carl ask sync my findings to Jira
 ## 🎯 Success Metrics
 
 ### Phase 1 Success Criteria
-- ✅ Bootstrap automation accessible via Slack
+- ✅ Account Factory accessible via Slack
 - ✅ All critical security service patterns added (WAF, CloudWatch, ACM, Secrets)
 - ✅ Account baseline automation deployed
-- ✅ Terraform generation for all bootstrap components
+- ✅ Terraform generation for Account Factory modules
 - ✅ Pattern count: 50+
 
 ### Phase 2 Success Criteria
@@ -1139,8 +1110,8 @@ These can be done in parallel with Phase 1:
    - Simple, high impact
    - SSL/TLS best practices
 
-4. **Slack Bootstrap Commands** (3-5 days)
-   - Make bootstrap automation accessible
+4. **Account Factory Enhancements** (3-5 days)
+   - Add Identity Center support to Account Factory
    - High visibility feature
 
 ---

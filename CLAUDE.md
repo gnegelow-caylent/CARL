@@ -8,8 +8,7 @@ This file provides context for Claude Code sessions working on this project.
 
 An AI-powered AWS compliance bot that:
 - Scans AWS environments for SOC 2 compliance issues
-- **NEW: Bootstraps complete AWS environments from scratch (Organizations, Identity Center, Security Services)**
-- Builds compliant AWS infrastructure from scratch (Foundation Builder)
+- Builds compliant AWS infrastructure (Foundation Builder for single accounts, Account Factory for multi-account)
 - Provides AI-driven architecture recommendations with accurate pricing
 - Collects audit evidence automatically
 - Generates compliance reports
@@ -1028,20 +1027,15 @@ See `SMART_GENERATION.md` for complete details.
 
 See `EVIDENCE_AND_FINDINGS.md` for complete documentation.
 
-### Bootstrap Automation Released 🚀 (January 27, 2026)
+### Pattern Expansion (January 27, 2026)
 
-**5 Critical Capabilities Added:**
+**Patterns Added:**
 1. ✅ **VPC Endpoints/PrivateLink Patterns** (3 patterns) - Private connectivity, security gap closed
 2. ✅ **KMS Key Management Patterns** (4 patterns) - Encryption strategy, key rotation, policies
-3. ✅ **Organizations Bootstrap Automation** - OU structure + SCPs through code
-4. ✅ **IAM Identity Center Automation** - Permission sets, groups, assignments
-5. ✅ **Security Services Delegated Admin** - Security Hub, GuardDuty, Inspector, Config, Macie, Detective
 
 **Pattern Count:** 36 → 43+ (Jan 27) → 130+ (Jan 30) → **148+ patterns** (Jan 31)
 
-**New Code:** 3,100+ lines across 9 new files
-
-See `BOOTSTRAP_AUTOMATION.md` for complete details.
+**Note:** Bootstrap automation code was removed (Feb 1, 2026) as redundant with Account Factory and Foundation Builder.
 
 ## Architecture
 
@@ -1093,11 +1087,7 @@ carl-app/
 │   │   ├── resource_detector.py   # **NEW:** AWS resource detection for smart generation
 │   │   ├── infrastructure_builder.py # Smart infrastructure code generation
 │   │   ├── foundation/            # Foundation builder wizard
-│   │   └── bootstrap/             # Complete environment bootstrap
-│   │       ├── organizations_bootstrap.py     # Organizations + OU + SCPs
-│   │       ├── identity_center_bootstrap.py  # IAM Identity Center setup
-│   │       ├── security_services_bootstrap.py # Security services delegated admin
-│   │       └── bootstrap_orchestrator.py     # 3-phase orchestration
+│   │   └── account_factory/       # Multi-account setup with AFT
 │   ├── knowledge/         # Static knowledge base
 │   │   ├── architecture_patterns.py  # Egress, ingress, transit, VPN, etc.
 │   │   ├── vpc_patterns.py          # VPC design patterns
@@ -1134,14 +1124,8 @@ carl-infrastructure/
 - `/carl build <blueprint>` - Generate Terraform code
 - `/carl estimate <component>` - Cost estimates
 
-**Bootstrap (NEW - To Be Implemented):**
-- `/carl bootstrap start` - Start complete environment bootstrap
-- `/carl bootstrap quickstart` - Use AWS recommended configuration
-- `/carl bootstrap minimal` - Minimal setup for getting started
-- `/carl bootstrap status` - Check bootstrap progress
-- `/carl bootstrap organizations` - Organizations setup only
-- `/carl bootstrap identity-center` - Identity Center setup only
-- `/carl bootstrap security-services` - Security services setup only
+**Account Factory:**
+- `/carl account-factory start` - Multi-account setup wizard with AFT
 
 **Audit & Evidence:**
 - `/carl evidence collect` - Collect audit evidence
@@ -1154,58 +1138,6 @@ carl-infrastructure/
 **Drift Detection:**
 - `/carl drift scan|status|acknowledge|terraform`
 
-## Bootstrap Automation Usage
-
-**Complete Environment Bootstrap (Python):**
-```python
-from carl.services.bootstrap import BootstrapOrchestrator
-
-# Initialize orchestrator
-orchestrator = BootstrapOrchestrator()
-
-# Get quickstart config (AWS recommended)
-config = orchestrator.get_quickstart_config(
-    delegated_admin_account_id="999888777666",
-    security_regions=["us-east-1", "us-west-2"]
-)
-
-# Customize account assignments
-config.account_assignments = [
-    AccountAssignment(
-        account_id="111222333444",
-        permission_set_name="AdministratorAccess",
-        principal_type="GROUP",
-        principal_name="CloudPlatformAdmins"
-    )
-]
-
-# Execute 3-phase bootstrap
-result = orchestrator.bootstrap_complete_environment(config)
-
-if result.success:
-    print(f"✓ Organization: {result.organization_result['organization_id']}")
-    print(f"✓ Identity Center: {result.identity_center_result['instance_arn']}")
-    print(f"✓ Security Hub Admin: {result.security_services_result['security_hub_admin']}")
-```
-
-**What Gets Created:**
-1. **Phase 1 - Organizations:**
-   - OU structure (Security, Infrastructure, Workloads, Sandbox, etc.)
-   - SCPs (deny security service disabling, region restrictions, IMDSv2)
-
-2. **Phase 2 - Identity Center:**
-   - 5 permission sets (Admin, PowerUser, ReadOnly, SecurityAudit, Billing)
-   - 5 groups (CloudPlatformAdmins, Developers, SecurityTeam, etc.)
-   - Account assignments (group → account → permission set)
-
-3. **Phase 3 - Security Services:**
-   - Security Hub (delegated admin + auto-enable)
-   - GuardDuty (all data sources + auto-enable)
-   - Inspector (EC2, ECR, Lambda scanning)
-   - Config organization aggregator
-
-See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
-
 ## Design Principles
 
 1. **AI-Driven with Static Guardrails**: AI generates recommendations, static patterns provide structure and accurate pricing
@@ -1213,7 +1145,7 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
 3. **Accurate Pricing**: No wild assumptions - real AWS pricing data
 4. **Continuous Learning**: User feedback improves recommendations over time
 5. **Audit-Ready**: Evidence collection and report generation for auditors
-6. **Bootstrap Through Code**: Complete AWS environment setup via automation (NEW)
+6. **Infrastructure as Code**: Account Factory for multi-account, Foundation Builder for single account
 7. **Use AWS Managed Services Wherever Possible**: Prefer AWS managed services over custom implementations. Reduces operational overhead, improves reliability, and leverages AWS expertise. Examples:
    - ✅ Use AWS Bedrock AgentCore (managed platform) for agents, not custom agentic loops
    - ✅ Use DynamoDB (managed NoSQL) instead of self-hosted databases
@@ -1264,10 +1196,7 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
 | **KMS key management & encryption patterns** | ✅ **NEW** |
 | Accurate AWS pricing | ✅ |
 | Foundation builder wizard | ✅ |
-| **Organizations bootstrap automation** | ✅ **NEW** |
-| **IAM Identity Center setup automation** | ✅ **NEW** |
-| **Security services delegated admin automation** | ✅ **NEW** |
-| **Complete environment orchestration (3-phase)** | ✅ **NEW** |
+| Account Factory (multi-account with AFT) | ✅ |
 | Terraform code generation | ✅ |
 | Security Hub integration | ✅ |
 | Audit evidence collection | ✅ |
@@ -1286,14 +1215,10 @@ See `BOOTSTRAP_AUTOMATION.md` for complete documentation.
 See `ROADMAP.md` for detailed priority list.
 
 **High Priority (Next):**
-1. Integrate bootstrap services with Foundation Builder
-2. Add Slack commands for bootstrap (`/carl bootstrap`)
-3. Terraform module generation for bootstrap components
-4. Account baseline deployment automation
-5. CloudWatch alerting patterns
-6. AWS WAF rule patterns
-7. Certificate Manager patterns
-8. Secrets Manager lifecycle patterns
+1. Migrate to AWS Bedrock AgentCore
+2. Account baseline deployment automation
+3. Regression testing framework
+4. Secrets Manager lifecycle patterns
 
 **Medium Priority:**
 - Compute security patterns (EC2, ECS, EKS, Lambda)
@@ -1319,7 +1244,6 @@ For detailed guides and reference materials:
 
 ### Technical Guides
 - **[SMART_GENERATION.md](./SMART_GENERATION.md)** - Smart infrastructure generation (environment-aware code generation)
-- **[BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md)** - Complete AWS environment bootstrap automation
 - **[EVIDENCE_AND_FINDINGS.md](./EVIDENCE_AND_FINDINGS.md)** - Evidence collection, findings detection, and Jira sync pipeline
 - **[SLACK_IMPROVEMENTS.md](./SLACK_IMPROVEMENTS.md)** - Async processing, modals, button handlers
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Full technical architecture and component diagrams
