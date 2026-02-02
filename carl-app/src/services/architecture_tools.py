@@ -770,6 +770,64 @@ def generate_terraform_code(
                 target_ous=requirements.get("target_ous", []),
                 compliance=compliance_framework,
             )
+        elif module_type_lower == "scp_consolidated":
+            # Generate all SCPs in a single file (AWS limit: 5 SCPs per OU)
+            result = generator.generate_terraform(
+                TerraformGenerationRequest(
+                    module_type="scp_consolidated",
+                    requirements=requirements,
+                    compliance_framework=compliance_framework,
+                    patterns_context="""Generate all Service Control Policies (SCPs) in a single main.tf file.
+
+AWS Organizations has a limit of 5 SCPs per OU, so consolidating all SCPs into one file makes it easier to manage.
+
+Structure:
+- Use for_each or count to iterate over SCPs
+- Each SCP should be a separate aws_organizations_policy resource
+- Include aws_organizations_policy_attachment resources to attach SCPs to OUs
+- Use locals to define SCP policy documents as JSON
+
+Example pattern:
+```hcl
+locals {
+  scps = {
+    "deny-root-account" = {
+      description = "Prevent root account usage"
+      policy = jsonencode({...})
+      target_ous = ["Workloads", "Security"]
+    }
+  }
+}
+
+resource "aws_organizations_policy" "scp" {
+  for_each = local.scps
+
+  name        = each.key
+  description = each.value.description
+  content     = each.value.policy
+  type        = "SERVICE_CONTROL_POLICY"
+}
+
+resource "aws_organizations_policy_attachment" "scp" {
+  for_each = {
+    for pair in flatten([
+      for scp_name, scp in local.scps : [
+        for ou in scp.target_ous : {
+          key = "\${scp_name}-\${ou}"
+          policy_id = aws_organizations_policy.scp[scp_name].id
+          target_id = var.target_ou_ids[ou]
+        }
+      ]
+    ]) : pair.key => pair
+  }
+
+  policy_id = each.value.policy_id
+  target_id = each.value.target_id
+}
+```
+""",
+                )
+            )
         elif module_type_lower == "iam_password_policy":
             result = generator.generate_iam_password_policy(
                 minimum_length=requirements.get("minimum_length", 14),
