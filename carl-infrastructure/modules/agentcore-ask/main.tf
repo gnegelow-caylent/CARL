@@ -90,6 +90,7 @@ resource "aws_iam_role_policy" "agentcore_execution" {
         }
       },
       # Bedrock Model Invocation
+      # Note: Inference profiles route to multiple regions, so we allow all regions for foundation models
       {
         Effect = "Allow"
         Action = [
@@ -97,7 +98,7 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "bedrock:InvokeModelWithResponseStream"
         ]
         Resource = [
-          "arn:aws:bedrock:${local.region}::foundation-model/anthropic.*",
+          "arn:aws:bedrock:*::foundation-model/anthropic.*",
           "arn:aws:bedrock:*:*:inference-profile/*anthropic*"
         ]
       },
