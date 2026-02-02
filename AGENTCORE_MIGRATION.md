@@ -1,13 +1,36 @@
 # AWS Bedrock AgentCore Migration Plan
 
-**Status:** Not Started
+**Status:** Planning
 **Last Updated:** February 1, 2026
 
 ---
 
 ## Overview
 
-Migrate CARL's custom `AgentCore` implementation to AWS Bedrock AgentCore managed platform, following Design Principle #7 (Use AWS Managed Services).
+Migrate CARL's custom `AgentCore` implementation to **[AWS Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/)** - an agentic platform for building, deploying, and operating effective agents securely at scale.
+
+### What is AgentCore?
+
+AgentCore is AWS's managed agentic platform that provides:
+
+**Build:**
+- Persistent memory systems
+- Gateway for connecting tools with minimal code
+- Secure browser runtime for web-based workflows
+- Code execution for data visualization
+
+**Deploy:**
+- Complete session isolation
+- Support for workloads up to 8 hours (vs Lambda's 15 min limit)
+- Native identity provider integration
+- Fine-grained access policies
+
+**Monitor:**
+- Real-time performance dashboards via CloudWatch
+- Quality evaluation (correctness, helpfulness, safety)
+- OpenTelemetry integration for observability
+
+**Note:** AgentCore is different from standard Bedrock Agents (`aws_bedrockagent_agent`). AgentCore is a comprehensive platform with memory, long-running tasks, and monitoring - not just agent orchestration.
 
 ### Why Migrate?
 
@@ -204,7 +227,8 @@ If migration fails at any phase:
 
 ## References
 
-- [AWS Bedrock AgentCore Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/agents.html)
+- [AWS Bedrock AgentCore Product Page](https://aws.amazon.com/bedrock/agentcore/)
+- [AWS Bedrock Agents Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/agents.html)
 - [CARL Design Principles](./CARL_DESIGN_PRINCIPLES.md) - Principle #7
 - [CARL Architecture](./ARCHITECTURE.md) - Agent section
 - [Current AgentCore Implementation](./carl-app/src/services/agent_core.py)
