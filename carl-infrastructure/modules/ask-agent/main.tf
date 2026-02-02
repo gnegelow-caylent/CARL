@@ -115,7 +115,7 @@ CONSTRAINTS:
 - Be specific with resource names and IDs from scan results
 EOT
 
-  idle_session_ttl_in_seconds = 1800  # 30 minutes
+  idle_session_ttl_in_seconds = 1800 # 30 minutes
 
   tags = var.tags
 }
@@ -275,7 +275,7 @@ resource "aws_bedrockagent_agent_action_group" "scanning_tools" {
               content = {
                 "application/json" = {
                   schema = {
-                    type = "object"
+                    type       = "object"
                     properties = {}
                   }
                 }
@@ -334,7 +334,7 @@ resource "aws_bedrockagent_agent_action_group" "scanning_tools" {
                     schema = {
                       type = "object"
                       properties = {
-                        findings         = { type = "array" }
+                        findings          = { type = "array" }
                         compliance_status = { type = "object" }
                       }
                     }
