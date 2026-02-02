@@ -478,16 +478,6 @@ data "aws_iam_policy_document" "carl_deployer" {
     resources = ["*"]
   }
 
-  # Bedrock AgentCore (Runtime, Memory, Gateway)
-  statement {
-    sid    = "BedrockAgentCoreManagement"
-    effect = "Allow"
-    actions = [
-      "bedrock-agentcore:*"
-    ]
-    resources = ["*"]
-  }
-
   # EC2 (for VPC resource discovery)
   statement {
     sid    = "EC2ReadOnly"
@@ -529,6 +519,39 @@ resource "aws_iam_policy" "carl_deployer" {
   }
 }
 
+# Separate policy for AgentCore (to avoid policy size limits)
+resource "aws_iam_policy" "carl_deployer_agentcore" {
+  name        = "carl-deployer-agentcore-policy"
+  description = "Policy for deploying AgentCore resources"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "BedrockAgentCoreManagement"
+        Effect   = "Allow"
+        Action   = "bedrock-agentcore:*"
+        Resource = "*"
+      },
+      {
+        Sid      = "AgentCoreServiceLinkedRole"
+        Effect   = "Allow"
+        Action   = "iam:CreateServiceLinkedRole"
+        Resource = "arn:aws:iam::*:role/aws-service-role/agentcore.bedrock.amazonaws.com/*"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "agentcore.bedrock.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "carl-deployer-agentcore-policy"
+    ManagedBy = "Terraform"
+  }
+}
+
 # Attach policy to all deployment roles
 resource "aws_iam_role_policy_attachment" "deployer_dev" {
   role       = aws_iam_role.carl_deployer_dev.name
@@ -543,6 +566,22 @@ resource "aws_iam_role_policy_attachment" "deployer_qa" {
 resource "aws_iam_role_policy_attachment" "deployer_prod" {
   role       = aws_iam_role.carl_deployer_prod.name
   policy_arn = aws_iam_policy.carl_deployer.arn
+}
+
+# Attach AgentCore policy to all deployment roles
+resource "aws_iam_role_policy_attachment" "deployer_dev_agentcore" {
+  role       = aws_iam_role.carl_deployer_dev.name
+  policy_arn = aws_iam_policy.carl_deployer_agentcore.arn
+}
+
+resource "aws_iam_role_policy_attachment" "deployer_qa_agentcore" {
+  role       = aws_iam_role.carl_deployer_qa.name
+  policy_arn = aws_iam_policy.carl_deployer_agentcore.arn
+}
+
+resource "aws_iam_role_policy_attachment" "deployer_prod_agentcore" {
+  role       = aws_iam_role.carl_deployer_prod.name
+  policy_arn = aws_iam_policy.carl_deployer_agentcore.arn
 }
 
 # ============================================================================
