@@ -246,22 +246,10 @@ CARL's problems are **multi-step workflows**, perfect for agents:
    - Creates PR with architectural justification
    - Interactive session-based workflow
 
-4. **Remediation Agent** - "Fix this finding" (PLANNED)
-   - Investigates the resource
-   - Determines root cause
-   - Generates fix (Terraform/CLI)
-   - Validates fix would work
-   - Creates PR or applies change
-   - Verifies fix succeeded
-
-5. **Incident Response Agent** - "Handle this critical finding" (PLANNED)
-   - Assesses severity
-   - Checks if related to known incidents
-   - Determines impact scope
-   - Creates incident ticket
-   - Notifies stakeholders
-   - Suggests containment steps
-   - Verifies remediation
+4. **Remediation** ✅ **BUILT** - "Fix drift issues" (`/carl drift`)
+   - `/carl drift scan` - Detects configuration drift
+   - `/carl drift terraform` - Generates Terraform to fix drift
+   - Integrated with findings and evidence
 
 ### Agent Architecture Proposal
 

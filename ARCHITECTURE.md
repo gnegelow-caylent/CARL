@@ -955,9 +955,9 @@ CARL uses **AgentCore** (`agent_core.py`) for autonomous multi-step workflows. E
 │       ├──────────────┬──────────────┬──────────────┬──────────────┐  │
 │       ▼              ▼              ▼              ▼              ▼  │
 │  ┌──────────┐  ┌────────────┐  ┌─────────┐  ┌──────────┐  ┌────────┐│
-│  │ Advisory │  │ Architect  │  │  Build  │  │Remedia-  │  │Incident││
-│  │  Agent   │  │   Agent    │  │  Agent  │  │tion Agent│  │Response││
-│  │    ✅    │  │     ✅     │  │    ✅   │  │ (Planned)│  │(Planned)│
+│  │ Advisory │  │ Architect  │  │Terraform│  │  Drift   │  │  (TBD) ││
+│  │  Agent   │  │   Agent    │  │   Gen   │  │  Scan    │  │        ││
+│  │    ✅    │  │     ✅     │  │    ✅   │  │    ✅    │  │        ││
 │  └──────────┘  └────────────┘  └─────────┘  └──────────┘  └────────┘│
 │                                                                       │
 └──────────────────────────────────────────────────────────────────────┘
@@ -1023,88 +1023,11 @@ CARL uses **AgentCore** (`agent_core.py`) for autonomous multi-step workflows. E
 
 ---
 
-**4. Remediation Agent** (Planned)
+**4. Remediation** (via `/carl drift`)
 
-**Purpose:** Autonomous issue remediation with validation
+**Purpose:** Fix drift and compliance issues
 
-**What It Does:**
-- Investigates findings to understand root cause
-- Generates fix (Terraform or AWS CLI)
-- Validates fix would work without breaking dependencies
-- Creates GitHub PR with remediation
-- Applies change (with approval workflow)
-- Verifies fix succeeded
-- Updates finding status
-
-**Example:**
-```
-User: "/carl fix finding-abc123"
-
-Agent autonomously:
-1. Retrieves finding details (S3 bucket missing encryption)
-2. Checks bucket configuration
-3. Determines safe remediation (enable AES-256)
-4. Generates Terraform code
-5. Creates PR with fix
-6. After approval, applies change
-7. Verifies encryption enabled
-8. Closes finding
-```
-
-**Tools:**
-- Finding investigation
-- AWS API access
-- Terraform generation
-- Git/GitHub integration
-- Change validation
-
-**Status:** Planned for Phase 2 | **Priority:** HIGH
-
-**Commands:** `/carl fix <finding-id>`, `/carl remediate <resource>`
-
----
-
-**5. Incident Response Agent** (Planned)
-
-**Purpose:** Autonomous incident detection, triage, and coordination
-
-**What It Does:**
-- Detects critical security findings
-- Assesses severity and impact scope
-- Checks if related to known incidents
-- Creates incident ticket
-- Notifies stakeholders (PagerDuty, Slack)
-- Suggests containment steps
-- Coordinates remediation
-- Documents incident timeline
-- Verifies remediation complete
-
-**Example:**
-```
-Critical Finding: "Security group allows SSH from 0.0.0.0/0"
-
-Agent autonomously:
-1. Assesses severity (CRITICAL - public SSH)
-2. Determines impact (production VPC, 3 EC2 instances)
-3. Creates PagerDuty incident
-4. Notifies security team in Slack
-5. Suggests containment: "Restrict SG to office IP immediately"
-6. Links to runbook
-7. Tracks remediation progress
-8. Closes incident after verification
-```
-
-**Tools:**
-- Finding analysis
-- Impact assessment
-- PagerDuty integration
-- Slack notifications
-- Runbook retrieval
-- Remediation tracking
-
-**Status:** Planned for Phase 3 | **Priority:** MEDIUM
-
-**Commands:** `/carl incident <finding-id>`, `/carl incident list`
+**Note:** Remediation functionality is accessed through `/carl drift scan` and `/carl drift terraform` commands, which detect configuration drift and generate Terraform to fix it.
 
 ---
 
@@ -1155,10 +1078,9 @@ Each agent is configured in AWS Bedrock with:
 |------------|----------------|-------------------|
 | Advisory | $0.003 | $0.30 |
 | Architect | $0.01 | $1.00 |
-| Remediation | $0.01 | $1.00 |
-| Compliance | $0.02 | $2.00 |
-| Incident | $0.005 | $0.50 |
-| **Total** | - | **$4.80/month** |
+| Terraform Gen | $0.01 | $1.00 |
+| Drift Scan | $0.005 | $0.50 |
+| **Total** | - | **$2.80/month** |
 
 **ROI:** Saves 20+ hours/month of engineering time = **$2,000+/month value**
 
