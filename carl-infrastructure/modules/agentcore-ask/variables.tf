@@ -23,8 +23,9 @@ variable "container_image_tag" {
 }
 
 variable "tool_lambda_arn" {
-  description = "ARN of Lambda function that handles tool calls"
+  description = "ARN of Lambda function that handles tool calls (optional - for future use)"
   type        = string
+  default     = ""
 }
 
 variable "foundation_model" {

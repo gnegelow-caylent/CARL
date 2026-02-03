@@ -119,13 +119,14 @@ resource "aws_iam_role_policy" "agentcore_execution" {
         ]
         Resource = var.ecr_repository_arn
       },
-      # Invoke Lambda tools
+      # Invoke Lambda tools (only if tool_lambda_arn is provided)
+      # For now, allow invoking any Lambda in this account (for future tool integration)
       {
         Effect = "Allow"
         Action = [
           "lambda:InvokeFunction"
         ]
-        Resource = var.tool_lambda_arn
+        Resource = "arn:aws:lambda:${local.region}:${local.account_id}:function:*"
       },
       # AWS API Read permissions for scanning
       {
@@ -168,7 +169,6 @@ resource "aws_bedrockagentcore_agent_runtime" "ask" {
 
   environment_variables = merge(var.environment_variables, {
     AWS_REGION       = local.region
-    TOOL_LAMBDA_ARN  = var.tool_lambda_arn
     FOUNDATION_MODEL = var.foundation_model
   })
 

@@ -1210,7 +1210,7 @@ module "agentcore_ask" {
   ecr_repository_url  = aws_ecr_repository.carl_lambda.repository_url
   ecr_repository_arn  = aws_ecr_repository.carl_lambda.arn
   container_image_tag = "agentcore-ask"
-  tool_lambda_arn     = aws_lambda_function.carl.arn
+  # tool_lambda_arn removed to break circular dependency - AgentCore does its own scanning
 
   # Use Claude Sonnet inference profile (required for on-demand invocation)
   foundation_model = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
