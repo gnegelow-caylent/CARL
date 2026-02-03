@@ -1222,8 +1222,8 @@ module "agentcore_ask" {
   container_image_tag = "agentcore-ask"
   # tool_lambda_arn removed to break circular dependency - AgentCore does its own scanning
 
-  # Use Claude Sonnet 3.5 inference profile (required for on-demand invocation)
-  foundation_model = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
+  # Use Claude Sonnet 4.5 inference profile (required for on-demand invocation)
+  foundation_model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
   # Enable memory for persistent learning
   enable_memory  = true
