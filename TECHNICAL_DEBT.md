@@ -231,6 +231,63 @@ else:
 
 ---
 
+### 🟡 MEDIUM PRIORITY: Container Build Optimizations
+
+**Created:** 2026-02-03
+**Location:** `.github/workflows/deploy-core.yml`
+**Estimated Effort:** 2-4 hours
+**Impact:** Medium - faster deployments, reduced CI/CD time
+
+#### Current State
+
+AgentCore containers (ask + architect) now build in parallel, reducing build time from ~6 min to ~3 min. Additional optimizations possible:
+
+#### Backlog Items
+
+1. **Docker Layer Caching** (1 hour)
+   - Add `--cache-from` flag to reuse layers from previous builds
+   - Use GitHub Actions cache or ECR image cache
+   ```yaml
+   docker buildx build --platform linux/arm64 \
+     --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
+     --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
+     ...
+   ```
+
+2. **Shared Base Image** (2 hours)
+   - Create common `carl-agentcore-base` image with Python 3.11 + boto3 + common deps
+   - Both ask and architect agents inherit from base
+   - Base image only rebuilds when dependencies change
+   ```dockerfile
+   # Base image - rebuild only when requirements.txt changes
+   FROM public.ecr.aws/docker/library/python:3.11-slim as carl-agentcore-base
+   RUN pip install boto3 botocore bedrock-agentcore-runtime
+
+   # Agent images - fast rebuild, just copy code
+   FROM carl-agentcore-base
+   COPY carl_ask_agent.py .
+   ```
+
+3. **Path-Based Build Triggers** (1 hour)
+   - Only rebuild containers when their code changes
+   - Skip AgentCore builds if only Lambda code changed
+   ```yaml
+   - name: Check for AgentCore changes
+     id: changes
+     run: |
+       if git diff --name-only HEAD~1 | grep -q "agentcore-code/"; then
+         echo "agentcore_changed=true" >> $GITHUB_OUTPUT
+       fi
+   ```
+
+#### Priority Order
+
+1. Docker layer caching (biggest bang for buck)
+2. Path-based triggers (avoids unnecessary builds)
+3. Shared base image (useful when adding more agents)
+
+---
+
 ## Resolved Technical Debt
 
 ### ✅ Syntax Error in slack_router.py (RESOLVED 2026-01-29)
@@ -263,6 +320,6 @@ When reviewing code, check for:
 
 ---
 
-**Last Updated:** 2026-01-29
-**Active Debt Items:** 1
+**Last Updated:** 2026-02-03
+**Active Debt Items:** 2
 **Resolved Debt Items:** 1
