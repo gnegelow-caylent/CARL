@@ -4393,11 +4393,13 @@ def handle_recommend_command_sync(
 
         # Log interaction for learning
         interaction_id = learning_service.log_interaction(
+            user_id=user_id,
             question=requirement,
             scans_performed=tools_used,
             resources_found=components_mentioned,
-            response_length=len(response),
-            duration_ms=duration_ms
+            scan_duration_ms=duration_ms,
+            interaction_type="architecture",
+            metadata={"channel_id": channel_id, "session_id": session_id}
         )
 
         # Format and post response
