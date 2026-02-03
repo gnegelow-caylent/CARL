@@ -2060,17 +2060,27 @@ def classify_question_type(question: str) -> str:
     question_lower = question.lower()
 
     # Simple heuristics first (fast path)
+    # Architecture = "how do I build/setup something new?"
     architecture_keywords = [
         "design", "build", "create", "architect", "recommend", "best practice",
         "should i use", "what service", "which is better", "how to implement",
         "what's the best way", "how much would", "cost estimate", "pricing",
-        "options for", "alternatives to"
+        "options for", "alternatives to",
+        # "How to build" patterns
+        "setup", "set up", "deploy", "launch", "host", "run a", "install",
+        "how do i", "how do you", "how would", "how should", "how can i",
+        "want to", "need to", "looking to", "trying to",
+        "migrate", "move to", "switch to",
+        "configure a", "configure new", "new vpc", "new bucket", "new database"
     ]
 
+    # Compliance = "what's the status of my existing resources?"
     compliance_keywords = [
-        "is my", "are my", "do i have", "am i", "show me", "check",
-        "configured", "enabled", "compliant", "secure", "vulnerability",
-        "findings", "status of"
+        "is my", "are my", "do i have", "am i", "show me my", "check my",
+        "my vpc", "my bucket", "my iam", "my s3", "my ec2", "my security",
+        "currently configured", "currently enabled", "compliant", "secure",
+        "vulnerability", "findings", "status of my", "scan my", "audit my",
+        "what does my", "how is my"
     ]
 
     arch_score = sum(1 for kw in architecture_keywords if kw in question_lower)
