@@ -4,7 +4,7 @@ name: Deploy CARL Core
 on:
   push:
     branches:
-      - main      # Prod deployments
+      # NOTE: main does NOT auto-deploy to prod - use workflow_dispatch for prod
       - develop   # Dev deployments
       - qa        # QA deployments
     paths:
