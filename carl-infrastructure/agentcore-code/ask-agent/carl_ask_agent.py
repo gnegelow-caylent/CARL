@@ -469,6 +469,7 @@ SLACK FORMATTING RULES (CRITICAL - follow exactly):
 - Code blocks: Use triple backticks for multi-line code
 - NO markdown headers (# or ##) - Slack doesn't render them
 - NO double asterisks (**) - use single asterisks for bold
+- NO tildes (~) - Slack renders them as strikethrough. Write "approximately" or "about" instead
 
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
     else:
@@ -489,6 +490,7 @@ SLACK FORMATTING RULES (CRITICAL - follow exactly):
 - Code blocks: Use triple backticks for multi-line code
 - NO markdown headers (# or ##) - Slack doesn't render them
 - NO double asterisks (**) - use single asterisks for bold
+- NO tildes (~) - Slack renders them as strikethrough. Write "approximately" or "about" instead
 
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
 

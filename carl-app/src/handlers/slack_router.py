@@ -4335,7 +4335,10 @@ Key points:
 
 My Recommendation: State preferred option with reasoning.
 
-IMPORTANT: Do NOT use markdown asterisks. Use plain text - the system will format it for Slack.
+IMPORTANT FORMATTING RULES:
+- Do NOT use markdown asterisks (**) - use plain text, the system will format it
+- Do NOT use tildes (~) for "approximately" - Slack renders them as strikethrough. Write "about" or "approximately" instead
+- Do NOT use pound signs (#) for headers - they don't render in Slack
 """
 
         # Add learned context if available
