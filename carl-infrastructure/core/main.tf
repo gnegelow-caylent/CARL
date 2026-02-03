@@ -974,6 +974,12 @@ variable "agentcore_image_tag" {
   default     = "agentcore-ask" # Fallback if not passed from GitHub Actions
 }
 
+variable "agentcore_architect_image_tag" {
+  description = "Tag for AgentCore Architect container image (includes SHA for each deploy)"
+  type        = string
+  default     = "agentcore-architect" # Fallback if not passed from GitHub Actions
+}
+
 resource "aws_lambda_function" "carl" {
   # Container image configuration
   # Uses shared ECR repo with tag "lambda" (AgentCore uses tag "agentcore-ask")
@@ -1020,6 +1026,9 @@ resource "aws_lambda_function" "carl" {
 
       # AgentCore Ask Agent (Phase 1 - intelligent Q&A)
       AGENTCORE_ASK_RUNTIME_ARN = var.enable_agentcore_ask ? module.agentcore_ask[0].runtime_arn : ""
+
+      # AgentCore Architect Agent (architecture recommendations)
+      AGENTCORE_ARCHITECT_RUNTIME_ARN = var.enable_agentcore_architect ? module.agentcore_architect[0].agent_runtime_arn : ""
 
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
@@ -1244,6 +1253,28 @@ module "agentcore_ask" {
   })
 }
 
+# AgentCore Architect Agent (architecture recommendations with cost estimates)
+module "agentcore_architect" {
+  source = "../modules/agentcore-architect"
+  count  = var.enable_agentcore_architect ? 1 : 0
+
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.carl_lambda.repository_url
+  ecr_repository_arn  = aws_ecr_repository.carl_lambda.arn
+  container_image_tag = var.agentcore_architect_image_tag
+
+  # Use Claude Sonnet 4.5 inference profile (required for on-demand invocation)
+  foundation_model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+  environment_variables = {
+    ENVIRONMENT = var.environment
+  }
+
+  tags = merge(var.tags, {
+    Feature = "agentcore_architect"
+  })
+}
+
 # Real-Time Security Monitor Module (Instant security alerts)
 module "realtime_monitor" {
   source = "../modules/realtime-monitor"
@@ -1453,4 +1484,14 @@ output "agentcore_ask_runtime_id" {
 output "agentcore_ask_runtime_arn" {
   description = "AgentCore Ask Agent Runtime ARN"
   value       = var.enable_agentcore_ask ? module.agentcore_ask[0].runtime_arn : null
+}
+
+output "agentcore_architect_runtime_id" {
+  description = "AgentCore Architect Agent Runtime ID (if enabled)"
+  value       = var.enable_agentcore_architect ? module.agentcore_architect[0].agent_runtime_id : "Not enabled - set enable_agentcore_architect=true to deploy"
+}
+
+output "agentcore_architect_runtime_arn" {
+  description = "AgentCore Architect Agent Runtime ARN"
+  value       = var.enable_agentcore_architect ? module.agentcore_architect[0].agent_runtime_arn : null
 }

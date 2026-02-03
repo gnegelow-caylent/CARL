@@ -245,6 +245,79 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
         return {"success": False, "response": "", "error": str(e)}
 
 
+def invoke_agentcore_architect(requirement: str, session_id: str = None) -> dict:
+    """
+    Invoke AgentCore Architect Agent for architecture recommendations.
+
+    Args:
+        requirement: The user's architecture requirement
+        session_id: Optional session ID for conversation continuity
+
+    Returns:
+        dict with 'response' (text) and 'success' (bool)
+    """
+    import uuid
+
+    runtime_arn = os.environ.get("AGENTCORE_ARCHITECT_RUNTIME_ARN", "")
+    if not runtime_arn:
+        return {"success": False, "response": "", "error": "AgentCore Architect not configured"}
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
+        payload = {"prompt": requirement}
+
+        logger.info(f"Invoking AgentCore Architect runtime: {runtime_arn}")
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            runtimeSessionId=session_id,
+            payload=json.dumps(payload).encode("utf-8")
+        )
+
+        # Process response - AgentCore returns an event stream
+        full_response = ""
+        event_stream = response.get("responseStream")
+        if event_stream:
+            for event in event_stream:
+                # AgentCore events contain chunks of the response
+                if "chunk" in event:
+                    chunk_data = event["chunk"]
+                    if "bytes" in chunk_data:
+                        chunk_text = chunk_data["bytes"].decode("utf-8")
+                        full_response += chunk_text
+                elif "trace" in event:
+                    # Trace events contain debugging info, skip for now
+                    pass
+
+        # Also check for direct response body (AgentCore returns JSON with "result" key)
+        if not full_response:
+            resp = response.get("response")
+            if resp and hasattr(resp, "read"):
+                body = resp.read()
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8")
+                # Parse JSON response - AgentCore wraps result in {"result": "..."}
+                try:
+                    parsed = json.loads(body)
+                    full_response = parsed.get("result", body)
+                except json.JSONDecodeError:
+                    full_response = body
+
+        if full_response:
+            logger.info(f"AgentCore Architect response received: {len(full_response)} chars")
+            return {"success": True, "response": full_response, "session_id": session_id}
+        else:
+            logger.warning("AgentCore Architect returned empty response")
+            return {"success": False, "response": "", "error": "Empty response from AgentCore Architect"}
+
+    except Exception as e:
+        logger.error(f"AgentCore Architect invocation failed: {e}", exc_info=True)
+        return {"success": False, "response": "", "error": str(e)}
+
+
 def verify_slack_signature(
     signing_secret: str,
     timestamp: str,
@@ -4248,15 +4321,13 @@ def handle_recommend_command_sync(
     slack: SlackService, channel_id: str, user_id: str, requirement: str
 ) -> dict:
     """
-    Synchronous version of recommend command - uses NEW architecture agent.
+    Synchronous version of recommend command - uses AgentCore Architect agent.
 
-    This is essentially the same as handle_architecture_question but triggered by /carl recommend.
+    Tries AgentCore first for architecture recommendations, falls back to local agent if unavailable.
     """
     import time
-    from services.agent_core import Agent
-    from services.architecture_tools import create_architecture_tools
+    import uuid
     from services.learning_service import LearningService
-    # Note: format_markdown_to_blocks is defined in this same file, no import needed
 
     logger.info(f"Processing /carl recommend: {requirement[:100]}...")
 
@@ -4264,6 +4335,132 @@ def handle_recommend_command_sync(
     start_time = time.time()
     tools_used = []
     components_mentioned = []
+    session_id = str(uuid.uuid4())
+
+    try:
+        # Try AgentCore Architect first
+        agentcore_arn = os.environ.get("AGENTCORE_ARCHITECT_RUNTIME_ARN", "")
+        response = None
+
+        if agentcore_arn:
+            logger.info(f"Using AgentCore Architect for /carl recommend: {agentcore_arn}")
+            slack.post_message(channel_id, text="🏗️ Analyzing your architecture requirement with CARL Architect...")
+
+            result = invoke_agentcore_architect(requirement, session_id)
+
+            if result["success"]:
+                response = result["response"]
+                tools_used.append("agentcore_architect")
+                logger.info(f"AgentCore Architect response: {len(response)} chars")
+            else:
+                logger.warning(f"AgentCore Architect failed: {result.get('error')}, falling back to local agent")
+                slack.post_message(channel_id, text="⚠️ AgentCore Architect unavailable, using local agent...")
+
+        # Fallback to local agent if AgentCore not configured or failed
+        if not response:
+            logger.info("Using local architecture agent fallback")
+            response = _handle_recommend_with_local_agent(slack, channel_id, user_id, requirement)
+            tools_used.append("local_architecture_agent")
+
+        # Intelligently condense if response is too verbose
+        if is_response_too_verbose(response):
+            response = condense_response(response)
+
+        # Extract components mentioned (for learning)
+        if "ec2" in response.lower():
+            components_mentioned.append("ec2")
+        if "rds" in response.lower():
+            components_mentioned.append("rds")
+        if "lambda" in response.lower():
+            components_mentioned.append("lambda")
+        if "s3" in response.lower():
+            components_mentioned.append("s3")
+        if "dynamodb" in response.lower():
+            components_mentioned.append("dynamodb")
+        if "vpc" in response.lower():
+            components_mentioned.append("vpc")
+
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Initialize learning service
+        scan_history_table = os.environ.get("SCAN_HISTORY_TABLE", "carl-dev-scan-history")
+        resource_graph_table = os.environ.get("RESOURCE_GRAPH_TABLE", "carl-dev-resource-graph")
+        learning_service = LearningService(
+            scan_history_table=scan_history_table,
+            resource_graph_table=resource_graph_table
+        )
+
+        # Log interaction for learning
+        interaction_id = learning_service.log_interaction(
+            question=requirement,
+            scans_performed=tools_used,
+            resources_found=components_mentioned,
+            response_length=len(response),
+            duration_ms=duration_ms
+        )
+
+        # Format and post response
+        formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architecture Recommendation")
+        for block_group in formatted_blocks:
+            slack.post_message(channel_id, blocks=block_group)
+
+        # Add feedback buttons
+        feedback_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_Was this recommendation helpful?_"
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👍 Helpful"},
+                        "style": "primary",
+                        "action_id": f"feedback_helpful_{interaction_id}"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👎 Not Helpful"},
+                        "action_id": f"feedback_not_helpful_{interaction_id}"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🔨 Build This"},
+                        "style": "primary",
+                        "action_id": f"build_architecture_{requirement[:50].replace(' ', '_')}"
+                    }
+                ]
+            }
+        ]
+        slack.post_message(channel_id, blocks=feedback_blocks)
+
+        return {"statusCode": 200, "body": ""}
+
+    except Exception as e:
+        logger.error(f"Error in recommend command: {e}", exc_info=True)
+        slack.post_message(
+            channel_id,
+            text=f"❌ Error processing recommendation: {str(e)}"
+        )
+        return {"statusCode": 200, "body": ""}
+
+
+def _handle_recommend_with_local_agent(
+    slack: SlackService, channel_id: str, user_id: str, requirement: str
+) -> str:
+    """
+    Fallback: Use local architecture agent for recommendations.
+
+    Returns the response text.
+    """
+    from services.agent_core import Agent
+    from services.architecture_tools import create_architecture_tools
+    from services.learning_service import LearningService
 
     try:
         # Scan AWS environment for context-aware recommendations
@@ -4345,175 +4542,24 @@ IMPORTANT FORMATTING RULES:
         if learned_context:
             base_instructions += learned_context
 
-        # Create progress callback to update Slack in real-time
-        def progress_callback(status_message: str):
-            """Post progress updates to Slack as agent works."""
-            try:
-                slack.post_message(channel_id, text=status_message)
-            except Exception as e:
-                logger.warning(f"Failed to post progress update: {e}")
-
-        # Create architecture agent with progress callback
+        # Create architecture agent (no progress callback for fallback - AgentCore handles progress)
         architecture_agent = Agent(
             tools=architecture_tools,
-            instructions=base_instructions,
-            progress_callback=progress_callback
+            instructions=base_instructions
         )
 
-        # Execute agent (progress updates will be posted automatically)
-        logger.info("🏗️ Architecture agent analyzing requirement")
+        # Execute agent
+        logger.info("🏗️ Local architecture agent analyzing requirement")
         response = architecture_agent.execute(
             f"Provide architecture recommendation for: {requirement}"
         )
 
-        logger.info(f"Architecture agent response: {response[:500]}...")
-
-        # Intelligently condense if response is too verbose
-        if is_response_too_verbose(response):
-            response = condense_response(response)
-
-        # Extract tools used and components mentioned (for learning)
-        if "ec2" in response.lower():
-            components_mentioned.append("ec2")
-        if "rds" in response.lower():
-            components_mentioned.append("rds")
-        if "lambda" in response.lower():
-            components_mentioned.append("lambda")
-        if "s3" in response.lower():
-            components_mentioned.append("s3")
-        if "dynamodb" in response.lower():
-            components_mentioned.append("dynamodb")
-        if "vpc" in response.lower():
-            components_mentioned.append("vpc")
-
-        tools_used = ["architecture_agent"]
-
-        # Calculate duration
-        duration_ms = int((time.time() - start_time) * 1000)
-
-        # Log interaction for learning
-        interaction_id = None
-        try:
-            interaction_id = learning_service.log_interaction(
-                user_id=user_id,
-                question=f"/carl recommend: {requirement}",
-                scans_performed=tools_used,
-                resources_found=components_mentioned,
-                scan_duration_ms=duration_ms,
-                interaction_type="architecture",
-                metadata={"channel_id": channel_id, "command": "recommend"}
-            )
-
-            logger.info(f"Logged /carl recommend interaction {interaction_id}")
-        except Exception as e:
-            logger.warning(f"Failed to log recommend interaction: {e}")
-
-        # Format and post response using native Slack blocks
-        # Add header
-        header_blocks = [{
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🏗️ Architecture Recommendation"
-            }
-        }]
-        slack.post_message(channel_id, blocks=header_blocks)
-
-        # Parse plain text and create native Slack blocks
-        content_blocks = format_recommendation_to_slack_blocks(response)
-
-        # Split into groups of 50 blocks (Slack limit)
-        for i in range(0, len(content_blocks), 50):
-            block_group = content_blocks[i:i+50]
-            slack.post_message(channel_id, blocks=block_group)
-
-        # Store recommendation in session for build flow
-        # This allows build to ask "Which option?" instead of starting over
-        from services.build_session_service import BuildSessionService
-        session_service = BuildSessionService()
-
-        try:
-            # Create a recommendation session (not a full build session yet)
-            rec_session = session_service.create_session(
-                user_id=user_id,
-                channel_id=channel_id,
-                requirement=requirement,
-                environment_scan={"recommendation": response[:4000]},  # Store recommendation
-                environment_summary=f"Recommendation generated for: {requirement}"
-            )
-
-            # Add "Build This" button that references the recommendation session
-            action_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Click below to generate Terraform code. Have questions? Use /carl ask`_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"architecture_actions_{interaction_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "🏗️ Build This",
-                                "emoji": True
-                            },
-                            "value": f"rec_session:{rec_session.session_id}",
-                            "action_id": "architecture_build_from_recommendation",
-                            "style": "primary"
-                        }
-                    ]
-                }
-            ]
-            slack.post_message(channel_id, blocks=action_blocks)
-        except Exception as e:
-            logger.warning(f"Failed to create recommendation session: {e}")
-            # Fallback to old behavior
-            action_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "_Click below to generate Terraform code. Have questions? Use /carl ask`_"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"architecture_actions_{interaction_id}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "🏗️ Build This",
-                                "emoji": True
-                            },
-                            "value": f"build_context:{requirement[:100]}",
-                            "action_id": "architecture_build_from_recommendation",
-                            "style": "primary"
-                        }
-                    ]
-                }
-            ]
-            slack.post_message(channel_id, blocks=action_blocks)
-
-        # Note: Feedback buttons removed for architecture recommendations
-        # Architecture questions provide multiple options for users to choose from,
-        # not scan-based answers that benefit from feedback learning.
-        # The learning system tracks interaction data for pattern analysis without requiring explicit feedback.
+        logger.info(f"Local architecture agent response: {response[:500]}...")
+        return response
 
     except Exception as e:
-        logger.error(f"Architecture agent failed: {e}", exc_info=True)
-        slack.post_message(
-            channel_id,
-            text=f"❌ Sorry, I encountered an error providing architecture recommendations: {str(e)}"
-        )
-
-    return {"statusCode": 200, "body": ""}
+        logger.error(f"Local architecture agent failed: {e}", exc_info=True)
+        return f"Error generating architecture recommendation: {str(e)}"
 
 
 def handle_build_command(

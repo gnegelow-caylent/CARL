@@ -1,0 +1,11 @@
+# CARL Architect Agent Dependencies
+
+# AWS SDK
+boto3>=1.34.0
+botocore>=1.34.0
+
+# AgentCore Runtime SDK
+bedrock-agentcore-runtime>=0.1.0
+
+# Utilities
+python-dateutil>=2.8.0

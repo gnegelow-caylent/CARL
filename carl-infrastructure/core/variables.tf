@@ -96,6 +96,12 @@ variable "enable_agentcore_ask" {
   default     = true
 }
 
+variable "enable_agentcore_architect" {
+  description = "Enable AWS Bedrock AgentCore for /carl architect command"
+  type        = bool
+  default     = true
+}
+
 # ============================================================================
 # GITHUB INTEGRATION (For automatic feature deployment)
 # ============================================================================
