@@ -461,7 +461,14 @@ Consider SOC 2 compliance requirements in your recommendations.
 Include cost considerations when relevant.
 Be concise but thorough.
 
-FORMATTING: Wrap all AWS resource names in backticks for Slack formatting (e.g., `bucket-name`, `user-name`, `vpc-id`, `sg-xxxxx`). This makes resources stand out visually.
+SLACK FORMATTING RULES (CRITICAL - follow exactly):
+- Headers: Use *Bold Text* (single asterisks), NOT # or ##
+- Bold text: Use *text* (single asterisks), NOT **text**
+- Lists: Use plain bullets (•) or dashes (-), NOT numbered with asterisks like *1.
+- Resource names: ALWAYS wrap in backticks: `bucket-name`, `vpc-12345`, `sg-xxxxx`, `user-name`
+- Code blocks: Use triple backticks for multi-line code
+- NO markdown headers (# or ##) - Slack doesn't render them
+- NO double asterisks (**) - use single asterisks for bold
 
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
     else:
@@ -474,7 +481,14 @@ Highlight any compliance gaps or security concerns.
 Map issues to SOC 2 controls when relevant.
 Be direct and actionable.
 
-FORMATTING: Wrap all AWS resource names in backticks for Slack formatting (e.g., `bucket-name`, `user-name`, `vpc-id`, `sg-xxxxx`). This makes resources stand out visually.
+SLACK FORMATTING RULES (CRITICAL - follow exactly):
+- Headers: Use *Bold Text* (single asterisks), NOT # or ##
+- Bold text: Use *text* (single asterisks), NOT **text**
+- Lists: Use plain bullets (•) or dashes (-), NOT numbered with asterisks like *1.
+- Resource names: ALWAYS wrap in backticks: `bucket-name`, `vpc-12345`, `sg-xxxxx`, `user-name`
+- Code blocks: Use triple backticks for multi-line code
+- NO markdown headers (# or ##) - Slack doesn't render them
+- NO double asterisks (**) - use single asterisks for bold
 
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
 
