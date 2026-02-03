@@ -171,6 +171,13 @@ class AWSResourceScanner:
         results = []
 
         try:
+            # Log caller identity for debugging
+            try:
+                identity = self.sts.get_caller_identity()
+                logger.info(f"S3 scan running as: {identity.get('Arn')}")
+            except Exception as id_err:
+                logger.warning(f"Could not get caller identity: {id_err}")
+
             buckets = self.s3.list_buckets().get("Buckets", [])
             for bucket in buckets:
                 bucket_name = bucket["Name"]
@@ -207,8 +214,12 @@ class AWSResourceScanner:
                     logger.info(f"S3 {bucket_name} public access block: {public_access}")
                 except self.s3.exceptions.ClientError as e:
                     error_code = e.response.get('Error', {}).get('Code', '')
-                    logger.warning(f"Error checking public access for {bucket_name}: {error_code}")
+                    error_msg = e.response.get('Error', {}).get('Message', '')
+                    logger.warning(f"Error checking public access for {bucket_name}: {error_code} - {error_msg}")
                     public_access = {"configured": False, "error": error_code}
+                except Exception as e:
+                    logger.warning(f"Unexpected error checking public access for {bucket_name}: {type(e).__name__}: {e}")
+                    public_access = {"configured": False, "error": str(e)}
 
                 # Check versioning
                 versioning = "disabled"
