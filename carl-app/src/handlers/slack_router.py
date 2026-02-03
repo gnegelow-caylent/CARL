@@ -561,6 +561,10 @@ def normalize_formatting(response: str) -> str:
     # STEP 9: Final cleanup - remove excessive blank lines
     response = re.sub(r'\n{4,}', '\n\n\n', response)
 
+    # STEP 10: Convert markdown bold (**text**) to Slack bold (*text*)
+    # Match **text** but not ***text*** (which is already handled)
+    response = re.sub(r'(?<!\*)\*\*([^*]+)\*\*(?!\*)', r'*\1*', response)
+
     return response
 
 
