@@ -618,6 +618,16 @@ resource "aws_iam_role_policy" "bedrock" {
           "arn:aws:bedrock:${local.region}:${local.account_id}:agent-alias/*/*"
         ]
       },
+      # AgentCore Runtime invocation (Phase 1 - /carl ask)
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock-agentcore:InvokeAgentRuntime"
+        ]
+        Resource = [
+          "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:runtime/*"
+        ]
+      },
       {
         Effect = "Allow"
         Action = [
