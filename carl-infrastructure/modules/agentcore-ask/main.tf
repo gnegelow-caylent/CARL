@@ -144,10 +144,6 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "iam:ListUsers",
           "iam:ListMFADevices",
           "iam:GetAccountPasswordPolicy",
-          "s3:ListAllMyBuckets",
-          "s3:GetBucketEncryption",
-          "s3:GetPublicAccessBlock",
-          "s3:GetBucketVersioning",
           "ec2:DescribeVpcs",
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeFlowLogs",
@@ -155,6 +151,26 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
+      },
+      # S3 bucket-level permissions for scanning (explicit bucket ARN format)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListAllMyBuckets"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketEncryption",
+          "s3:GetPublicAccessBlock",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketPolicy",
+          "s3:GetBucketAcl",
+          "s3:GetBucketLocation"
+        ]
+        Resource = "arn:aws:s3:::*"
       }
     ]
   })
