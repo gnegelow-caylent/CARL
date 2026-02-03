@@ -1,11 +1,13 @@
-# CARL Architect Agent Dependencies
+# CARL Architect Agent - AgentCore Runtime Dependencies
+# Python 3.11 runtime
+
+# AgentCore SDK (REQUIRED for deployment)
+bedrock-agentcore
+
+# Web framework dependencies (required by BedrockAgentCoreApp)
+uvicorn
+starlette
+pydantic
 
 # AWS SDK
-boto3>=1.34.0
-botocore>=1.34.0
-
-# AgentCore Runtime SDK
-bedrock-agentcore-runtime>=0.1.0
-
-# Utilities
-python-dateutil>=2.8.0
+boto3>=1.35.0
