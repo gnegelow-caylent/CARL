@@ -456,6 +456,8 @@ Consider SOC 2 compliance requirements in your recommendations.
 Include cost considerations when relevant.
 Be concise but thorough.
 
+FORMATTING: Wrap all AWS resource names in backticks for Slack formatting (e.g., `bucket-name`, `user-name`, `vpc-id`, `sg-xxxxx`). This makes resources stand out visually.
+
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
     else:
         system_prompt = """You are CARL (Cloud Automated Risk & Compliance Logic), an AWS compliance expert.
@@ -466,6 +468,8 @@ Reference actual resources found in the scan.
 Highlight any compliance gaps or security concerns.
 Map issues to SOC 2 controls when relevant.
 Be direct and actionable.
+
+FORMATTING: Wrap all AWS resource names in backticks for Slack formatting (e.g., `bucket-name`, `user-name`, `vpc-id`, `sg-xxxxx`). This makes resources stand out visually.
 
 IMPORTANT: This is a one-shot response in Slack. Do NOT offer follow-up interactions like "say yes" or "want me to scan deeper" - the user cannot respond to you directly. Provide your complete analysis in this single response."""
 
