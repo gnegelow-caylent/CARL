@@ -184,21 +184,25 @@ class AWSResourceScanner:
 
                 # Check encryption
                 encryption = "unknown"
+                encryption_error = None
                 try:
                     enc_config = self.s3.get_bucket_encryption(Bucket=bucket_name)
                     rules = enc_config.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
                     if rules:
                         encryption = rules[0].get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm", "unknown")
-                except self.s3.exceptions.ClientError as e:
-                    error_code = e.response.get('Error', {}).get('Code', '')
+                except Exception as e:
+                    error_code = getattr(e, 'response', {}).get('Error', {}).get('Code', type(e).__name__)
+                    error_msg = getattr(e, 'response', {}).get('Error', {}).get('Message', str(e))
                     if error_code == 'ServerSideEncryptionConfigurationNotFoundError':
                         encryption = "none"  # No encryption configured
                     elif error_code == 'AccessDenied':
                         encryption = "access_denied"
-                        logger.warning(f"Access denied checking encryption for {bucket_name}")
+                        encryption_error = f"{error_code}: {error_msg}"
+                        logger.warning(f"Access denied checking encryption for {bucket_name}: {error_msg}")
                     else:
                         encryption = "none"
-                        logger.warning(f"Error checking encryption for {bucket_name}: {error_code}")
+                        encryption_error = f"{error_code}: {error_msg}"
+                        logger.warning(f"Error checking encryption for {bucket_name}: {error_code} - {error_msg}")
 
                 # Check public access block
                 public_access = {}
@@ -212,14 +216,11 @@ class AWSResourceScanner:
                         "restrict_public_buckets": pab.get("RestrictPublicBuckets", False),
                     }
                     logger.info(f"S3 {bucket_name} public access block: {public_access}")
-                except self.s3.exceptions.ClientError as e:
-                    error_code = e.response.get('Error', {}).get('Code', '')
-                    error_msg = e.response.get('Error', {}).get('Message', '')
-                    logger.warning(f"Error checking public access for {bucket_name}: {error_code} - {error_msg}")
-                    public_access = {"configured": False, "error": error_code}
                 except Exception as e:
-                    logger.warning(f"Unexpected error checking public access for {bucket_name}: {type(e).__name__}: {e}")
-                    public_access = {"configured": False, "error": str(e)}
+                    error_code = getattr(e, 'response', {}).get('Error', {}).get('Code', type(e).__name__)
+                    error_msg = getattr(e, 'response', {}).get('Error', {}).get('Message', str(e))
+                    logger.warning(f"Error checking public access for {bucket_name}: {error_code} - {error_msg}")
+                    public_access = {"configured": False, "error": error_code, "error_message": error_msg}
 
                 # Check versioning
                 versioning = "disabled"
@@ -229,6 +230,14 @@ class AWSResourceScanner:
                 except Exception:
                     pass
 
+                data = {
+                    "encryption": encryption,
+                    "public_access_block": public_access,
+                    "versioning": versioning,
+                }
+                if encryption_error:
+                    data["encryption_error"] = encryption_error
+
                 results.append(ResourceScanResult(
                     service="s3",
                     resource_type="AWS::S3::Bucket",
@@ -236,11 +245,7 @@ class AWSResourceScanner:
                     resource_name=bucket_name,
                     region="global",
                     account_id=self.account_id,
-                    data={
-                        "encryption": encryption,
-                        "public_access_block": public_access,
-                        "versioning": versioning,
-                    }
+                    data=data
                 ))
 
         except Exception as e:
