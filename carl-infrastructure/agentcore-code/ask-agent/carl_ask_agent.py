@@ -365,14 +365,32 @@ class AWSResourceScanner:
         """Scan all supported AWS services."""
         logger.info("Starting comprehensive AWS scan...")
 
+        # Get and log caller identity for debugging
+        scanner_identity = "unknown"
+        try:
+            identity = self.sts.get_caller_identity()
+            scanner_identity = identity.get('Arn', 'unknown')
+            logger.info(f"Scanner running as: {scanner_identity}")
+        except Exception as e:
+            logger.warning(f"Could not get scanner identity: {e}")
+
         results = {
             "iam": self.scan_iam(),
             "s3": self.scan_s3(),
             "vpc": self.scan_vpc(),
             "ec2": self.scan_ec2(),
+            "_metadata": [ResourceScanResult(
+                service="metadata",
+                resource_type="ScanMetadata",
+                resource_id="scanner_identity",
+                resource_name="Scanner Identity",
+                region=self.region,
+                account_id=self.account_id,
+                data={"scanner_arn": scanner_identity}
+            )],
         }
 
-        total = sum(len(r) for r in results.values())
+        total = sum(len(r) for r in results.values() if not r or isinstance(r, list))
         logger.info(f"Scan complete: {total} resources across {len(results)} services")
 
         return results
@@ -382,8 +400,14 @@ def scan_results_to_context(scan_results: dict[str, list[ResourceScanResult]]) -
     """Convert scan results to a text context for the AI model."""
     lines = ["## AWS Environment Scan Results\n"]
 
+    # Include scanner identity at the top for debugging
+    if "_metadata" in scan_results:
+        for meta in scan_results["_metadata"]:
+            if meta.resource_id == "scanner_identity":
+                lines.append(f"**Scanner Identity**: {meta.data.get('scanner_arn', 'unknown')}\n")
+
     for service, resources in scan_results.items():
-        if not resources:
+        if not resources or service.startswith("_"):
             continue
 
         lines.append(f"### {service.upper()} ({len(resources)} resources)\n")
