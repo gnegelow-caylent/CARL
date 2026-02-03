@@ -267,7 +267,9 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
             --push .
 
-          echo "Pushed AgentCore ask-agent container to $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask"
+          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
+          echo "Pushed AgentCore ask-agent container to $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG"
 
       - name: Create Placeholder Lambda Package
         run: |
@@ -291,6 +293,7 @@ jobs:
             -var="environment=dev" \
             -var="enable_foundation=true" \
             -var="lambda_image_uri=$IMAGE_URI" \
+            -var="agentcore_image_tag=$AGENTCORE_IMAGE_TAG" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_DEV }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_DEV }}"
 
@@ -382,6 +385,9 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
             --push .
 
+          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
+
       - name: Create Placeholder Lambda Package
         run: |
           # Create placeholder lambda.zip for modules that still use zip deployment
@@ -403,6 +409,7 @@ jobs:
           terraform apply -auto-approve \
             -var="environment=qa" \
             -var="lambda_image_uri=$IMAGE_URI" \
+            -var="agentcore_image_tag=$AGENTCORE_IMAGE_TAG" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_QA }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_QA }}"
 
@@ -473,6 +480,9 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
             --push .
 
+          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
+
       - name: Create Placeholder Lambda Package
         run: |
           # Create placeholder lambda.zip for modules that still use zip deployment
@@ -494,6 +504,7 @@ jobs:
           terraform plan \
             -var="environment=prod" \
             -var="lambda_image_uri=$IMAGE_URI" \
+            -var="agentcore_image_tag=$AGENTCORE_IMAGE_TAG" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_PROD }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_PROD }}" \
             -out=tfplan

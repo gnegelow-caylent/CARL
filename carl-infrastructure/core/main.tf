@@ -968,6 +968,12 @@ variable "lambda_image_uri" {
   default     = "" # Will be passed from GitHub Actions
 }
 
+variable "agentcore_image_tag" {
+  description = "Tag for AgentCore container image (includes SHA for each deploy)"
+  type        = string
+  default     = "agentcore-ask" # Fallback if not passed from GitHub Actions
+}
+
 resource "aws_lambda_function" "carl" {
   # Container image configuration
   # Uses shared ECR repo with tag "lambda" (AgentCore uses tag "agentcore-ask")
@@ -1219,7 +1225,7 @@ module "agentcore_ask" {
   name_prefix         = local.name_prefix
   ecr_repository_url  = aws_ecr_repository.carl_lambda.repository_url
   ecr_repository_arn  = aws_ecr_repository.carl_lambda.arn
-  container_image_tag = "agentcore-ask"
+  container_image_tag = var.agentcore_image_tag
   # tool_lambda_arn removed to break circular dependency - AgentCore does its own scanning
 
   # Use Claude Sonnet 4.5 inference profile (required for on-demand invocation)
