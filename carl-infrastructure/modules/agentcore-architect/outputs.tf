@@ -1,11 +1,11 @@
 output "agent_runtime_arn" {
   description = "ARN of the AgentCore Runtime for the architect agent"
-  value       = aws_bedrockagentcore_agent_runtime.architect.arn
+  value       = aws_bedrockagentcore_agent_runtime.architect.agent_runtime_arn
 }
 
 output "agent_runtime_id" {
   description = "ID of the AgentCore Runtime"
-  value       = aws_bedrockagentcore_agent_runtime.architect.id
+  value       = aws_bedrockagentcore_agent_runtime.architect.agent_runtime_id
 }
 
 output "agent_runtime_name" {
