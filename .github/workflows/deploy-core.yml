@@ -254,39 +254,52 @@ jobs:
           # Save image URI for Terraform
           echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Build and Push AgentCore Ask Agent Container
+      - name: Build and Push AgentCore Containers (Parallel)
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build AgentCore container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/ask-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
-            --push .
+          # Build both AgentCore containers in parallel (ARM64 required by AgentCore Runtime)
 
-          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          # Start Ask agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/ask-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+              --push .
+            echo "✓ Ask agent container pushed"
+          ) &
+          ASK_PID=$!
+
+          # Start Architect agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/architect-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
+              --push .
+            echo "✓ Architect agent container pushed"
+          ) &
+          ARCHITECT_PID=$!
+
+          # Wait for both builds to complete
+          wait $ASK_PID
+          ASK_STATUS=$?
+          wait $ARCHITECT_PID
+          ARCHITECT_STATUS=$?
+
+          # Check if either build failed
+          if [ $ASK_STATUS -ne 0 ] || [ $ARCHITECT_STATUS -ne 0 ]; then
+            echo "❌ One or more AgentCore builds failed"
+            exit 1
+          fi
+
+          # Save image tags for Terraform
           echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
-          echo "Pushed AgentCore ask-agent container to $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG"
-
-      - name: Build and Push AgentCore Architect Agent Container
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: carl-lambda
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Build AgentCore Architect container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/architect-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
-            --push .
-
-          # Save AgentCore Architect image tag for Terraform
           echo "AGENTCORE_ARCHITECT_IMAGE_TAG=agentcore-architect-$IMAGE_TAG" >> $GITHUB_ENV
-          echo "Pushed AgentCore architect-agent container to $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG"
+          echo "✓ All AgentCore containers built and pushed successfully"
 
       - name: Create Placeholder Lambda Package
         run: |
@@ -390,37 +403,52 @@ jobs:
           # Save image URI for Terraform
           echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Build and Push AgentCore Ask Agent Container
+      - name: Build and Push AgentCore Containers (Parallel)
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build AgentCore container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/ask-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
-            --push .
+          # Build both AgentCore containers in parallel (ARM64 required by AgentCore Runtime)
 
-          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          # Start Ask agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/ask-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+              --push .
+            echo "✓ Ask agent container pushed"
+          ) &
+          ASK_PID=$!
+
+          # Start Architect agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/architect-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
+              --push .
+            echo "✓ Architect agent container pushed"
+          ) &
+          ARCHITECT_PID=$!
+
+          # Wait for both builds to complete
+          wait $ASK_PID
+          ASK_STATUS=$?
+          wait $ARCHITECT_PID
+          ARCHITECT_STATUS=$?
+
+          # Check if either build failed
+          if [ $ASK_STATUS -ne 0 ] || [ $ARCHITECT_STATUS -ne 0 ]; then
+            echo "❌ One or more AgentCore builds failed"
+            exit 1
+          fi
+
+          # Save image tags for Terraform
           echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Build and Push AgentCore Architect Agent Container
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: carl-lambda
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Build AgentCore Architect container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/architect-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
-            --push .
-
-          # Save AgentCore Architect image tag for Terraform
           echo "AGENTCORE_ARCHITECT_IMAGE_TAG=agentcore-architect-$IMAGE_TAG" >> $GITHUB_ENV
+          echo "✓ All AgentCore containers built and pushed successfully"
 
       - name: Create Placeholder Lambda Package
         run: |
@@ -502,37 +530,52 @@ jobs:
           # Save image URI for Terraform
           echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Build and Push AgentCore Ask Agent Container
+      - name: Build and Push AgentCore Containers (Parallel)
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: carl-lambda
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build AgentCore container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/ask-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
-            --push .
+          # Build both AgentCore containers in parallel (ARM64 required by AgentCore Runtime)
 
-          # Save AgentCore image tag for Terraform (use SHA to force update on each deploy)
+          # Start Ask agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/ask-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask \
+              --push .
+            echo "✓ Ask agent container pushed"
+          ) &
+          ASK_PID=$!
+
+          # Start Architect agent build in background
+          (
+            cd carl-infrastructure/agentcore-code/architect-agent
+            docker buildx build --platform linux/arm64 \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
+              --push .
+            echo "✓ Architect agent container pushed"
+          ) &
+          ARCHITECT_PID=$!
+
+          # Wait for both builds to complete
+          wait $ASK_PID
+          ASK_STATUS=$?
+          wait $ARCHITECT_PID
+          ARCHITECT_STATUS=$?
+
+          # Check if either build failed
+          if [ $ASK_STATUS -ne 0 ] || [ $ARCHITECT_STATUS -ne 0 ]; then
+            echo "❌ One or more AgentCore builds failed"
+            exit 1
+          fi
+
+          # Save image tags for Terraform
           echo "AGENTCORE_IMAGE_TAG=agentcore-ask-$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Build and Push AgentCore Architect Agent Container
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: carl-lambda
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Build AgentCore Architect container (ARM64 required by AgentCore Runtime)
-          cd carl-infrastructure/agentcore-code/architect-agent
-          docker buildx build --platform linux/arm64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
-            --push .
-
-          # Save AgentCore Architect image tag for Terraform
           echo "AGENTCORE_ARCHITECT_IMAGE_TAG=agentcore-architect-$IMAGE_TAG" >> $GITHUB_ENV
+          echo "✓ All AgentCore containers built and pushed successfully"
 
       - name: Create Placeholder Lambda Package
         run: |
