@@ -31,7 +31,7 @@ variable "tool_lambda_arn" {
 variable "foundation_model" {
   description = "Bedrock inference profile ID to use (required for on-demand invocation)"
   type        = string
-  default     = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+  default     = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
 }
 
 variable "enable_memory" {
