@@ -640,8 +640,8 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
             blocks.append({"type": "divider"})
             continue
 
-        # Handle headers (## heading)
-        if line.startswith('## '):
+        # Handle headers (## or ### heading)
+        if line.startswith('### ') or line.startswith('## '):
             # Flush current section
             if current_section:
                 section_text = '\n'.join(current_section).strip()
@@ -655,13 +655,19 @@ def format_markdown_to_blocks(markdown_text: str, title: str = None) -> list[lis
                     })
                 current_section = []
 
+            # Determine header level and extract text
+            if line.startswith('### '):
+                header_text = line[4:].strip()
+            else:
+                header_text = line[3:].strip()
+
             # Add header and divider
             blocks.append({"type": "divider"})
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{line[3:].strip()}*"
+                    "text": f"*{header_text}*"
                 }
             })
             continue

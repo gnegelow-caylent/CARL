@@ -198,13 +198,17 @@ class AWSResourceScanner:
                 try:
                     pab = self.s3.get_public_access_block(Bucket=bucket_name)["PublicAccessBlockConfiguration"]
                     public_access = {
+                        "configured": True,
                         "block_public_acls": pab.get("BlockPublicAcls", False),
                         "ignore_public_acls": pab.get("IgnorePublicAcls", False),
                         "block_public_policy": pab.get("BlockPublicPolicy", False),
                         "restrict_public_buckets": pab.get("RestrictPublicBuckets", False),
                     }
-                except self.s3.exceptions.ClientError:
-                    public_access = {"configured": False}
+                    logger.info(f"S3 {bucket_name} public access block: {public_access}")
+                except self.s3.exceptions.ClientError as e:
+                    error_code = e.response.get('Error', {}).get('Code', '')
+                    logger.warning(f"Error checking public access for {bucket_name}: {error_code}")
+                    public_access = {"configured": False, "error": error_code}
 
                 # Check versioning
                 versioning = "disabled"
