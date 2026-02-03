@@ -102,6 +102,15 @@ resource "aws_iam_role_policy" "agentcore_execution" {
           "arn:aws:bedrock:*:*:inference-profile/*anthropic*"
         ]
       },
+      # AWS Marketplace permissions (required for Bedrock model access)
+      {
+        Effect = "Allow"
+        Action = [
+          "aws-marketplace:ViewSubscriptions",
+          "aws-marketplace:Subscribe"
+        ]
+        Resource = "*"
+      },
       # ECR Image Pull
       {
         Effect = "Allow"

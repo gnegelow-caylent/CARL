@@ -219,13 +219,19 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
                     # Trace events contain debugging info, skip for now
                     pass
 
-        # Also check for direct response body
+        # Also check for direct response body (AgentCore returns JSON with "result" key)
         if not full_response:
             resp = response.get("response")
             if resp and hasattr(resp, "read"):
                 body = resp.read()
                 if isinstance(body, bytes):
-                    full_response = body.decode("utf-8")
+                    body = body.decode("utf-8")
+                # Parse JSON response - AgentCore wraps result in {"result": "..."}
+                try:
+                    parsed = json.loads(body)
+                    full_response = parsed.get("result", body)
+                except json.JSONDecodeError:
+                    full_response = body
 
         if full_response:
             logger.info(f"AgentCore response received: {len(full_response)} chars")
