@@ -226,10 +226,12 @@ jobs:
           echo "Building all containers in parallel..."
 
           # Build Lambda container (AMD64) in background
+          # --provenance=false prevents OCI manifest issues that Lambda doesn't support
           (
             echo "🔨 Building Lambda container..."
             cd carl-app
             docker buildx build --platform linux/amd64 \
+              --provenance=false \
               --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-cache \
               --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-cache,mode=max \
               -t $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG \
@@ -244,6 +246,7 @@ jobs:
             echo "🔨 Building Ask agent container..."
             cd carl-infrastructure/agentcore-code/ask-agent
             docker buildx build --platform linux/arm64 \
+              --provenance=false \
               --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-cache \
               --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-cache,mode=max \
               -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-ask-$IMAGE_TAG \
@@ -258,6 +261,7 @@ jobs:
             echo "🔨 Building Architect agent container..."
             cd carl-infrastructure/agentcore-code/architect-agent
             docker buildx build --platform linux/arm64 \
+              --provenance=false \
               --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-cache \
               --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-cache,mode=max \
               -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
