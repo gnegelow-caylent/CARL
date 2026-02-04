@@ -546,7 +546,66 @@ resource "aws_iam_role_policy_attachment" "example" {
     }, indent=2)
 
 
-# Run MCP server
+# Lambda handler for AgentCore/direct invocation
+def handler(event, context):
+    """
+    Lambda handler that routes to MCP tool functions.
+
+    Event format:
+    {
+        "tool": "validate_terraform",
+        "args": {"terraform_code": "resource ..."}
+    }
+
+    Returns:
+    {
+        "result": <tool output>,
+        "error": null  # or error message if failed
+    }
+    """
+    try:
+        tool_name = event.get("tool")
+        args = event.get("args", {})
+
+        # Map tool names to functions
+        tools = {
+            "validate_terraform": validate_terraform,
+            "format_terraform": format_terraform,
+            "get_provider_docs": get_provider_docs,
+            "search_modules": search_modules,
+            "get_module_details": get_module_details,
+            "list_aws_resources": list_aws_resources,
+            "generate_resource_skeleton": generate_resource_skeleton,
+        }
+
+        if not tool_name:
+            return {
+                "result": None,
+                "error": "No tool specified. Available tools: " + ", ".join(tools.keys())
+            }
+
+        if tool_name not in tools:
+            return {
+                "result": None,
+                "error": f"Unknown tool: {tool_name}. Available tools: " + ", ".join(tools.keys())
+            }
+
+        # Execute the tool
+        result = tools[tool_name](**args)
+
+        return {
+            "result": result,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "result": None,
+            "error": str(e)
+        }
+
+
+# Run MCP server (for local testing)
 if __name__ == "__main__":
     import asyncio
     asyncio.run(stdio_server(mcp))

@@ -455,7 +455,70 @@ def store_learning_pattern(
     }, indent=2)
 
 
-# Run MCP server
+# Lambda handler for AgentCore/direct invocation
+def handler(event, context):
+    """
+    Lambda handler that routes to MCP tool functions.
+
+    Event format:
+    {
+        "tool": "create_entity",
+        "args": {"name": "my-entity", "entity_type": "resource"}
+    }
+
+    Returns:
+    {
+        "result": <tool output>,
+        "error": null  # or error message if failed
+    }
+    """
+    try:
+        tool_name = event.get("tool")
+        args = event.get("args", {})
+
+        # Map tool names to functions
+        tools = {
+            "create_entity": create_entity,
+            "add_observation": add_observation,
+            "create_relation": create_relation,
+            "get_entity": get_entity,
+            "search_entities": search_entities,
+            "get_related_entities": get_related_entities,
+            "delete_entity": delete_entity,
+            "delete_observation": delete_observation,
+            "delete_relation": delete_relation,
+            "get_full_graph": get_full_graph,
+            "store_learning_pattern": store_learning_pattern,
+        }
+
+        if not tool_name:
+            return {
+                "result": None,
+                "error": "No tool specified. Available tools: " + ", ".join(tools.keys())
+            }
+
+        if tool_name not in tools:
+            return {
+                "result": None,
+                "error": f"Unknown tool: {tool_name}. Available tools: " + ", ".join(tools.keys())
+            }
+
+        # Execute the tool
+        result = tools[tool_name](**args)
+
+        return {
+            "result": result,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "result": None,
+            "error": str(e)
+        }
+
+
+# Run MCP server (for local testing)
 if __name__ == "__main__":
     import asyncio
     asyncio.run(stdio_server(mcp))
