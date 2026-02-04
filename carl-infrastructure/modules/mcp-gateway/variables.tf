@@ -74,9 +74,9 @@ variable "lambda_memory_size" {
 }
 
 variable "lambda_timeout" {
-  description = "Timeout for MCP Lambda functions"
+  description = "Timeout for MCP Lambda functions (Terraform MCP needs longer for validation)"
   type        = number
-  default     = 60
+  default     = 120
 }
 
 variable "log_retention_days" {

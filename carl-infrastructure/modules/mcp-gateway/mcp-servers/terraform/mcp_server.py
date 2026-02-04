@@ -47,13 +47,17 @@ def registry_request(endpoint: str) -> dict:
         raise Exception(f"Registry connection error: {e.reason}")
 
 
-def validate_terraform(terraform_code: str) -> str:
+def validate_terraform(terraform_code: str, full_validation: bool = False) -> str:
     """
     Validate Terraform code syntax and structure.
-    Note: Requires Terraform CLI installed.
+
+    Two modes:
+    - Quick mode (default): Uses terraform fmt to check HCL syntax (fast, no providers)
+    - Full mode: Runs terraform init + validate (slower, catches more issues)
 
     Args:
         terraform_code: The Terraform HCL code to validate
+        full_validation: If True, run full init+validate (slower but more thorough)
 
     Returns:
         JSON with validation result, errors if any
@@ -65,18 +69,68 @@ def validate_terraform(terraform_code: str) -> str:
             f.write(terraform_code)
 
         try:
-            # Run terraform init (minimal, no providers)
-            subprocess.run(
-                ["terraform", "init", "-backend=false", "-input=false"],
+            # Step 1: Quick syntax check with terraform fmt
+            fmt_result = subprocess.run(
+                ["terraform", "fmt", "-check", "-diff", "-no-color", tf_file],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=10
             )
+
+            # If fmt fails with non-zero exit (syntax error), report it
+            if fmt_result.returncode != 0 and fmt_result.stderr:
+                return json.dumps({
+                    "valid": False,
+                    "message": "HCL syntax error",
+                    "errors": [{"summary": fmt_result.stderr.strip()}],
+                    "validation_type": "syntax"
+                }, indent=2)
+
+            # For quick validation, syntax check is enough
+            if not full_validation:
+                return json.dumps({
+                    "valid": True,
+                    "message": "HCL syntax is valid",
+                    "diagnostics": [],
+                    "validation_type": "syntax",
+                    "note": "Use full_validation=true for complete provider validation"
+                }, indent=2)
+
+            # Step 2: Full validation with init + validate
+            # Create a minimal provider config to avoid downloading
+            provider_file = os.path.join(tmpdir, "providers.tf")
+            with open(provider_file, "w") as f:
+                f.write('''
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+''')
+
+            # Run terraform init with longer timeout
+            init_result = subprocess.run(
+                ["terraform", "init", "-backend=false", "-input=false", "-no-color"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=90  # Increased timeout for provider downloads
+            )
+
+            if init_result.returncode != 0:
+                return json.dumps({
+                    "valid": False,
+                    "message": "Terraform init failed",
+                    "errors": [{"summary": init_result.stderr.strip() or init_result.stdout.strip()}],
+                    "validation_type": "full"
+                }, indent=2)
 
             # Run terraform validate
             validate_result = subprocess.run(
-                ["terraform", "validate", "-json"],
+                ["terraform", "validate", "-json", "-no-color"],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
@@ -89,7 +143,8 @@ def validate_terraform(terraform_code: str) -> str:
                 return json.dumps({
                     "valid": True,
                     "message": "Terraform code is valid",
-                    "diagnostics": []
+                    "diagnostics": [],
+                    "validation_type": "full"
                 }, indent=2)
             else:
                 diagnostics = validation.get("diagnostics", [])
@@ -105,14 +160,15 @@ def validate_terraform(terraform_code: str) -> str:
                 return json.dumps({
                     "valid": False,
                     "message": "Terraform validation failed",
-                    "errors": errors
+                    "errors": errors,
+                    "validation_type": "full"
                 }, indent=2)
 
         except subprocess.TimeoutExpired:
             return json.dumps({
                 "valid": False,
                 "message": "Validation timed out",
-                "errors": [{"summary": "Terraform command timed out after 30 seconds"}]
+                "errors": [{"summary": "Terraform command timed out - try syntax-only validation"}]
             }, indent=2)
         except FileNotFoundError:
             return json.dumps({
