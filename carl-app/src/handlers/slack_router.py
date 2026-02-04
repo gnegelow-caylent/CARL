@@ -6706,10 +6706,11 @@ READY: <explain what you'll build with specific details>
 
             # Strategy 2: Look for numbered options (1. option, 2. option) anywhere in response
             # This handles multi-line numbered lists
-            numbered_options = re.findall(r'^\s*(\d+)\.\s*(.+?)(?:\s*-\s*.+)?$', questions_response, re.MULTILINE)
+            numbered_options = re.findall(r'^\s*\d+\.\s*(.+)$', questions_response, re.MULTILINE)
             if numbered_options and len(numbered_options) >= 2:
-                # Extract just the option titles (before the dash/description)
-                options = [opt[1].split(' - ')[0].strip() for opt in numbered_options]
+                # Extract just the option titles (before " - " description separator)
+                # Use " - " (with spaces) to avoid splitting "On-premises"
+                options = [opt.split(' - ')[0].strip() for opt in numbered_options]
                 logger.info(f"Found numbered options: {options}")
             else:
                 # Strategy 3: Look for "Options:" line with comma-separated values
