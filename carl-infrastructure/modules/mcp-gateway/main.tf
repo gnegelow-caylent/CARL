@@ -143,7 +143,7 @@ resource "aws_lambda_function" "github_mcp" {
   function_name = "${var.name_prefix}-mcp-github"
   role          = aws_iam_role.mcp_lambda.arn
   package_type  = "Image"
-  image_uri     = "${var.ecr_repository_url}:github-latest"
+  image_uri     = "${var.ecr_repository_url}:mcp-github"
   timeout       = var.lambda_timeout
   memory_size   = var.lambda_memory_size
 
@@ -179,7 +179,7 @@ resource "aws_lambda_function" "memory_mcp" {
   function_name = "${var.name_prefix}-mcp-memory"
   role          = aws_iam_role.mcp_lambda.arn
   package_type  = "Image"
-  image_uri     = "${var.ecr_repository_url}:memory-latest"
+  image_uri     = "${var.ecr_repository_url}:mcp-memory"
   timeout       = var.lambda_timeout
   memory_size   = var.lambda_memory_size
 
@@ -215,7 +215,7 @@ resource "aws_lambda_function" "terraform_mcp" {
   function_name = "${var.name_prefix}-mcp-terraform"
   role          = aws_iam_role.mcp_lambda.arn
   package_type  = "Image"
-  image_uri     = "${var.ecr_repository_url}:terraform-latest"
+  image_uri     = "${var.ecr_repository_url}:mcp-terraform"
   timeout       = var.lambda_timeout
   memory_size   = var.lambda_memory_size
 

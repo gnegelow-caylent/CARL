@@ -958,47 +958,6 @@ resource "aws_ecr_lifecycle_policy" "carl_lambda" {
   })
 }
 
-# ECR Repository for MCP Server Images
-resource "aws_ecr_repository" "mcp_servers" {
-  count = var.enable_mcp_gateway ? 1 : 0
-
-  name                 = "carl-mcp-servers"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  encryption_configuration {
-    encryption_type = "AES256"
-  }
-
-  tags = {
-    Name        = "carl-mcp-servers"
-    Environment = var.environment
-    ManagedBy   = "terraform"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "mcp_servers" {
-  count      = var.enable_mcp_gateway ? 1 : 0
-  repository = aws_ecr_repository.mcp_servers[0].name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images per tag"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 5
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
-}
 
 # 3. Lambda Function (CARL's Brain)
 # Note: Lambda uses container image built by GitHub Actions workflow
@@ -1381,7 +1340,7 @@ module "compliance_agent" {
 }
 
 # MCP Gateway Module (GitHub, Memory, Terraform MCPs for Bedrock AgentCore)
-# Container images are built and pushed by GitHub Actions with tags: github-latest, memory-latest, terraform-latest
+# Container images are built and pushed by GitHub Actions with tags: mcp-github, mcp-memory, mcp-terraform
 module "mcp_gateway" {
   source = "../modules/mcp-gateway"
   count  = var.enable_mcp_gateway ? 1 : 0
@@ -1389,7 +1348,7 @@ module "mcp_gateway" {
   name_prefix        = local.name_prefix
   environment        = var.environment
   aws_region         = var.region
-  ecr_repository_url = aws_ecr_repository.mcp_servers[0].repository_url
+  ecr_repository_url = aws_ecr_repository.carl_lambda.repository_url  # Shared ECR repo
 
   # GitHub MCP uses existing infra token secret
   github_token_secret_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-infra-token"
