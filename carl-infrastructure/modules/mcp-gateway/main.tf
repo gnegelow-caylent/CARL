@@ -63,9 +63,10 @@ resource "aws_iam_role_policy" "mcp_gateway" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
+        # Use wildcards to match secret name suffixes (AWS adds random suffix to ARNs)
         Resource = compact([
-          var.github_token_secret_arn,
-          var.terraform_cloud_token_secret_arn
+          var.github_token_secret_arn != "" ? "${var.github_token_secret_arn}*" : "",
+          var.terraform_cloud_token_secret_arn != "" ? "${var.terraform_cloud_token_secret_arn}*" : ""
         ])
       },
       {
@@ -282,9 +283,10 @@ resource "aws_iam_role_policy" "mcp_lambda" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
+        # Use wildcards to match secret name suffixes (AWS adds random suffix to ARNs)
         Resource = compact([
-          var.github_token_secret_arn,
-          var.terraform_cloud_token_secret_arn
+          var.github_token_secret_arn != "" ? "${var.github_token_secret_arn}*" : "",
+          var.terraform_cloud_token_secret_arn != "" ? "${var.terraform_cloud_token_secret_arn}*" : ""
         ])
       },
       {
