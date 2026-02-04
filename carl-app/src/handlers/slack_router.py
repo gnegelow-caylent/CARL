@@ -4436,7 +4436,7 @@ def handle_recommend_command_sync(
                         "type": "button",
                         "text": {"type": "plain_text", "text": "🔨 Build This"},
                         "style": "primary",
-                        "value": requirement[:100],
+                        "value": f"build_context:{requirement[:100]}",
                         "action_id": "architecture_build_recommendation"
                     }
                 ]
