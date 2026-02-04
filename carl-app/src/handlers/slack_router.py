@@ -6704,17 +6704,19 @@ READY: <explain what you'll build with specific details>
             if question_match:
                 question_text = question_match.group(1).strip()
 
-            # Strategy 2: Look for "Options:" line - capture until newline
-            options_match = re.search(r'Options:\s*(.+?)(?:\n|$)', questions_response, re.IGNORECASE)
-            if options_match:
-                options_text = options_match.group(1).strip()
-
-                # Try parsing as numbered list first (1. option, 2. option, etc.)
-                numbered_options = re.findall(r'\d+\.\s*(.+?)(?:,|\n|$)', options_text)
-                if numbered_options and len(numbered_options) >= 2:
-                    options = [opt.strip() for opt in numbered_options]
-                else:
-                    # Try parsing as comma-separated (most common format)
+            # Strategy 2: Look for numbered options (1. option, 2. option) anywhere in response
+            # This handles multi-line numbered lists
+            numbered_options = re.findall(r'^\s*(\d+)\.\s*(.+?)(?:\s*-\s*.+)?$', questions_response, re.MULTILINE)
+            if numbered_options and len(numbered_options) >= 2:
+                # Extract just the option titles (before the dash/description)
+                options = [opt[1].split(' - ')[0].strip() for opt in numbered_options]
+                logger.info(f"Found numbered options: {options}")
+            else:
+                # Strategy 3: Look for "Options:" line with comma-separated values
+                options_match = re.search(r'Options:\s*(.+?)(?:\n\n|$)', questions_response, re.IGNORECASE | re.DOTALL)
+                if options_match:
+                    options_text = options_match.group(1).strip()
+                    # Try parsing as comma-separated
                     comma_separated = [opt.strip() for opt in options_text.split(',') if opt.strip()]
                     if comma_separated and len(comma_separated) >= 2:
                         options = comma_separated
