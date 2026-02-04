@@ -404,16 +404,45 @@ See [BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md) for complete guide.
 
 ---
 
+## MCP Gateway (NEW)
+
+CARL now includes three MCP (Model Context Protocol) servers for enhanced capabilities:
+
+| MCP Server | Purpose | Key Tools |
+|------------|---------|-----------|
+| **GitHub MCP** | Repository & PR management | `create_terraform_pr`, `create_pull_request`, `list_repositories` |
+| **Memory MCP** | Persistent knowledge graph | `create_entity`, `create_relation`, `store_learning_pattern` |
+| **Terraform MCP** | Validation & module discovery | `validate_terraform`, `search_modules`, `get_provider_docs` |
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Bedrock AgentCore                             │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     MCP Gateway                                  │
+│              (Cognito JWT Authentication)                        │
+└─────────────────────────────────────────────────────────────────┘
+           │                    │                    │
+           ▼                    ▼                    ▼
+    ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+    │ GitHub MCP  │      │ Memory MCP  │      │Terraform MCP│
+    │  (Lambda)   │      │  (Lambda)   │      │  (Lambda)   │
+    └─────────────┘      └─────────────┘      └─────────────┘
+```
+
+See [modules/mcp-gateway/README.md](./carl-infrastructure/modules/mcp-gateway/README.md) for setup details.
+
 ## What's Next
 
 See [ROADMAP.md](./ROADMAP.md) for the complete priority roadmap.
 
 **High Priority:**
-1. Integrate bootstrap services with Foundation Builder
-2. Add Slack commands for bootstrap (`/carl bootstrap`)
-3. Terraform module generation for bootstrap components
-4. Account baseline deployment automation
-5. CloudWatch alerting patterns
+1. Model Router MCP - Intelligent routing to Claude/Gemini models
+2. Integrate MCP Gateway with AgentCore agents
+3. CloudWatch alerting patterns
 
 **Medium Priority:**
 6. Compute security patterns (EC2, ECS, EKS, Lambda)

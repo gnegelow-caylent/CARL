@@ -77,6 +77,8 @@ jobs:
               - 'carl-infrastructure/**/*.tfvars'
             agentcore:
               - 'carl-infrastructure/agentcore-code/**'
+            mcp_servers:
+              - 'carl-infrastructure/modules/mcp-gateway/mcp-servers/**'
 
   # Validate Terraform and Python code
   validate:
@@ -189,6 +191,7 @@ jobs:
     if: |
       needs.changes.outputs.app_code == 'true' ||
       needs.changes.outputs.agentcore == 'true' ||
+      needs.changes.outputs.mcp_servers == 'true' ||
       github.event_name == 'workflow_dispatch'
     permissions:
       id-token: write
@@ -197,6 +200,7 @@ jobs:
       lambda_image_uri: ${{ steps.build.outputs.lambda_image_uri }}
       agentcore_ask_tag: ${{ steps.build.outputs.agentcore_ask_tag }}
       agentcore_architect_tag: ${{ steps.build.outputs.agentcore_architect_tag }}
+      mcp_ecr_repo: ${{ steps.build.outputs.mcp_ecr_repo }}
     steps:
       - uses: actions/checkout@v4
 
@@ -271,11 +275,72 @@ jobs:
           ) &
           ARCHITECT_PID=$!
 
+          # Build MCP Server containers (AMD64) in background
+          # ECR repo is created by Terraform (enable_mcp_gateway=true)
+          MCP_REPO="carl-mcp-servers"
+
+          # Check if MCP repo exists (created by Terraform when enable_mcp_gateway=true)
+          if aws ecr describe-repositories --repository-names $MCP_REPO 2>/dev/null; then
+            echo "📦 MCP ECR repository exists, building MCP containers..."
+          else
+            echo "⚠️ MCP ECR repository not found. Set enable_mcp_gateway=true in Terraform to enable."
+            echo "Skipping MCP container builds."
+            MCP_GITHUB_PID=""
+            MCP_MEMORY_PID=""
+            MCP_TERRAFORM_PID=""
+          fi
+
+          # Only build MCP containers if repo exists
+          if aws ecr describe-repositories --repository-names $MCP_REPO 2>/dev/null; then
+          (
+            echo "🔨 Building GitHub MCP container..."
+            cd carl-infrastructure/modules/mcp-gateway/mcp-servers/github
+            docker buildx build --platform linux/amd64 \
+              --provenance=false \
+              -t $ECR_REGISTRY/$MCP_REPO:github-latest \
+              -t $ECR_REGISTRY/$MCP_REPO:github-$IMAGE_TAG \
+              --push .
+            echo "✓ GitHub MCP container pushed"
+          ) &
+          MCP_GITHUB_PID=$!
+
+          (
+            echo "🔨 Building Memory MCP container..."
+            cd carl-infrastructure/modules/mcp-gateway/mcp-servers/memory
+            docker buildx build --platform linux/amd64 \
+              --provenance=false \
+              -t $ECR_REGISTRY/$MCP_REPO:memory-latest \
+              -t $ECR_REGISTRY/$MCP_REPO:memory-$IMAGE_TAG \
+              --push .
+            echo "✓ Memory MCP container pushed"
+          ) &
+          MCP_MEMORY_PID=$!
+
+          (
+            echo "🔨 Building Terraform MCP container..."
+            cd carl-infrastructure/modules/mcp-gateway/mcp-servers/terraform
+            docker buildx build --platform linux/amd64 \
+              --provenance=false \
+              -t $ECR_REGISTRY/$MCP_REPO:terraform-latest \
+              -t $ECR_REGISTRY/$MCP_REPO:terraform-$IMAGE_TAG \
+              --push .
+            echo "✓ Terraform MCP container pushed"
+          ) &
+          MCP_TERRAFORM_PID=$!
+          fi  # End of MCP container builds
+
           # Wait for all builds
           FAILED=0
           wait $LAMBDA_PID || FAILED=1
           wait $ASK_PID || FAILED=1
           wait $ARCHITECT_PID || FAILED=1
+
+          # Wait for MCP builds only if they were started
+          if [ -n "$MCP_GITHUB_PID" ]; then
+            wait $MCP_GITHUB_PID || FAILED=1
+            wait $MCP_MEMORY_PID || FAILED=1
+            wait $MCP_TERRAFORM_PID || FAILED=1
+          fi
 
           if [ $FAILED -ne 0 ]; then
             echo "❌ One or more container builds failed"
@@ -288,6 +353,7 @@ jobs:
           echo "lambda_image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "agentcore_ask_tag=agentcore-ask-$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "agentcore_architect_tag=agentcore-architect-$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "mcp_ecr_repo=$ECR_REGISTRY/$MCP_REPO" >> $GITHUB_OUTPUT
 
   # Plan for PR
   plan:
@@ -410,6 +476,7 @@ jobs:
           terraform apply -auto-approve \
             -var="environment=dev" \
             -var="enable_foundation=true" \
+            -var="enable_mcp_gateway=true" \
             -var="lambda_image_uri=${{ needs.build-containers.outputs.lambda_image_uri }}" \
             -var="agentcore_image_tag=${{ needs.build-containers.outputs.agentcore_ask_tag }}" \
             -var="agentcore_architect_image_tag=${{ needs.build-containers.outputs.agentcore_architect_tag }}" \

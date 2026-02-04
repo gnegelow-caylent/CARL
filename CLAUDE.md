@@ -150,6 +150,31 @@ Before executing any command, check:
 - [ ] Is this a local read or git commit? → Proceed
 - [ ] Is this `terraform plan` or validation? → Proceed
 
+## Model Cost Optimization 💰
+
+When performing tasks, delegate to the cheapest appropriate model using the Task tool:
+
+| Task Type | Model | Examples |
+|-----------|-------|----------|
+| Simple | `haiku` | Summarize, format, list, quick questions, simple lookups |
+| Standard | `sonnet` | Code writing, analysis, debugging, most development work |
+| Complex | `opus` | Architecture decisions, complex reasoning, multi-step planning |
+
+**How to delegate:**
+```python
+Task(
+  subagent_type="general-purpose",
+  model="haiku",  # Use cheapest model for simple tasks
+  prompt="Summarize this file..."
+)
+```
+
+**Guidelines:**
+- Always consider if a sub-task can be delegated to haiku
+- Use sonnet for standard coding tasks (or handle directly if already using sonnet)
+- Reserve opus (yourself) for complex reasoning that truly requires it
+- When in doubt, use the cheaper model - you can always retry with a stronger one
+
 ## Development Guidelines 🛠️
 
 ### Avoid Building Redundant Tools
