@@ -4407,8 +4407,8 @@ def handle_recommend_command_sync(
         for block_group in formatted_blocks:
             slack.post_message(channel_id, blocks=block_group)
 
-        # Add feedback buttons
-        feedback_blocks = [
+        # Add feedback and build buttons
+        action_blocks = [
             {
                 "type": "section",
                 "text": {
@@ -4423,23 +4423,26 @@ def handle_recommend_command_sync(
                         "type": "button",
                         "text": {"type": "plain_text", "text": "👍 Helpful"},
                         "style": "primary",
-                        "action_id": f"feedback_helpful_{interaction_id}"
+                        "value": f"{interaction_id}:helpful",
+                        "action_id": "feedback_positive"
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "👎 Not Helpful"},
-                        "action_id": f"feedback_not_helpful_{interaction_id}"
+                        "value": f"{interaction_id}:not_helpful",
+                        "action_id": "feedback_negative"
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "🔨 Build This"},
                         "style": "primary",
-                        "action_id": f"build_architecture_{requirement[:50].replace(' ', '_')}"
+                        "value": requirement[:100],
+                        "action_id": "architecture_build_recommendation"
                     }
                 ]
             }
         ]
-        slack.post_message(channel_id, blocks=feedback_blocks)
+        slack.post_message(channel_id, blocks=action_blocks)
 
         return {"statusCode": 200, "body": ""}
 
