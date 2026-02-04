@@ -1035,10 +1035,123 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         return handle_intelligent_build(slack, channel_id, user_id, requirement, trigger_id)
 
+    if event.get("action") == "process_build_answer":
+        logger.info("Processing build answer asynchronously")
+        channel_id = event.get("channel_id")
+        user_id = event.get("user_id")
+        session_id = event.get("session_id")
+        answer_option = event.get("answer_option")
+        question_text = event.get("question_text")
+
+        return process_build_answer_async(channel_id, user_id, session_id, answer_option, question_text)
+
     if event.get("action") == "generate_terraform_async":
         # datetime is imported at top of file (line 13)
         logger.info("Processing async Terraform generation")
         slack = get_slack_service()
+
+        # Handle new build flow format (from handle_build_final_config_submission)
+        if event.get("session_id"):
+            # New format: fields at root level with config object
+            channel_id = event.get("channel_id")
+            user_id = event.get("user_id")
+            session_id = event.get("session_id")
+            requirement = event.get("requirement", "")
+            build_plan = event.get("build_plan", "")
+            conversation_summary = event.get("conversation_summary", "")
+            config = event.get("config", {})
+
+            vpc_cidr = config.get("vpc_cidr", "10.0.0.0/16")
+            prefix = config.get("prefix", "carl")
+            environment = config.get("environment", "prod")
+            region = config.get("region", "us-east-1")
+
+            # Post initial message
+            slack.post_message(
+                channel_id,
+                text=f"✅ Configuration received!\n\n"
+                     f"• VPC CIDR: `{vpc_cidr}`\n"
+                     f"• Prefix: `{prefix}`\n"
+                     f"• Environment: {environment}\n"
+                     f"• Region: {region}\n\n"
+                     f"⏳ Generating Terraform code based on your requirements..."
+            )
+
+            # Generate Terraform using AI with full context
+            try:
+                from services.build_session_service import BuildSessionService
+
+                # Progress callback
+                def post_progress(step: str):
+                    try:
+                        slack.post_message(channel_id, text=f"⏳ {step}")
+                    except Exception as e:
+                        logger.warning(f"Failed to post progress: {e}")
+
+                # Build terraform config for AI generation
+                terraform_config = {
+                    "requirement": requirement,
+                    "build_plan": build_plan,
+                    "conversation_summary": conversation_summary,
+                    "vpc_cidr": vpc_cidr,
+                    "prefix": prefix,
+                    "environment": environment,
+                    "region": region,
+                    "channel_id": channel_id,
+                    "user_id": user_id
+                }
+
+                terraform_files = _generate_terraform_with_ai(terraform_config, progress_callback=post_progress)
+                logger.info("Terraform generation complete")
+
+                # Create blueprint name
+                blueprint_name = f"{requirement[:50].replace(' ', '-').lower()}/{prefix}"
+
+                # Extract SOC 2 controls and security practices
+                soc2_controls = _extract_soc2_controls(terraform_files.get('readme', ''))
+                security_practices = _extract_security_practices(terraform_files.get('readme', ''))
+
+                metadata = {
+                    "requirement": requirement,
+                    "build_plan": build_plan[:500],
+                    "vpc_cidr": vpc_cidr,
+                    "prefix": prefix,
+                    "environment": environment,
+                    "region": region,
+                    "generated_at": datetime.now().isoformat(),
+                    "generated_by": "CARL AI-driven infrastructure builder",
+                    "soc2_controls": soc2_controls,
+                    "security_practices": security_practices
+                }
+
+                # Upload to GitHub
+                github = get_github_service()
+                uploader = CodeUploader(github, slack)
+
+                upload_result = uploader.upload_and_notify(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    blueprint_name=blueprint_name,
+                    terraform_files=terraform_files,
+                    metadata=metadata
+                )
+
+                logger.info(f"Terraform uploaded to GitHub: {upload_result.get('pr_url')}")
+
+                # Update session status
+                session_service = BuildSessionService()
+                session_service.update_session_status(session_id, user_id, "completed")
+
+            except Exception as e:
+                logger.exception(f"Error generating Terraform: {e}")
+                slack.post_message(
+                    channel_id,
+                    text=f"❌ Error generating Terraform: {str(e)}\n\nPlease try again."
+                )
+
+            return {"statusCode": 200, "body": ""}
+
+        # Original format: terraform_config object
         terraform_config = event.get("terraform_config", {})
         channel_id = terraform_config.get("channel_id")
         user_id = terraform_config.get("user_id")
@@ -6800,13 +6913,10 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
     """
     Handle user's answer to an intelligent build question.
 
-    This continues the iterative Q&A conversation until AI has enough info.
+    Processes answer asynchronously to avoid Slack's 3-second timeout.
     """
     import json
-    from datetime import datetime
     from services.build_session_service import BuildSessionService
-    from services.aws_environment_scanner import AWSEnvironmentScan
-    from services.agent_core import Agent
 
     slack = get_slack_service()
     channel_id = payload["channel"]["id"]
@@ -6827,6 +6937,45 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
 
     logger.info(f"Build answer received: session={session_id}, answer={answer_option}")
 
+    # Acknowledge immediately to avoid 3-second timeout
+    slack.post_message(
+        channel_id,
+        text=f"✓ {answer_option}\n\n🤔 Analyzing your answer..."
+    )
+
+    # Process asynchronously
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async
+            Payload=json.dumps({
+                'action': 'process_build_answer',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'session_id': session_id,
+                'answer_option': answer_option,
+                'question_text': question_text
+            })
+        )
+    except Exception as e:
+        logger.error(f"Failed to invoke async build answer processing: {e}")
+        slack.post_message(channel_id, text=f"❌ Error processing answer: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def process_build_answer_async(channel_id: str, user_id: str, session_id: str, answer_option: str, question_text: str) -> dict:
+    """
+    Process build answer asynchronously (called via Lambda invoke).
+    """
+    import json
+    from datetime import datetime
+    from services.build_session_service import BuildSessionService
+    from services.agent_core import Agent
+
+    slack = get_slack_service()
+
     try:
         # Retrieve session
         session_service = BuildSessionService()
@@ -6842,17 +6991,6 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
         # Update conversation history with the answer
         if session.conversation_history and session.conversation_history[-1].get("answer") is None:
             session.conversation_history[-1]["answer"] = answer_option
-
-        # Acknowledge answer with progress indicator
-        slack.post_message(
-            channel_id,
-            text=f"✓ Recorded: {answer_option}"
-        )
-
-        slack.post_message(
-            channel_id,
-            text="🤔 Analyzing your answer and determining next steps..."
-        )
 
         # Build context for AI with conversation history
         conversation_summary = "\n".join([
@@ -7179,6 +7317,254 @@ Generate complete Terraform code including:
                 text=f"❌ Error processing answer: {str(e)}\n\nPlease try again or start over."
             )
         return {"statusCode": 200, "body": ""}
+
+
+def handle_open_build_config_modal(payload: dict, action: dict) -> dict:
+    """
+    Handle 'Enter Configuration' button click from build flow.
+    Opens modal to collect final configuration values (CIDR, prefix, environment).
+    """
+    import json as json_lib
+    from services.build_session_service import BuildSessionService
+
+    slack = get_slack_service()
+    trigger_id = payload.get("trigger_id", "")
+    channel_id = payload.get("channel", {}).get("id", "")
+    user_id = payload.get("user", {}).get("id", "")
+
+    # Parse session_id from action_id: open_build_config_modal_{session_id}
+    action_id = action.get("action_id", "")
+    session_id = action_id.replace("open_build_config_modal_", "")
+
+    if not trigger_id:
+        slack.post_message(channel_id, text="❌ Unable to open configuration form. Please try clicking the button again.")
+        return {"statusCode": 200, "body": ""}
+
+    # Get session data
+    session_service = BuildSessionService()
+    session = session_service.get_session(session_id, user_id)
+
+    if not session:
+        slack.post_message(channel_id, text="❌ Session expired. Please start over with /carl recommend.")
+        return {"statusCode": 200, "body": ""}
+
+    # Build summary of what was discussed
+    conversation_summary = "\n".join([
+        f"• {turn['question']}: {turn.get('answer', 'pending')}"
+        for turn in session.conversation_history
+        if turn.get('question') != 'BUILD_PLAN'
+    ])
+
+    # Get the build plan if available
+    build_plan = ""
+    for turn in session.conversation_history:
+        if turn.get('question') == 'BUILD_PLAN':
+            build_plan = turn.get('answer', '')[:300]
+            break
+
+    # Create modal with configuration inputs
+    modal = {
+        "type": "modal",
+        "callback_id": f"build_final_config:{session_id}",
+        "title": {"type": "plain_text", "text": "Infrastructure Config"},
+        "submit": {"type": "plain_text", "text": "Generate Terraform"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json_lib.dumps({
+            "channel_id": channel_id,
+            "session_id": session_id
+        }),
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Your Requirements:*\n{session.requirement[:200]}..."
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "input",
+                "block_id": "vpc_cidr_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "vpc_cidr_input",
+                    "placeholder": {"type": "plain_text", "text": "e.g., 10.0.0.0/16"},
+                    "initial_value": "10.0.0.0/16"
+                },
+                "label": {"type": "plain_text", "text": "VPC CIDR Block"},
+                "hint": {"type": "plain_text", "text": "IP address range for your VPC (e.g., 10.0.0.0/16 for ~65,000 IPs)"}
+            },
+            {
+                "type": "input",
+                "block_id": "resource_prefix_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "prefix_input",
+                    "placeholder": {"type": "plain_text", "text": "e.g., myapp"},
+                    "initial_value": "carl"
+                },
+                "label": {"type": "plain_text", "text": "Resource Prefix"},
+                "hint": {"type": "plain_text", "text": "Prefix for all resource names (e.g., carl-vpc, carl-subnet)"}
+            },
+            {
+                "type": "input",
+                "block_id": "environment_block",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "env_select",
+                    "placeholder": {"type": "plain_text", "text": "Select environment"},
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "Production"},
+                        "value": "prod"
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Production"}, "value": "prod"},
+                        {"text": {"type": "plain_text", "text": "Staging"}, "value": "staging"},
+                        {"text": {"type": "plain_text", "text": "Development"}, "value": "dev"}
+                    ]
+                },
+                "label": {"type": "plain_text", "text": "Environment"}
+            },
+            {
+                "type": "input",
+                "block_id": "aws_region_block",
+                "optional": True,
+                "element": {
+                    "type": "static_select",
+                    "action_id": "region_select",
+                    "placeholder": {"type": "plain_text", "text": "Select region"},
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "US East (N. Virginia)"},
+                        "value": "us-east-1"
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "US East (N. Virginia)"}, "value": "us-east-1"},
+                        {"text": {"type": "plain_text", "text": "US East (Ohio)"}, "value": "us-east-2"},
+                        {"text": {"type": "plain_text", "text": "US West (Oregon)"}, "value": "us-west-2"},
+                        {"text": {"type": "plain_text", "text": "EU (Ireland)"}, "value": "eu-west-1"},
+                        {"text": {"type": "plain_text", "text": "EU (Frankfurt)"}, "value": "eu-central-1"},
+                        {"text": {"type": "plain_text", "text": "Asia Pacific (Sydney)"}, "value": "ap-southeast-2"}
+                    ]
+                },
+                "label": {"type": "plain_text", "text": "AWS Region"}
+            }
+        ]
+    }
+
+    try:
+        slack.client.views_open(trigger_id=trigger_id, view=modal)
+        logger.info(f"Opened build config modal for session {session_id}")
+    except Exception as e:
+        logger.error(f"Failed to open build config modal: {e}")
+        slack.post_message(channel_id, text=f"❌ Error opening configuration form: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_build_final_config_submission(payload: dict) -> dict:
+    """
+    Handle final build configuration modal submission.
+    Generates Terraform code based on session conversation + config values.
+    """
+    import ipaddress
+    import json as json_lib
+    from datetime import datetime
+    from services.build_session_service import BuildSessionService
+
+    slack = get_slack_service()
+    user_id = payload["user"]["id"]
+
+    # Parse callback_id: build_final_config:{session_id}
+    callback_id = payload["view"]["callback_id"]
+    parts = callback_id.split(":")
+    if len(parts) < 2:
+        return {"statusCode": 200, "body": ""}
+
+    session_id = parts[1]
+
+    # Get channel from private_metadata
+    private_metadata = json_lib.loads(payload["view"].get("private_metadata", "{}"))
+    channel_id = private_metadata.get("channel_id", "")
+
+    # Extract form values
+    values = payload["view"]["state"]["values"]
+    vpc_cidr = values.get("vpc_cidr_block", {}).get("vpc_cidr_input", {}).get("value", "10.0.0.0/16")
+    prefix = values.get("resource_prefix_block", {}).get("prefix_input", {}).get("value", "carl")
+    environment = values.get("environment_block", {}).get("env_select", {}).get("selected_option", {}).get("value", "prod")
+    region = values.get("aws_region_block", {}).get("region_select", {}).get("selected_option", {}).get("value", "us-east-1")
+
+    # Validate CIDR
+    errors = {}
+    try:
+        network = ipaddress.ip_network(vpc_cidr, strict=False)
+        if network.prefixlen > 28 or network.prefixlen < 16:
+            errors["vpc_cidr_block"] = "CIDR must be between /16 and /28"
+    except ValueError:
+        errors["vpc_cidr_block"] = "Invalid CIDR format. Use format like 10.0.0.0/16"
+
+    # Validate prefix
+    import re
+    if not re.match(r'^[a-z][a-z0-9-]*$', prefix.lower()):
+        errors["resource_prefix_block"] = "Prefix must start with a letter and contain only letters, numbers, and hyphens"
+
+    if errors:
+        return {"response_action": "errors", "errors": errors}
+
+    # Get session data
+    session_service = BuildSessionService()
+    session = session_service.get_session(session_id, user_id)
+
+    if not session:
+        # Can't post to channel from modal submission easily, just return
+        return {"statusCode": 200, "body": ""}
+
+    # Build conversation summary for AI
+    conversation_summary = "\n".join([
+        f"Q: {turn['question']}\nA: {turn.get('answer', 'pending')}"
+        for turn in session.conversation_history
+        if turn.get('question') != 'BUILD_PLAN'
+    ])
+
+    # Get build plan
+    build_plan = ""
+    for turn in session.conversation_history:
+        if turn.get('question') == 'BUILD_PLAN':
+            build_plan = turn.get('answer', '')
+            break
+
+    # Invoke async Terraform generation to avoid 3-second timeout
+    try:
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async invocation
+            Payload=json_lib.dumps({
+                'action': 'generate_terraform_async',
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'session_id': session_id,
+                'requirement': session.requirement,
+                'build_plan': build_plan,
+                'conversation_summary': conversation_summary,
+                'config': {
+                    'vpc_cidr': vpc_cidr,
+                    'prefix': prefix,
+                    'environment': environment,
+                    'region': region
+                }
+            })
+        )
+        logger.info(f"Invoked async Terraform generation for session {session_id}")
+    except Exception as e:
+        logger.error(f"Failed to invoke async Terraform generation: {e}")
+
+    # Update session status
+    session_service.update_session_status(session_id, user_id, "generating")
+
+    # Close modal - async generation will post results to channel
+    return {"statusCode": 200, "body": ""}
 
 
 def handle_architecture_build_button(payload: dict, action: dict) -> dict:
@@ -7730,6 +8116,8 @@ def handle_interaction(payload: dict) -> dict:
             return handle_accept_risk_modal_submission(payload)
         elif callback_id.startswith("build_config_submit:"):
             return handle_build_config_submission(payload)
+        elif callback_id.startswith("build_final_config:"):
+            return handle_build_final_config_submission(payload)
         elif callback_id.startswith("foundation_text_submit_"):
             return handle_foundation_text_submission(payload)
         elif callback_id.startswith("foundation_vpc_submit_"):
@@ -7827,6 +8215,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_architecture_build_button(payload, action)
             elif action_id.startswith("build_answer_"):
                 return handle_build_answer_button(payload, action)
+            elif action_id.startswith("open_build_config_modal_"):
+                return handle_open_build_config_modal(payload, action)
             elif action_id.startswith("create_jira_ticket_"):
                 return handle_create_jira_ticket_action(payload, action)
             elif action_id.startswith("drift_create_ticket_"):
