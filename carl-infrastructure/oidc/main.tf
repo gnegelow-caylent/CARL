@@ -533,9 +533,9 @@ resource "aws_iam_policy" "carl_deployer_agentcore" {
         Resource = "*"
       },
       {
-        Sid      = "AgentCoreServiceLinkedRole"
-        Effect   = "Allow"
-        Action   = [
+        Sid    = "AgentCoreServiceLinkedRole"
+        Effect = "Allow"
+        Action = [
           "iam:CreateServiceLinkedRole",
           "iam:PassRole",
           "iam:GetRole",

@@ -1348,7 +1348,7 @@ module "mcp_gateway" {
   name_prefix        = local.name_prefix
   environment        = var.environment
   aws_region         = var.region
-  ecr_repository_url = aws_ecr_repository.carl_lambda.repository_url  # Shared ECR repo
+  ecr_repository_url = aws_ecr_repository.carl_lambda.repository_url # Shared ECR repo
 
   # GitHub MCP uses existing infra token secret
   github_token_secret_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/carl/${var.environment}/github-infra-token"

@@ -163,8 +163,8 @@ resource "aws_iam_role_policy" "agentcore_execution" {
       {
         Effect = "Allow"
         Action = [
-          "s3:GetEncryptionConfiguration",    # IAM action for GetBucketEncryption API
-          "s3:GetBucketPublicAccessBlock",    # IAM action for GetPublicAccessBlock API
+          "s3:GetEncryptionConfiguration", # IAM action for GetBucketEncryption API
+          "s3:GetBucketPublicAccessBlock", # IAM action for GetPublicAccessBlock API
           "s3:GetBucketVersioning",
           "s3:GetBucketPolicy",
           "s3:GetBucketAcl",
