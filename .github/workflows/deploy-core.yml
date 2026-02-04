@@ -97,7 +97,8 @@ jobs:
 
       - name: Create Placeholder Lambda Package
         run: |
-          cd carl-infrastructure/core
+          # Create placeholder in carl-app/ where modules expect it
+          cd carl-app
           echo '{"dummy": "placeholder for validation"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -319,7 +320,8 @@ jobs:
 
       - name: Create Placeholder Lambda Package
         run: |
-          cd carl-infrastructure/core
+          # Create placeholder in carl-app/ where modules expect it
+          cd carl-app
           echo '{"dummy": "placeholder"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -387,7 +389,8 @@ jobs:
 
       - name: Create Placeholder Lambda Package
         run: |
-          cd carl-infrastructure/core
+          # Create placeholder in carl-app/ where modules expect it
+          cd carl-app
           echo '{"dummy": "placeholder for zip-based lambdas"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -544,7 +547,8 @@ jobs:
 
       - name: Create Placeholder Lambda Package
         run: |
-          cd carl-infrastructure/core
+          # Create placeholder in carl-app/ where modules expect it
+          cd carl-app
           echo '{"dummy": "placeholder"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
@@ -589,7 +593,8 @@ jobs:
 
       - name: Create Placeholder Lambda Package
         run: |
-          cd carl-infrastructure/core
+          # Create placeholder in carl-app/ where modules expect it
+          cd carl-app
           echo '{"dummy": "placeholder"}' > dummy.txt
           zip lambda.zip dummy.txt
           rm dummy.txt
