@@ -88,59 +88,8 @@ resource "aws_iam_role_policy" "mcp_gateway" {
   })
 }
 
-# -----------------------------------------------------------------------------
-# Cognito for Gateway Authentication
-# -----------------------------------------------------------------------------
-resource "aws_cognito_user_pool" "mcp_gateway" {
-  name = "${var.name_prefix}-mcp-gateway-pool"
-
-  password_policy {
-    minimum_length    = 12
-    require_uppercase = true
-    require_lowercase = true
-    require_numbers   = true
-    require_symbols   = true
-  }
-
-  admin_create_user_config {
-    allow_admin_create_user_only = true
-  }
-
-  tags = var.tags
-}
-
-resource "aws_cognito_user_pool_client" "mcp_gateway" {
-  name         = "${var.name_prefix}-mcp-gateway-client"
-  user_pool_id = aws_cognito_user_pool.mcp_gateway.id
-
-  generate_secret = true
-
-  explicit_auth_flows = [
-    "ALLOW_USER_PASSWORD_AUTH",
-    "ALLOW_REFRESH_TOKEN_AUTH"
-  ]
-
-  token_validity_units {
-    access_token  = "hours"
-    id_token      = "hours"
-    refresh_token = "days"
-  }
-
-  access_token_validity  = 1
-  id_token_validity      = 1
-  refresh_token_validity = 30
-}
-
-resource "aws_cognito_resource_server" "mcp_gateway" {
-  identifier   = "mcp-gateway"
-  name         = "${var.name_prefix}-mcp-gateway"
-  user_pool_id = aws_cognito_user_pool.mcp_gateway.id
-
-  scope {
-    scope_name        = "invoke"
-    scope_description = "Invoke MCP tools"
-  }
-}
+# Note: Cognito authentication can be added later if needed
+# For now, Lambda functions use IAM-based invocation from Bedrock AgentCore
 
 # -----------------------------------------------------------------------------
 # Knowledge Graph DynamoDB Table (for Memory MCP)

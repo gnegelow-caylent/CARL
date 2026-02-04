@@ -5,19 +5,9 @@ output "gateway_role_arn" {
   value       = aws_iam_role.mcp_gateway.arn
 }
 
-output "cognito_user_pool_id" {
-  description = "Cognito User Pool ID for MCP Gateway authentication"
-  value       = aws_cognito_user_pool.mcp_gateway.id
-}
-
-output "cognito_user_pool_client_id" {
-  description = "Cognito User Pool Client ID"
-  value       = aws_cognito_user_pool_client.mcp_gateway.id
-}
-
-output "cognito_discovery_url" {
-  description = "OpenID Connect discovery URL for JWT validation"
-  value       = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.mcp_gateway.id}/.well-known/openid-configuration"
+output "lambda_role_arn" {
+  description = "ARN of the MCP Lambda IAM role"
+  value       = aws_iam_role.mcp_lambda.arn
 }
 
 # GitHub MCP Outputs
