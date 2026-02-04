@@ -2,6 +2,12 @@
 Memory MCP Server for CARL
 Provides a persistent knowledge graph for storing entities, relations, and observations.
 Used by the learning system to remember patterns and improve over time.
+
+Deployed as Lambda function, invoked via:
+{
+    "tool": "create_entity",
+    "args": {"name": "my-entity", "entity_type": "resource"}
+}
 """
 
 import os
@@ -11,13 +17,7 @@ from datetime import datetime
 from typing import Optional, List
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
-from mcp.server import Server
-from mcp.types import Tool, TextContent
-from mcp.server.stdio import stdio_server
 
-
-# Initialize MCP server
-mcp = Server("memory-mcp")
 
 # DynamoDB client
 dynamodb = boto3.resource("dynamodb")
@@ -35,7 +35,6 @@ def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
-@mcp.tool()
 def create_entity(name: str, entity_type: str, observations: Optional[List[str]] = None) -> str:
     """
     Create a new entity in the knowledge graph.
@@ -53,7 +52,7 @@ def create_entity(name: str, entity_type: str, observations: Optional[List[str]]
 
     item = {
         "pk": f"ENTITY#{name}",
-        "sk": f"METADATA",
+        "sk": "METADATA",
         "entity_id": entity_id,
         "name": name,
         "entity_type": entity_type,
@@ -73,7 +72,6 @@ def create_entity(name: str, entity_type: str, observations: Optional[List[str]]
     }, indent=2)
 
 
-@mcp.tool()
 def add_observation(entity_name: str, observation: str) -> str:
     """
     Add an observation to an existing entity.
@@ -108,7 +106,6 @@ def add_observation(entity_name: str, observation: str) -> str:
         return json.dumps({"error": str(e)}, indent=2)
 
 
-@mcp.tool()
 def create_relation(
     from_entity: str,
     to_entity: str,
@@ -152,7 +149,6 @@ def create_relation(
     }, indent=2)
 
 
-@mcp.tool()
 def get_entity(entity_name: str, include_relations: bool = True) -> str:
     """
     Retrieve an entity and optionally its relations.
@@ -200,7 +196,6 @@ def get_entity(entity_name: str, include_relations: bool = True) -> str:
     return json.dumps(entity, indent=2)
 
 
-@mcp.tool()
 def search_entities(
     query: str,
     entity_type: Optional[str] = None,
@@ -243,7 +238,6 @@ def search_entities(
     return json.dumps(results, indent=2)
 
 
-@mcp.tool()
 def get_related_entities(entity_name: str, relation_type: Optional[str] = None) -> str:
     """
     Get all entities related to a given entity.
@@ -276,7 +270,6 @@ def get_related_entities(entity_name: str, relation_type: Optional[str] = None) 
     return json.dumps(relations, indent=2)
 
 
-@mcp.tool()
 def delete_entity(entity_name: str) -> str:
     """
     Delete an entity and all its relations.
@@ -303,7 +296,6 @@ def delete_entity(entity_name: str) -> str:
     }, indent=2)
 
 
-@mcp.tool()
 def delete_observation(entity_name: str, observation_index: int) -> str:
     """
     Delete a specific observation from an entity.
@@ -334,7 +326,6 @@ def delete_observation(entity_name: str, observation_index: int) -> str:
         return json.dumps({"error": str(e)}, indent=2)
 
 
-@mcp.tool()
 def delete_relation(from_entity: str, relation_type: str, to_entity: str) -> str:
     """
     Delete a specific relation between entities.
@@ -359,7 +350,6 @@ def delete_relation(from_entity: str, relation_type: str, to_entity: str) -> str
     }, indent=2)
 
 
-@mcp.tool()
 def get_full_graph(limit: int = 100) -> str:
     """
     Retrieve the entire knowledge graph structure.
@@ -406,7 +396,6 @@ def get_full_graph(limit: int = 100) -> str:
     }, indent=2)
 
 
-@mcp.tool()
 def store_learning_pattern(
     pattern_name: str,
     question_pattern: str,
@@ -458,7 +447,7 @@ def store_learning_pattern(
 # Lambda handler for AgentCore/direct invocation
 def handler(event, context):
     """
-    Lambda handler that routes to MCP tool functions.
+    Lambda handler that routes to tool functions.
 
     Event format:
     {
@@ -516,9 +505,3 @@ def handler(event, context):
             "result": None,
             "error": str(e)
         }
-
-
-# Run MCP server (for local testing)
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(mcp))

@@ -2,6 +2,15 @@
 Terraform MCP Server for CARL
 Provides tools for Terraform validation, provider documentation lookup,
 and module discovery from the Terraform Registry.
+
+Deployed as Lambda function, invoked via:
+{
+    "tool": "validate_terraform",
+    "args": {"terraform_code": "resource ..."}
+}
+
+Note: validate_terraform and format_terraform require Terraform CLI.
+For Lambda, use registry and documentation lookup tools only.
 """
 
 import os
@@ -9,16 +18,9 @@ import json
 import subprocess
 import tempfile
 from typing import Optional, List
-import boto3
-from mcp.server import Server
-from mcp.types import Tool, TextContent
-from mcp.server.stdio import stdio_server
 import urllib.request
 import urllib.error
 
-
-# Initialize MCP server
-mcp = Server("terraform-mcp")
 
 # Terraform Registry API base URL
 REGISTRY_API = "https://registry.terraform.io/v1"
@@ -45,10 +47,10 @@ def registry_request(endpoint: str) -> dict:
         raise Exception(f"Registry connection error: {e.reason}")
 
 
-@mcp.tool()
 def validate_terraform(terraform_code: str) -> str:
     """
     Validate Terraform code syntax and structure.
+    Note: Requires Terraform CLI installed.
 
     Args:
         terraform_code: The Terraform HCL code to validate
@@ -64,7 +66,7 @@ def validate_terraform(terraform_code: str) -> str:
 
         try:
             # Run terraform init (minimal, no providers)
-            init_result = subprocess.run(
+            subprocess.run(
                 ["terraform", "init", "-backend=false", "-input=false"],
                 cwd=tmpdir,
                 capture_output=True,
@@ -126,10 +128,10 @@ def validate_terraform(terraform_code: str) -> str:
             }, indent=2)
 
 
-@mcp.tool()
 def format_terraform(terraform_code: str) -> str:
     """
     Format Terraform code according to canonical style.
+    Note: Requires Terraform CLI installed.
 
     Args:
         terraform_code: The Terraform HCL code to format
@@ -143,7 +145,7 @@ def format_terraform(terraform_code: str) -> str:
             f.write(terraform_code)
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["terraform", "fmt", tf_file],
                 capture_output=True,
                 text=True,
@@ -167,7 +169,6 @@ def format_terraform(terraform_code: str) -> str:
             }, indent=2)
 
 
-@mcp.tool()
 def get_provider_docs(
     provider: str,
     resource_type: Optional[str] = None,
@@ -213,7 +214,6 @@ def get_provider_docs(
         }, indent=2)
 
 
-@mcp.tool()
 def search_modules(
     query: str,
     provider: Optional[str] = None,
@@ -265,7 +265,6 @@ def search_modules(
         }, indent=2)
 
 
-@mcp.tool()
 def get_module_details(namespace: str, name: str, provider: str) -> str:
     """
     Get detailed information about a specific Terraform module.
@@ -306,7 +305,6 @@ def get_module_details(namespace: str, name: str, provider: str) -> str:
         }, indent=2)
 
 
-@mcp.tool()
 def list_aws_resources(category: Optional[str] = None) -> str:
     """
     List common AWS Terraform resources by category.
@@ -389,7 +387,6 @@ def list_aws_resources(category: Optional[str] = None) -> str:
     }, indent=2)
 
 
-@mcp.tool()
 def generate_resource_skeleton(resource_type: str) -> str:
     """
     Generate a skeleton Terraform configuration for a resource.
@@ -549,12 +546,12 @@ resource "aws_iam_role_policy_attachment" "example" {
 # Lambda handler for AgentCore/direct invocation
 def handler(event, context):
     """
-    Lambda handler that routes to MCP tool functions.
+    Lambda handler that routes to tool functions.
 
     Event format:
     {
-        "tool": "validate_terraform",
-        "args": {"terraform_code": "resource ..."}
+        "tool": "search_modules",
+        "args": {"query": "vpc", "provider": "aws"}
     }
 
     Returns:
@@ -603,9 +600,3 @@ def handler(event, context):
             "result": None,
             "error": str(e)
         }
-
-
-# Run MCP server (for local testing)
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(mcp))
