@@ -22,9 +22,12 @@ The AI generates Terraform code dynamically, validated before return.
 """
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
+
+import boto3
 
 from services.bedrock_service import BedrockService
 from utils.logger import get_logger
@@ -259,12 +262,14 @@ class AITerraformGenerator:
     def generate_terraform(
         self,
         request: TerraformGenerationRequest,
+        max_fix_attempts: int = 2,
     ) -> TerraformGenerationResult:
         """
-        Generate Terraform code using AI.
+        Generate Terraform code using AI with MCP validation and auto-fix.
 
         Args:
             request: TerraformGenerationRequest with all context
+            max_fix_attempts: Maximum attempts to auto-fix validation errors (default: 2)
 
         Returns:
             TerraformGenerationResult with generated code
@@ -283,14 +288,57 @@ class AITerraformGenerator:
             # Clean up the response
             generated_code = self._clean_terraform_output(generated_code)
 
-            # Basic validation
-            validation_errors = self._validate_terraform(generated_code)
+            # Validate using Terraform MCP (with fallback to basic validation)
+            validation_result = self._validate_terraform_via_mcp(generated_code)
+
+            # Auto-fix loop if validation fails
+            fix_attempts = 0
+            while not validation_result.get("valid", False) and fix_attempts < max_fix_attempts:
+                fix_attempts += 1
+                logger.info(
+                    f"Terraform validation failed, attempting auto-fix "
+                    f"({fix_attempts}/{max_fix_attempts})"
+                )
+
+                # Get errors for AI to fix
+                errors = validation_result.get("errors", [])
+                if not errors:
+                    # No specific errors, can't auto-fix
+                    break
+
+                # Use AI to fix the code
+                generated_code = self._fix_terraform_with_ai(
+                    code=generated_code,
+                    validation_errors=errors,
+                    request=request,
+                )
+
+                # Re-validate the fixed code
+                validation_result = self._validate_terraform_via_mcp(generated_code)
+
+            # Prepare final validation errors (if any remain)
+            final_errors = []
+            if not validation_result.get("valid", False):
+                for err in validation_result.get("errors", []):
+                    final_errors.append(err.get("summary", str(err)))
+
+            # Add validation note if auto-fix was attempted
+            if fix_attempts > 0:
+                if validation_result.get("valid", False):
+                    logger.info(
+                        f"Auto-fix successful after {fix_attempts} attempt(s)"
+                    )
+                else:
+                    logger.warning(
+                        f"Auto-fix failed after {fix_attempts} attempt(s), "
+                        f"returning code with errors"
+                    )
 
             return TerraformGenerationResult(
-                success=len(validation_errors) == 0,
+                success=validation_result.get("valid", False),
                 content=generated_code,
                 module_type=request.module_type,
-                validation_errors=validation_errors if validation_errors else None,
+                validation_errors=final_errors if final_errors else None,
                 estimated_tokens=len(generated_code.split()),
             )
 
@@ -415,6 +463,123 @@ Start with # comments describing the module, then terraform/provider blocks.""")
             errors.append("Python string literals found in Terraform code")
 
         return errors
+
+    def _validate_terraform_via_mcp(self, code: str) -> dict:
+        """
+        Validate Terraform code using the Terraform MCP Lambda.
+
+        Returns dict with:
+        - valid: bool
+        - message: str
+        - errors: list[dict] (if invalid)
+        """
+        try:
+            # Get Lambda function name from environment or use default
+            function_name = os.environ.get(
+                "TERRAFORM_MCP_FUNCTION",
+                "carl-dev-mcp-terraform"
+            )
+
+            # Initialize Lambda client
+            lambda_client = boto3.client("lambda")
+
+            # Call the Terraform MCP's validate_terraform tool
+            payload = {
+                "tool": "validate_terraform",
+                "args": {
+                    "terraform_code": code,
+                    "full_validation": False  # Quick syntax check only
+                }
+            }
+
+            response = lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType="RequestResponse",
+                Payload=json.dumps(payload)
+            )
+
+            # Parse response
+            response_payload = json.loads(response["Payload"].read().decode())
+
+            if response_payload.get("error"):
+                logger.error(f"MCP validation error: {response_payload['error']}")
+                return {
+                    "valid": False,
+                    "message": "MCP validation failed",
+                    "errors": [{"summary": response_payload["error"]}]
+                }
+
+            # Parse the result (which is a JSON string)
+            result = json.loads(response_payload.get("result", "{}"))
+            return result
+
+        except Exception as e:
+            logger.warning(f"MCP validation unavailable, falling back to basic: {e}")
+            # Fallback to basic validation
+            basic_errors = self._validate_terraform(code)
+            return {
+                "valid": len(basic_errors) == 0,
+                "message": "Basic validation (MCP unavailable)",
+                "errors": [{"summary": err} for err in basic_errors] if basic_errors else []
+            }
+
+    def _fix_terraform_with_ai(
+        self,
+        code: str,
+        validation_errors: list[dict],
+        request: TerraformGenerationRequest,
+    ) -> str:
+        """
+        Use AI to fix Terraform code based on validation errors.
+
+        Args:
+            code: The invalid Terraform code
+            validation_errors: List of error dicts with 'summary' key
+            request: Original generation request for context
+
+        Returns:
+            Fixed Terraform code
+        """
+        error_descriptions = "\n".join(
+            f"- {err.get('summary', str(err))}" for err in validation_errors
+        )
+
+        fix_prompt = f"""The following Terraform code has validation errors. Fix the errors and return the corrected code.
+
+VALIDATION ERRORS:
+{error_descriptions}
+
+ORIGINAL CODE:
+```hcl
+{code}
+```
+
+REQUIREMENTS (for context):
+- Module type: {request.module_type}
+- Compliance framework: {request.compliance_framework}
+
+INSTRUCTIONS:
+1. Fix all the validation errors listed above
+2. Keep the overall structure and purpose the same
+3. Ensure proper HCL syntax (braces, quotes, commas)
+4. Return ONLY the corrected Terraform code
+5. No explanations, no markdown code fences, just the fixed HCL code
+
+Return the fixed Terraform code:"""
+
+        try:
+            fixed_code = self.bedrock.invoke_model(
+                prompt=fix_prompt,
+                system_prompt="You are a Terraform expert. Fix the code and return ONLY valid HCL. No explanations.",
+                max_tokens=4096,
+                temperature=0.1,  # Very low temperature for precise fixes
+            )
+
+            return self._clean_terraform_output(fixed_code)
+
+        except Exception as e:
+            logger.error(f"Failed to fix Terraform with AI: {e}")
+            return code  # Return original if fix fails
 
     # =========================================================================
     # Specialized Generation Methods
