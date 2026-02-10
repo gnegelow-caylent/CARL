@@ -938,23 +938,57 @@ resource "aws_ecr_repository" "carl_lambda" {
   }
 }
 
-# ECR Lifecycle Policy - Keep only last 5 images
+# ECR Lifecycle Policy - Keep images by prefix type
 resource "aws_ecr_lifecycle_policy" "carl_lambda" {
   repository = aws_ecr_repository.carl_lambda.name
 
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 5
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 lambda images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["lambda"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep last 5 agentcore images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["agentcore"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 5
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 3
+        description  = "Keep last 5 mcp images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["mcp"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 5
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 4
+        description  = "Remove untagged after 1 day"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = { type = "expire" }
       }
-      action = {
-        type = "expire"
-      }
-    }]
+    ]
   })
 }
 
