@@ -31,6 +31,7 @@ from services.agent_core import AgentCore, Tool
 from services.findings_service import FindingsService
 from services.remediation_service import RemediationService, RemediationGuidance
 from services.github_service import GitHubService
+from services.resource_detector import ResourceDetector
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -225,6 +226,7 @@ class RemediationAgent:
         self.region = region
         self.findings_service = FindingsService()
         self.remediation_service = RemediationService()
+        self.resource_detector = ResourceDetector(region=region)
         self.progress_callback = progress_callback
 
         # GitHub service for PR creation
@@ -413,14 +415,30 @@ You have access to these tools:
             findings = self.findings_service.get_recent_findings(
                 severity=severity_filter,
                 status="NEW",  # Only NEW findings
-                limit=limit
+                limit=limit * 2  # Get extra in case some are already remediated
             )
 
-            # Filter to findings that have remediation available
+            # Filter to findings that have remediation available AND aren't already fixed
             remediable = []
+            already_fixed = []
+
             for finding in findings:
                 guidance = self.remediation_service.generate_remediation(finding)
                 if guidance:
+                    # Check if resource already exists/is compliant
+                    detection_result = self.resource_detector.detect_remediation_status(finding)
+
+                    if detection_result["already_remediated"]:
+                        # Resource already compliant - skip but log
+                        already_fixed.append({
+                            "finding_id": finding.get("id"),
+                            "title": finding.get("title"),
+                            "status": "ALREADY_COMPLIANT",
+                            "message": detection_result["message"],
+                        })
+                        logger.info(f"Skipping already-remediated finding: {finding.get('id')} - {detection_result['message']}")
+                        continue
+
                     risk_level = classify_finding_risk(finding)
                     method = get_remediation_method(risk_level)
                     remediable.append({
@@ -434,16 +452,26 @@ You have access to these tools:
                         "estimated_time": guidance.estimated_time,
                     })
 
+                    if len(remediable) >= limit:
+                        break
+
             # Sort by risk level (LOW first, then MEDIUM, then HIGH)
             risk_order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
             remediable.sort(key=lambda x: risk_order.get(x["risk_level"], 1))
 
-            return {
+            result = {
                 "success": True,
                 "count": len(remediable),
                 "findings": remediable,
-                "message": f"Found {len(remediable)} findings with available remediations"
+                "message": f"Found {len(remediable)} findings needing remediation"
             }
+
+            # Include already-fixed info if any were skipped
+            if already_fixed:
+                result["already_compliant"] = already_fixed
+                result["message"] += f" ({len(already_fixed)} already compliant)"
+
+            return result
 
         except Exception as e:
             logger.exception("Error getting pending remediations")
@@ -462,6 +490,9 @@ You have access to these tools:
                     "error": f"Finding {finding_id} not found"
                 }
 
+            # Check if already remediated
+            detection_result = self.resource_detector.detect_remediation_status(finding)
+
             # Get remediation guidance
             guidance = self.remediation_service.generate_remediation(finding)
             risk_level = classify_finding_risk(finding)
@@ -479,8 +510,13 @@ You have access to these tools:
                     "account_id": finding.get("account_id"),
                     "status": finding.get("status"),
                 },
+                "current_state": {
+                    "already_remediated": detection_result["already_remediated"],
+                    "existing_resource": detection_result["existing_resource"],
+                    "message": detection_result["message"],
+                },
                 "remediation": {
-                    "available": guidance is not None,
+                    "available": guidance is not None and not detection_result["already_remediated"],
                     "risk_level": risk_level.value,
                     "method": method.value,
                     "terraform_code": guidance.terraform_code if guidance else None,
@@ -507,6 +543,18 @@ You have access to these tools:
                     "error": f"Finding {finding_id} not found"
                 }
 
+            # Check if already remediated
+            detection_result = self.resource_detector.detect_remediation_status(finding)
+            if detection_result["already_remediated"]:
+                return {
+                    "success": False,
+                    "already_remediated": True,
+                    "finding_id": finding_id,
+                    "message": detection_result["message"],
+                    "existing_resource": detection_result["existing_resource"],
+                    "error": f"No fix needed - {detection_result['message']}"
+                }
+
             guidance = self.remediation_service.generate_remediation(finding)
             if not guidance:
                 return {
@@ -517,12 +565,15 @@ You have access to these tools:
             risk_level = classify_finding_risk(finding)
             method = get_remediation_method(risk_level)
 
+            # Generate smart Terraform code that uses data sources for existing resources
+            terraform_code = self._generate_smart_terraform(finding, guidance, detection_result)
+
             return {
                 "success": True,
                 "finding_id": finding_id,
                 "risk_level": risk_level.value,
                 "method": method.value,
-                "terraform_code": guidance.terraform_code,
+                "terraform_code": terraform_code,
                 "aws_cli_commands": guidance.aws_cli_commands,
                 "manual_steps": guidance.manual_steps,
                 "estimated_time": guidance.estimated_time,
@@ -536,6 +587,177 @@ You have access to these tools:
                 "success": False,
                 "error": str(e)
             }
+
+    def _generate_smart_terraform(
+        self,
+        finding: dict,
+        guidance: RemediationGuidance,
+        detection_result: dict
+    ) -> str:
+        """
+        Generate Terraform code that's aware of existing resources.
+
+        Uses AI to generate code, providing context about existing resources
+        so the AI can use data sources instead of creating duplicates.
+        """
+        from services.bedrock_service import BedrockService
+
+        title = finding.get("title", "")
+        resource_id = finding.get("resource_id", "")
+        resource_type = finding.get("resource_type", "")
+
+        # Build context about existing resources for the AI
+        existing_resources_context = self._build_existing_resources_context(finding)
+
+        # Generate Terraform using AI with existing resource context
+        prompt = f"""Generate Terraform code to remediate this security finding.
+
+FINDING:
+- Title: {title}
+- Resource Type: {resource_type}
+- Resource ID: {resource_id}
+
+EXISTING RESOURCES IN AWS (use data sources for these, don't recreate):
+{existing_resources_context}
+
+REQUIREMENTS:
+1. If a resource already exists (listed above), use a Terraform data source to reference it
+2. Only create resources that don't already exist
+3. Use proper Terraform resource naming conventions
+4. Include appropriate tags (ManagedBy = "CARL", Remediation = "true")
+5. Follow AWS security best practices
+6. Include any required IAM roles/policies with least privilege
+
+REFERENCE (base guidance, adapt as needed):
+{guidance.terraform_code or "No base guidance available"}
+
+Generate ONLY the Terraform HCL code, no explanations. The code should be production-ready and idempotent.
+"""
+
+        try:
+            bedrock = BedrockService()
+            terraform_code = bedrock.generate_text(
+                prompt=prompt,
+                max_tokens=2000,
+                temperature=0.2,  # Low temperature for consistent code generation
+            )
+
+            # Clean up response - extract just the HCL code
+            terraform_code = self._extract_terraform_code(terraform_code)
+
+            return terraform_code
+
+        except Exception as e:
+            logger.warning(f"AI generation failed, falling back to base guidance: {e}")
+            # Fallback to original guidance if AI generation fails
+            return guidance.terraform_code or ""
+
+    def _build_existing_resources_context(self, finding: dict) -> str:
+        """
+        Build context string about existing resources for AI code generation.
+
+        Scans for related resources that might be reused.
+        """
+        context_lines = []
+        title_lower = finding.get("title", "").lower()
+        resource_id = finding.get("resource_id", "")
+
+        try:
+            # For VPC Flow Logs, check for existing log groups
+            if "flow log" in title_lower:
+                vpc_id = resource_id
+                if not vpc_id.startswith("vpc-"):
+                    import re
+                    match = re.search(r'(vpc-[a-z0-9]+)', resource_id)
+                    if match:
+                        vpc_id = match.group(1)
+
+                # Check common log group naming patterns
+                log_group_patterns = [
+                    f"/aws/vpc/flowlogs/{vpc_id}",
+                    f"/aws/vpc-flow-logs/{vpc_id}",
+                    f"vpc-flowlogs-{vpc_id}",
+                ]
+
+                for pattern in log_group_patterns:
+                    status = self.resource_detector.detect_cloudwatch_log_group(pattern)
+                    if status.exists:
+                        context_lines.append(
+                            f"- CloudWatch Log Group EXISTS: {pattern} "
+                            f"(ARN: {status.arn}, retention: {status.retention_days} days)"
+                        )
+                        break
+                else:
+                    context_lines.append("- No existing CloudWatch Log Group found for this VPC")
+
+                context_lines.append(f"- VPC ID: {vpc_id}")
+
+            # For S3 findings, check bucket status
+            elif "s3" in finding.get("resource_type", "").lower():
+                bucket_name = resource_id
+                if bucket_name.startswith("arn:aws:s3:::"):
+                    bucket_name = bucket_name.replace("arn:aws:s3:::", "")
+
+                status = self.resource_detector.detect_s3_bucket_status(bucket_name)
+                context_lines.append(f"- S3 Bucket: {bucket_name}")
+                context_lines.append(f"  - Encryption: {'enabled (' + status.encryption_type + ')' if status.encryption_enabled else 'NOT enabled'}")
+                context_lines.append(f"  - Versioning: {'enabled' if status.versioning_enabled else 'NOT enabled'}")
+                context_lines.append(f"  - Public Access Block: {'enabled' if status.public_access_block_enabled else 'NOT enabled'}")
+
+            # For IAM password policy
+            elif "password policy" in title_lower:
+                status = self.resource_detector.detect_iam_password_policy()
+                if status.policy_exists:
+                    context_lines.append(f"- IAM Password Policy EXISTS with:")
+                    context_lines.append(f"  - Min length: {status.minimum_password_length}")
+                    context_lines.append(f"  - Max age: {status.max_password_age} days")
+                    context_lines.append(f"  - Compliant: {status.is_compliant}")
+                else:
+                    context_lines.append("- No IAM Password Policy configured")
+
+            # Default case
+            if not context_lines:
+                context_lines.append("- No existing related resources detected")
+
+        except Exception as e:
+            logger.warning(f"Error building existing resources context: {e}")
+            context_lines.append(f"- Could not scan for existing resources: {e}")
+
+        return "\n".join(context_lines)
+
+    def _extract_terraform_code(self, response: str) -> str:
+        """
+        Extract Terraform HCL code from AI response.
+
+        Handles markdown code blocks and other formatting.
+        """
+        import re
+
+        # Try to extract from markdown code block
+        hcl_match = re.search(r'```(?:hcl|terraform)?\s*\n(.*?)\n```', response, re.DOTALL)
+        if hcl_match:
+            return hcl_match.group(1).strip()
+
+        # If no code block, assume the whole response is code
+        # but strip any leading/trailing explanation text
+        lines = response.strip().split('\n')
+
+        # Find first line that looks like Terraform
+        start_idx = 0
+        for i, line in enumerate(lines):
+            if line.strip().startswith(('resource ', 'data ', 'variable ', 'locals ', '#', 'terraform ')):
+                start_idx = i
+                break
+
+        # Find last line that looks like Terraform (ending brace or comment)
+        end_idx = len(lines)
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i].strip()
+            if line.endswith('}') or line.startswith('#') or '=' in line:
+                end_idx = i + 1
+                break
+
+        return '\n'.join(lines[start_idx:end_idx]).strip()
 
     def _preview_fix(self, finding_id: str) -> dict[str, Any]:
         """Preview what a fix will change."""
