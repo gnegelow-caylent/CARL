@@ -608,33 +608,43 @@ User Request → Agent decides what to generate → generate_terraform tool
 
 ---
 
-#### 3.2 Auto-Remediation Execution (Week 21-22)
-**Goal:** Execute remediations automatically
+#### 3.2 Auto-Remediation Execution ✅ COMPLETE (April 2026)
+**Goal:** Execute remediations with human-in-the-loop approval
 
-**Tasks:**
-- [ ] Remediation action library
-  - S3 bucket encryption enablement
-  - Security group rule fixes
-  - IAM policy updates
-  - Config rule remediations
+**Completed (April 23, 2026):**
+- [x] Remediation Agent (`remediation_agent.py`)
+  - Risk-based classification (LOW/MEDIUM/HIGH)
+  - Direct AWS API fixes for LOW risk
+  - Terraform PR creation for MEDIUM/HIGH risk
+  - Agent handoff from Ask Agent
 
-- [ ] Approval workflow for high-risk remediations
-  - Slack approval buttons
-  - Multi-level approval
-  - Rollback capability
+- [x] Remediation action library
+  - S3 bucket encryption enablement ✅
+  - S3 versioning enablement ✅
+  - S3 public access block ✅
+  - IAM password policy ✅
+  - VPC flow logs (via PR) ✅
+  - Security group fixes (via PR) ✅
 
-- [ ] Remediation testing framework
-  - Dry-run mode
-  - Rollback automation
-  - Impact analysis
+- [x] Approval workflow with Slack integration
+  - `/carl remediate list` - Shows findings by risk
+  - `/carl remediate <id>` - Request specific fix
+  - Approval buttons (✅ Approve, ❌ Reject)
+  - Risk badges (🟢 LOW, 🟡 MEDIUM, 🔴 HIGH)
+  - Terraform code preview before apply
 
-**Deliverables:**
-- Auto-remediation engine
-- 20+ remediation actions
-- Approval workflows
-- Testing framework
+- [x] GitHub PR workflow for high-risk fixes
+  - Auto-creates branch + PR to carl-infrastructure
+  - Full Terraform code with comments
+  - Finding details in PR description
 
-**Estimated Effort:** 2 weeks
+**Key Design Decisions:**
+- **Human-in-the-loop**: NEVER auto-fix without explicit approval
+- **Hybrid method**: LOW risk = direct API, MEDIUM/HIGH = Terraform PR
+- **All fixes generate Terraform**: Even direct fixes include TF code for records
+- **No auto-deploy**: PRs created but not merged/applied automatically
+
+**Estimated Effort:** 2 weeks → Completed in 1 session
 
 ---
 
@@ -702,6 +712,337 @@ User Request → Agent decides what to generate → generate_terraform tool
 - Intelligent alerting
 
 **Estimated Effort:** 4 weeks
+
+---
+
+## 🧠 Future: Advanced Agentic Architecture Patterns
+
+CARL currently implements several core agentic patterns. This section outlines the advanced patterns that could be added to make CARL more intelligent and autonomous.
+
+### Current Agentic Patterns (Already Implemented)
+
+| Pattern | Status | Implementation | Location |
+|---------|--------|----------------|----------|
+| **ReAct (Reason + Act)** | ✅ Done | Agent thinks → calls tool → observes → repeats | `agent_core.py` |
+| **Tool Use / Function Calling** | ✅ Done | 6 scanning tools + architecture tools | `scanning_tools.py`, `architecture_tools.py` |
+| **Router / Dispatcher** | ✅ Done | Classifies questions → routes to handlers | `slack_router.py:classify_question_type()` |
+| **RAG (Retrieval-Augmented)** | ✅ Done | Architecture patterns ground AI responses | `knowledge/*.py` (148+ patterns) |
+| **Human-in-the-Loop** | ✅ Done | Feedback buttons, exception approvals | Slack buttons, exception_manager.py |
+| **Memory / Continuous Learning** | ✅ Done | Learns from interactions, improves over time | `learning_service.py`, DynamoDB tables |
+
+### Future Agentic Patterns (To Be Implemented)
+
+#### 1. Multi-Agent Orchestration & Handoffs
+**Priority:** High | **Effort:** 2-3 weeks
+
+**Current State:**
+- CARL has separate agents (compliance, architecture) but they don't collaborate
+- No handoff mechanism between agents
+
+**Target State:**
+```
+User: "I need to fix my security posture and build a compliant VPC"
+         │
+         ▼
+┌─────────────────┐
+│ Advisory Agent  │ ← Analyzes question
+│ (Compliance)    │
+└────────┬────────┘
+         │ "This requires both analysis AND building"
+         │
+         ├─────────────────────────────────────┐
+         ▼                                     ▼
+┌─────────────────┐                   ┌─────────────────┐
+│ Compliance Agent│                   │ Architect Agent │
+│ "Your issues:"  │                   │ "Here's the VPC │
+│ - No MFA        │                   │  design that    │
+│ - Open ports    │                   │  fixes these"   │
+└─────────────────┘                   └─────────────────┘
+         │                                     │
+         └─────────────────────────────────────┘
+                         │
+                         ▼
+               ┌─────────────────┐
+               │ Unified Response│
+               │ + Terraform PR  │
+               └─────────────────┘
+```
+
+**Tasks:**
+- [ ] Define agent handoff protocol (context passing, state transfer)
+- [ ] Create `handoff_to_architect` tool for Advisory Agent
+- [ ] Create `handoff_to_compliance` tool for Architect Agent
+- [ ] Implement session context preservation across handoffs
+- [ ] Add handoff visualization in Slack responses
+
+---
+
+#### 2. Planning Pattern (Explicit Task Planning)
+**Priority:** Medium | **Effort:** 1-2 weeks
+
+**Current State:**
+- Agent acts immediately without explicit planning
+- No visibility into agent's reasoning process
+
+**Target State:**
+```
+User: "Set up a complete SOC 2 compliant environment"
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ PLANNING PHASE (Agent creates explicit plan)        │
+├─────────────────────────────────────────────────────┤
+│ Step 1: Scan existing environment                   │
+│ Step 2: Identify compliance gaps                    │
+│ Step 3: Generate VPC Terraform                      │
+│ Step 4: Generate security services Terraform        │
+│ Step 5: Create GitHub PR                            │
+│ Step 6: Provide remediation guidance                │
+│                                                     │
+│ Estimated time: 45 seconds                          │
+│ [Approve Plan] [Modify Plan] [Cancel]               │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼ (User approves)
+┌─────────────────────────────────────────────────────┐
+│ EXECUTION PHASE (Agent executes each step)          │
+│ ✅ Step 1: Scanned 47 resources                     │
+│ ✅ Step 2: Found 12 gaps                            │
+│ 🔄 Step 3: Generating VPC Terraform...              │
+│ ⏳ Step 4: Pending                                  │
+│ ⏳ Step 5: Pending                                  │
+│ ⏳ Step 6: Pending                                  │
+└─────────────────────────────────────────────────────┘
+```
+
+**Tasks:**
+- [ ] Add planning phase to complex operations
+- [ ] Create `create_plan` and `execute_plan` tools
+- [ ] Store plans in DynamoDB with step status
+- [ ] Add Slack UI for plan approval/modification
+- [ ] Support plan revision based on execution results
+
+---
+
+#### 3. Reflection / Self-Critique Pattern
+**Priority:** Medium | **Effort:** 1-2 weeks
+
+**Current State:**
+- Agent generates one response without self-evaluation
+- No quality checking of AI outputs
+
+**Target State:**
+```
+User: "Generate a VPC for my banking application"
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ GENERATION PHASE                                     │
+│ [Agent generates initial Terraform code]            │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ REFLECTION PHASE (Agent critiques own output)        │
+├─────────────────────────────────────────────────────┤
+│ ❌ Missing: VPC Flow Logs (required for compliance) │
+│ ❌ Missing: Private subnets for database tier       │
+│ ⚠️  Concern: CIDR too small for future growth       │
+│ ✅ Good: Encryption enabled                         │
+│ ✅ Good: Multi-AZ design                            │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ IMPROVEMENT PHASE (Agent fixes identified issues)    │
+│ [Agent regenerates with corrections]                │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ FINAL OUTPUT                                         │
+│ Improved Terraform + Reflection notes shown to user │
+└─────────────────────────────────────────────────────┘
+```
+
+**Tasks:**
+- [ ] Add reflection prompt for complex outputs
+- [ ] Create `critique_output` tool
+- [ ] Define quality criteria (security, compliance, best practices)
+- [ ] Add iteration limit (max 3 reflection cycles)
+- [ ] Show reflection insights to user (transparency)
+
+---
+
+#### 4. Hierarchical Agents (Manager-Worker Pattern)
+**Priority:** Low | **Effort:** 3-4 weeks
+
+**Current State:**
+- All agents operate at same level
+- No coordination or delegation
+
+**Target State:**
+```
+        ┌─────────────────────────────────────┐
+        │         SUPERVISOR AGENT             │
+        │  (Orchestrates, delegates, verifies) │
+        └─────────────────┬───────────────────┘
+                          │
+       ┌──────────────────┼──────────────────┐
+       │                  │                  │
+       ▼                  ▼                  ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Scanner   │    │  Generator  │    │  Validator  │
+│   Worker    │    │   Worker    │    │   Worker    │
+│             │    │             │    │             │
+│ Scans AWS   │    │ Creates TF  │    │ Checks code │
+│ resources   │    │ code        │    │ quality     │
+└─────────────┘    └─────────────┘    └─────────────┘
+
+Supervisor orchestrates:
+1. "Scanner, scan the VPC"
+2. "Generator, create Terraform based on scan"
+3. "Validator, check the Terraform for security issues"
+4. "Scanner, verify the changes would work"
+5. Combines results → Returns to user
+```
+
+**Benefits:**
+- Specialized workers are more focused and accurate
+- Supervisor handles complex coordination
+- Parallelization possible (scan while generating)
+- Easier to add new capabilities (add new worker)
+
+**Tasks:**
+- [ ] Design supervisor agent with delegation tools
+- [ ] Create worker agent framework (lightweight, specialized)
+- [ ] Implement inter-agent communication protocol
+- [ ] Add worker registration/discovery
+- [ ] Support parallel worker execution
+
+---
+
+#### 5. Debate / Adversarial Pattern
+**Priority:** Low | **Effort:** 2-3 weeks
+
+**Use Case:** High-stakes decisions where multiple perspectives matter
+
+**Target State:**
+```
+User: "Should I use Aurora Serverless or RDS for my database?"
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ ADVOCATE AGENT (Argues for Aurora Serverless)       │
+├─────────────────────────────────────────────────────┤
+│ ✅ Auto-scaling handles variable workloads          │
+│ ✅ Pay-per-use reduces costs for sporadic usage     │
+│ ✅ No capacity planning needed                      │
+│ ✅ Built-in failover                                │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ CHALLENGER AGENT (Argues for RDS)                   │
+├─────────────────────────────────────────────────────┤
+│ ✅ Predictable costs for steady workloads           │
+│ ✅ More instance type choices                       │
+│ ✅ Mature, well-understood operations               │
+│ ⚠️  Aurora Serverless v2 cold starts can be slow   │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ SYNTHESIZER AGENT (Combines perspectives)           │
+├─────────────────────────────────────────────────────┤
+│ RECOMMENDATION: Aurora Serverless v2                │
+│                                                     │
+│ Reasoning: Your workload is variable (mentioned     │
+│ in requirements), so Aurora Serverless fits better. │
+│ However, consider RDS if you need more control or   │
+│ have steady, predictable traffic (>$200/mo savings) │
+│                                                     │
+│ Cost comparison:                                    │
+│ - Aurora Serverless: $50-200/mo (variable)          │
+│ - RDS t3.medium: $45/mo (fixed)                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**Tasks:**
+- [ ] Create advocate/challenger agent pair
+- [ ] Define argument structure and scoring
+- [ ] Create synthesizer agent for final recommendation
+- [ ] Add "debate mode" flag for complex decisions
+- [ ] Show debate summary to user for transparency
+
+---
+
+#### 6. Map-Reduce Agents (Parallel Processing)
+**Priority:** Low | **Effort:** 2-3 weeks
+
+**Use Case:** Processing large amounts of data or many resources
+
+**Target State:**
+```
+User: "Analyze all 200 EC2 instances for security issues"
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│ MAP PHASE (Split work across parallel agents)       │
+├─────────────────────────────────────────────────────┤
+│ Worker 1: Analyzing instances 1-50...               │
+│ Worker 2: Analyzing instances 51-100...             │
+│ Worker 3: Analyzing instances 101-150...            │
+│ Worker 4: Analyzing instances 151-200...            │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼ (All complete in parallel)
+┌─────────────────────────────────────────────────────┐
+│ REDUCE PHASE (Combine results)                      │
+├─────────────────────────────────────────────────────┤
+│ Total issues found: 47                              │
+│ - Critical: 3 (public IPs, no IMDSv2)               │
+│ - High: 12 (outdated AMIs)                          │
+│ - Medium: 32 (missing tags)                         │
+│                                                     │
+│ [View by severity] [View by instance] [Export]      │
+└─────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- 4x faster for large-scale operations
+- Better Lambda memory utilization
+- Can handle enterprise-scale environments
+
+**Tasks:**
+- [ ] Design work splitting logic
+- [ ] Create worker Lambda for parallel execution
+- [ ] Implement result aggregation
+- [ ] Add progress tracking for parallel operations
+- [ ] Handle partial failures gracefully
+
+---
+
+### Agentic Patterns Implementation Roadmap
+
+| Pattern | Priority | Effort | Dependencies | Target Phase |
+|---------|----------|--------|--------------|--------------|
+| Multi-Agent Handoffs | High | 2-3 weeks | None | Phase 2 |
+| Planning Pattern | Medium | 1-2 weeks | None | Phase 2 |
+| Reflection/Self-Critique | Medium | 1-2 weeks | None | Phase 2 |
+| Hierarchical Agents | Low | 3-4 weeks | Multi-Agent Handoffs | Phase 3 |
+| Debate/Adversarial | Low | 2-3 weeks | None | Phase 3 |
+| Map-Reduce Agents | Low | 2-3 weeks | Hierarchical Agents | Phase 3 |
+
+**Total Effort:** 12-17 weeks for all patterns
+
+**Recommended Order:**
+1. Multi-Agent Handoffs (enables other patterns)
+2. Planning Pattern (user visibility, control)
+3. Reflection (quality improvement)
+4. Hierarchical Agents (scalability)
+5. Map-Reduce (enterprise scale)
+6. Debate (nice-to-have for complex decisions)
 
 ---
 

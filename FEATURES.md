@@ -1,6 +1,6 @@
 # CARL Features - Status Overview
 
-**Last Updated:** January 31, 2026
+**Last Updated:** April 23, 2026
 
 This document provides a clear view of what CARL can do today vs what's planned for the future.
 
@@ -120,6 +120,34 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | Terraform State Analysis | ✅ Live | Analyzes Terraform state for drift |
 | Drift Reporting | ✅ Live | `/carl drift status` shows all drift |
 
+### 🔧 Remediation Agent (NEW - April 2026)
+
+**AI-powered auto-fix with human-in-the-loop approval workflow.**
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Risk-Based Classification** | ✅ Live | Findings ranked as LOW/MEDIUM/HIGH risk automatically |
+| **Hybrid Fix Method** | ✅ Live | LOW risk: direct AWS API, MEDIUM/HIGH: Terraform PR |
+| **Human-in-the-Loop Approval** | ✅ Live | Always shows fix details before applying |
+| **Terraform Code Generation** | ✅ Live | Generates Terraform for ALL fixes (even direct API) |
+| **Slack Integration** | ✅ Live | `/carl remediate` with approval buttons |
+| **Agent Handoff** | ✅ Live | Ask Agent detects fix queries, offers remediation |
+| **GitHub PR Creation** | ✅ Live | Auto-creates PRs for MEDIUM/HIGH risk fixes |
+
+**Risk Levels:**
+- 🟢 **LOW** (Direct API): S3 encryption, versioning, public access block, IAM password policy
+- 🟡 **MEDIUM** (Terraform PR): VPC flow logs, CloudWatch logging, AWS Config
+- 🔴 **HIGH** (Terraform PR): Security groups, RDS public access, EC2/ASG public IPs
+
+**Commands:**
+```
+/carl remediate list          - List findings with available fixes (sorted by risk)
+/carl remediate <finding_id>  - Request fix for specific finding
+/carl remediate help          - Show remediation help
+```
+
+**Safety:** CARL **never** auto-fixes without explicit user approval. All fixes show preview + Terraform code first.
+
 ### 🚀 AWS Environment Bootstrap (NEW)
 
 | Feature | Status | Description |
@@ -168,6 +196,34 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | **Resource Knowledge Graph** | ✅ Live | Tracks AWS resources and relationships |
 | **CloudWatch Metrics** | ✅ Live | Monitor learning progress (patterns learned, confidence scores) |
 | **Environment Adaptation** | ✅ Live | CARL learns your specific AWS setup and team's usage patterns |
+
+### 🧠 Agentic Architecture Patterns
+
+CARL implements industry-standard agentic AI patterns for intelligent, autonomous operation.
+
+**Currently Implemented:**
+
+| Pattern | Status | Description | Location |
+|---------|--------|-------------|----------|
+| **ReAct (Reason + Act)** | ✅ Live | Agent thinks → calls tool → observes result → repeats until done | `agent_core.py` |
+| **Tool Use / Function Calling** | ✅ Live | 6 scanning tools + architecture tools the AI can invoke | `scanning_tools.py` |
+| **Router / Dispatcher** | ✅ Live | Classifies question intent → routes to specialized handler | `slack_router.py` |
+| **RAG (Retrieval-Augmented)** | ✅ Live | 148+ architecture patterns ground AI responses in facts | `knowledge/*.py` |
+| **Human-in-the-Loop** | ✅ Live | Feedback buttons, exception approvals, confirmations | Slack interactions |
+| **Memory / Continuous Learning** | ✅ Live | Learns from interactions, improves recommendations over time | `learning_service.py` |
+
+**Planned (Future):**
+
+| Pattern | Status | Description |
+|---------|--------|-------------|
+| **Multi-Agent Handoffs** | 📋 Planned | Advisory → Architect agent collaboration with context passing |
+| **Planning Pattern** | 📋 Planned | Explicit plan creation before complex operations, user approval |
+| **Reflection / Self-Critique** | 📋 Planned | Agent evaluates own output, iteratively improves quality |
+| **Hierarchical Agents** | 📋 Planned | Supervisor agent delegates to specialized worker agents |
+| **Debate / Adversarial** | 📋 Planned | Multiple agents argue perspectives, synthesizer combines |
+| **Map-Reduce Agents** | 📋 Planned | Parallel processing for enterprise-scale operations |
+
+See [ROADMAP.md](./ROADMAP.md) for detailed implementation plans.
 
 ### 💬 Slack Integration
 
@@ -220,11 +276,22 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | Feature | Status | Target | Description |
 |---------|--------|--------|-------------|
 | Auto-Discovery | 📋 Planned | Week 20 | Detect new AWS services/resources automatically |
-| Auto-Remediation | 📋 Planned | Week 22 | Execute fixes for common compliance issues |
+| ~~Auto-Remediation~~ | ✅ **COMPLETE** | - | See "Remediation Agent" in Production Ready Features |
 | HIPAA Support | 📋 Planned | Week 24 | HIPAA control mappings and patterns |
 | PCI-DSS Support | 📋 Planned | Week 26 | PCI-DSS control mappings and patterns |
 | ISO 27001 Support | 📋 Planned | Week 28 | ISO 27001 control mappings and patterns |
 | ML Anomaly Detection | 📋 Planned | Week 30 | Cost and security anomaly detection |
+
+### Phase 4: Advanced Agentic Patterns (Future)
+
+| Pattern | Status | Effort | Description |
+|---------|--------|--------|-------------|
+| **Multi-Agent Handoffs** | 📋 Planned | 2-3 weeks | Advisory ↔ Architect agent collaboration with context passing |
+| **Planning Pattern** | 📋 Planned | 1-2 weeks | Explicit plan creation before execution, user approval required |
+| **Reflection / Self-Critique** | 📋 Planned | 1-2 weeks | Agent evaluates and improves own output iteratively |
+| **Hierarchical Agents** | 📋 Planned | 3-4 weeks | Supervisor delegates to specialized workers (Scanner, Generator, Validator) |
+| **Debate / Adversarial** | 📋 Planned | 2-3 weeks | Advocate vs Challenger agents, Synthesizer combines perspectives |
+| **Map-Reduce Agents** | 📋 Planned | 2-3 weeks | Parallel processing for 100s of resources (enterprise scale) |
 
 ---
 

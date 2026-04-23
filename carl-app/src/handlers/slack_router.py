@@ -1629,6 +1629,8 @@ def handle_slash_command(payload: dict) -> dict:
         return handle_exception_command(slack, channel_id, user_id, args)
     elif subcommand == "drift":
         return handle_drift_command(slack, channel_id, user_id, args)
+    elif subcommand == "remediate":
+        return handle_remediate_command(slack, channel_id, user_id, args)
     elif subcommand == "jira":
         return handle_jira_command(slack, channel_id, user_id, args)
     elif subcommand == "compliance":
@@ -2543,6 +2545,47 @@ def handle_ask_command_sync(
         slack.post_message(channel_id, blocks=block_group)
 
     # Add action buttons for follow-up actions
+    action_elements = [
+        {
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "🔍 Deep Scan",
+                "emoji": True
+            },
+            "value": json.dumps({"action": "deep_scan", "question": question, "session_id": session_id}),
+            "action_id": "ask_deep_scan"
+        },
+        {
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "📊 Full Report",
+                "emoji": True
+            },
+            "value": json.dumps({"action": "full_report", "question": question, "session_id": session_id}),
+            "action_id": "ask_full_report"
+        }
+    ]
+
+    # Add remediate button if question/response is about fixing issues
+    remediation_keywords = ["fix", "remediate", "resolve", "enable encryption", "enable versioning",
+                            "block public access", "flow logs", "password policy", "security group",
+                            "finding", "issue", "vulnerability", "non-compliant", "compliance"]
+    question_lower = question.lower()
+    response_lower = response.lower() if response else ""
+    if any(kw in question_lower or kw in response_lower for kw in remediation_keywords):
+        action_elements.append({
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "🔧 Remediate Issues",
+                "emoji": True
+            },
+            "value": json.dumps({"action": "remediate", "question": question, "session_id": session_id}),
+            "action_id": "ask_remediate"
+        })
+
     action_buttons = [
         {
             "type": "section",
@@ -2554,28 +2597,7 @@ def handle_ask_command_sync(
         {
             "type": "actions",
             "block_id": f"ask_actions_{session_id}",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🔍 Deep Scan",
-                        "emoji": True
-                    },
-                    "value": json.dumps({"action": "deep_scan", "question": question, "session_id": session_id}),
-                    "action_id": "ask_deep_scan"
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "📊 Full Report",
-                        "emoji": True
-                    },
-                    "value": json.dumps({"action": "full_report", "question": question, "session_id": session_id}),
-                    "action_id": "ask_full_report"
-                }
-            ]
+            "elements": action_elements
         }
     ]
 
@@ -2881,6 +2903,130 @@ Format this as a professional compliance report."""
     return {"statusCode": 200, "body": ""}
 
 
+def handle_ask_remediate(payload: dict, action: dict) -> dict:
+    """
+    Handle Remediate Issues button click from /carl ask response.
+    Lists available remediations and lets user apply them with approval.
+    """
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    # Parse the action value
+    try:
+        action_data = json.loads(action.get("value", "{}"))
+        question = action_data.get("question", "")
+        session_id = action_data.get("session_id", "")
+    except json.JSONDecodeError:
+        question = ""
+        session_id = ""
+
+    slack.post_message(
+        channel,
+        text=f"🔧 *Remediation requested* - Looking for available fixes...\n_Based on: {question[:100]}{'...' if len(question) > 100 else ''}_"
+    )
+
+    try:
+        from services.remediation_agent import create_remediation_agent
+
+        agent = create_remediation_agent()
+
+        # Get available remediations
+        result = agent._get_pending_remediations(limit=10)
+
+        if not result.get("success"):
+            slack.post_message(
+                channel,
+                text=f"❌ Error getting remediations: {result.get('error')}",
+            )
+            return {"statusCode": 200, "body": ""}
+
+        findings = result.get("findings", [])
+
+        if not findings:
+            slack.post_message(
+                channel,
+                text=(
+                    "✨ No findings with available remediations found.\n\n"
+                    "_Run `/carl evidence collect` first to scan for security issues, "
+                    "or check `/carl findings list` to see existing findings._"
+                ),
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Build list of remediable findings with buttons
+        risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🔧 Available Remediations"}
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"Found *{len(findings)}* findings that can be automatically remediated.\n"
+                        f"_Sorted by risk level (lowest risk first for safety)._"
+                    )
+                }
+            },
+            {"type": "divider"},
+        ]
+
+        for f in findings:
+            risk = f.get("risk_level", "MEDIUM")
+            method = f.get("remediation_method", "TERRAFORM_PR")
+            method_label = "Direct API" if method == "DIRECT_API" else "PR (review)"
+
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"{risk_emoji.get(risk, '⚪')} *{f.get('title')}*\n"
+                        f"• Severity: {f.get('severity')} | Risk: {risk}\n"
+                        f"• Resource: `{f.get('resource_id', 'N/A')[:50]}`\n"
+                        f"• Method: {method_label} | Time: ~{f.get('estimated_time', '5 min')}"
+                    )
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🔧 Fix This"},
+                    "action_id": f"request_remediation_{f.get('finding_id')}",
+                }
+            })
+
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        "💡 *Risk Levels:*\n"
+                        "🟢 LOW = Safe to apply directly (encryption, versioning)\n"
+                        "🟡 MEDIUM = May affect logging/monitoring\n"
+                        "🔴 HIGH = Review carefully (network, access changes)"
+                    )
+                }
+            ]
+        })
+
+        slack.post_message(
+            channel,
+            text="Available remediations",
+            blocks=blocks,
+        )
+
+    except Exception as e:
+        logger.error(f"Remediation listing failed: {e}", exc_info=True)
+        slack.post_message(channel, text=f"❌ Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
 def handle_help_command(
     slack: SlackService, channel_id: str, user_id: str
 ) -> dict:
@@ -2889,7 +3035,7 @@ def handle_help_command(
     # Return immediate in-channel response (shows with formatting)
     response = {
         "response_type": "in_channel",
-        "text": "*CARL - Cloud Automated Risk & Compliance Logic*\n\n*Setup & Configuration:*\n• `/carl setup start` - Initial setup wizard (first-time setup)\n• `/carl setup status` - View setup status\n• `/carl settings` - View current configuration\n\n*Compliance Commands:*\n• `/carl status` - View compliance posture summary\n• `/carl compliance assess` - Run complete SOC 2 compliance assessment with remediation plan\n• `/carl compliance status` - Show current compliance assessment status\n• `/carl findings list [severity]` - List recent findings with interactive buttons\n• `/carl findings accept <id> '<justification>'` - Accept risk with documented justification\n• `/carl findings ignore <id>` - Ignore a finding (will not create ticket)\n• `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings\n• `/carl ask <question>` - Ask compliance questions\n\n*Architecture & Build Commands:*\n• `/carl recommend <requirement>` - Smart: AI analyzes needs, scans environment, recommends with costs\n• `/carl build <blueprint>` - Quick: Pick from templates, fill params, generate code & PR instantly\n• `/carl blueprints` - List all quick-build templates\n• `/carl estimate <component>` - Get cost estimates\n\n*Foundation Builder:*\n• `/carl foundation start` - Start guided foundation building wizard\n• `/carl foundation status` - Check current foundation session\n• `/carl foundation cancel` - Cancel current session\n• `/carl patterns [category]` - View architecture patterns with pros/cons\n\n*Account Factory (Multi-Account Setup):*\n• `/carl account-factory start` - Start AFT-based multi-account setup wizard\n• `/carl account-factory status` - Check current session status\n• `/carl account-factory cancel` - Cancel current session\n\n*AI Architecture Advisor:*\n• `/carl architect <question>` - Ask AI for architecture recommendations (learns from feedback)\n\n*Audit & Evidence:*\n• `/carl evidence collect` - Collect audit evidence across all resources\n• `/carl evidence list [type]` - View all collected evidence items\n• `/carl evidence status` - View evidence collection status\n• `/carl report executive` - Generate executive compliance summary\n• `/carl report full` - Generate full audit report\n• `/carl report control <control-id>` - Generate control-specific report\n\n*Risk Management:*\n• `/carl exception request` - Request a risk exception\n• `/carl exception list` - View pending/active exceptions\n• `/carl exception approve <id>` - Approve an exception (requires permission)\n\n*Drift Detection:*\n• `/carl drift scan` - Run drift detection scan\n• `/carl drift status` - View current drift summary\n• `/carl drift details <drift-id>` - View drift item details\n• `/carl drift jira-sync` - Create Jira tickets for drift items\n\n*Jira Integration:*\n• `/carl jira test` - Test Jira connection and permissions\n• `/carl jira sync` - Sync findings to Jira tickets\n• `/carl jira status` - View Jira integration statistics\n\n*Coming Soon:*\n• `/carl remediate <finding-id>` - Request auto-remediation\n\n*Examples:*\n• `/carl foundation start` - Build your AWS foundation from scratch\n• `/carl patterns egress` - See egress architecture options\n• `/carl recommend compliant VPC with firewall`\n• `/carl build networking/standard-vpc`\n• `/carl estimate rds multi-az db.r5.large`"
+        "text": "*CARL - Cloud Automated Risk & Compliance Logic*\n\n*Setup & Configuration:*\n• `/carl setup start` - Initial setup wizard (first-time setup)\n• `/carl setup status` - View setup status\n• `/carl settings` - View current configuration\n\n*Compliance Commands:*\n• `/carl status` - View compliance posture summary\n• `/carl compliance assess` - Run complete SOC 2 compliance assessment with remediation plan\n• `/carl compliance status` - Show current compliance assessment status\n• `/carl findings list [severity]` - List recent findings with interactive buttons\n• `/carl findings accept <id> '<justification>'` - Accept risk with documented justification\n• `/carl findings ignore <id>` - Ignore a finding (will not create ticket)\n• `/carl findings create-ticket <id> [<id> ...]` - Create Jira tickets for specific findings\n• `/carl ask <question>` - Ask compliance questions\n\n*Architecture & Build Commands:*\n• `/carl recommend <requirement>` - Smart: AI analyzes needs, scans environment, recommends with costs\n• `/carl build <blueprint>` - Quick: Pick from templates, fill params, generate code & PR instantly\n• `/carl blueprints` - List all quick-build templates\n• `/carl estimate <component>` - Get cost estimates\n\n*Foundation Builder:*\n• `/carl foundation start` - Start guided foundation building wizard\n• `/carl foundation status` - Check current foundation session\n• `/carl foundation cancel` - Cancel current session\n• `/carl patterns [category]` - View architecture patterns with pros/cons\n\n*Account Factory (Multi-Account Setup):*\n• `/carl account-factory start` - Start AFT-based multi-account setup wizard\n• `/carl account-factory status` - Check current session status\n• `/carl account-factory cancel` - Cancel current session\n\n*AI Architecture Advisor:*\n• `/carl architect <question>` - Ask AI for architecture recommendations (learns from feedback)\n\n*Remediation (Auto-Fix):*\n• `/carl remediate list` - List findings with available fixes\n• `/carl remediate <finding-id>` - Request fix for a specific finding\n• `/carl remediate help` - Show remediation help\n\n*Audit & Evidence:*\n• `/carl evidence collect` - Collect audit evidence across all resources\n• `/carl evidence list [type]` - View all collected evidence items\n• `/carl evidence status` - View evidence collection status\n• `/carl report executive` - Generate executive compliance summary\n• `/carl report full` - Generate full audit report\n• `/carl report control <control-id>` - Generate control-specific report\n\n*Risk Management:*\n• `/carl exception request` - Request a risk exception\n• `/carl exception list` - View pending/active exceptions\n• `/carl exception approve <id>` - Approve an exception (requires permission)\n\n*Drift Detection:*\n• `/carl drift scan` - Run drift detection scan\n• `/carl drift status` - View current drift summary\n• `/carl drift details <drift-id>` - View drift item details\n• `/carl drift jira-sync` - Create Jira tickets for drift items\n\n*Jira Integration:*\n• `/carl jira test` - Test Jira connection and permissions\n• `/carl jira sync` - Sync findings to Jira tickets\n• `/carl jira status` - View Jira integration statistics\n\n*Examples:*\n• `/carl foundation start` - Build your AWS foundation from scratch\n• `/carl patterns egress` - See egress architecture options\n• `/carl recommend compliant VPC with firewall`\n• `/carl build networking/standard-vpc`\n• `/carl remediate list` - Show findings you can auto-fix"
     }
 
     return {
@@ -8151,6 +8297,9 @@ def handle_interaction(payload: dict) -> dict:
             elif action_id.startswith("finding_show_fix_"):
                 finding_id = action_id.replace("finding_show_fix_", "")
                 return handle_finding_show_fix(payload, finding_id)
+            elif action_id.startswith("request_remediation_"):
+                finding_id = action_id.replace("request_remediation_", "")
+                return handle_request_remediation(payload, finding_id)
             elif action_id.startswith("approve_remediation_"):
                 remediation_id = action_id.replace("approve_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, True)
@@ -8199,6 +8348,8 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_ask_deep_scan(payload, action)
             elif action_id == "ask_full_report":
                 return handle_ask_full_report(payload, action)
+            elif action_id == "ask_remediate":
+                return handle_ask_remediate(payload, action)
             elif action_id == "deploy_infrastructure":
                 return handle_deploy_review(payload, action)
             elif action_id == "confirm_deploy":
@@ -9661,22 +9812,347 @@ def handle_finding_show_fix(payload: dict, finding_id: str) -> dict:
 def handle_remediation_approval(
     payload: dict, remediation_id: str, approved: bool
 ) -> dict:
-    """Handle remediation approval/denial."""
+    """Handle remediation approval/denial from Slack buttons."""
     channel = payload.get("channel", {}).get("id", "")
     user = payload.get("user", {}).get("id", "")
 
     slack = get_slack_service()
 
-    if approved:
-        # TODO: Trigger remediation execution
+    try:
+        from services.remediation_agent import create_remediation_agent
+
+        agent = create_remediation_agent()
+
+        if approved:
+            slack.post_message(
+                channel,
+                text=f"✅ Remediation `{remediation_id}` approved by <@{user}>. Executing fix...",
+            )
+
+            # Execute the approved fix
+            result = agent.approve_fix(remediation_id)
+
+            if result.get("success"):
+                method = result.get("method", "UNKNOWN")
+                if method == "DIRECT_API":
+                    slack.post_message(
+                        channel,
+                        text=(
+                            f"🎉 *Fix Applied Successfully*\n\n"
+                            f"• Finding: `{result.get('finding_id')}`\n"
+                            f"• Method: Direct AWS API\n"
+                            f"• Applied at: {result.get('applied_at')}\n\n"
+                            f"_Terraform code has also been generated for your records._"
+                        ),
+                    )
+                elif method == "TERRAFORM_PR":
+                    pr_url = result.get("pr_url", "N/A")
+                    slack.post_message(
+                        channel,
+                        text=(
+                            f"📝 *Pull Request Created*\n\n"
+                            f"• Finding: `{result.get('finding_id')}`\n"
+                            f"• PR: {pr_url}\n"
+                            f"• Branch: `{result.get('branch')}`\n\n"
+                            f"_Please review and merge the PR, then run `terraform apply`._"
+                        ),
+                    )
+            else:
+                error = result.get("error", "Unknown error")
+                terraform_code = result.get("terraform_code")
+                message = f"❌ *Fix Failed*\n\nError: {error}"
+                if terraform_code:
+                    message += f"\n\n_You can apply the fix manually using this Terraform code:_\n```hcl\n{terraform_code}\n```"
+                slack.post_message(channel, text=message)
+        else:
+            # Rejected
+            result = agent.reject_fix(remediation_id, reason=f"Rejected by {user}")
+            slack.post_message(
+                channel,
+                text=f"🚫 Remediation `{remediation_id}` rejected by <@{user}>.",
+            )
+
+    except Exception as e:
+        logger.exception(f"Error handling remediation approval: {remediation_id}")
         slack.post_message(
             channel,
-            text=f"Remediation {remediation_id} approved by <@{user}>. Executing...",
+            text=f"❌ Error processing remediation: {str(e)}",
         )
-    else:
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_request_remediation(payload: dict, finding_id: str) -> dict:
+    """Handle Request Remediation button click - shows fix preview and asks for approval."""
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+
+    slack = get_slack_service()
+
+    try:
+        from services.remediation_agent import create_remediation_agent, classify_finding_risk, get_remediation_method
+
+        agent = create_remediation_agent()
+
+        # Get finding details and generate fix
+        details_result = agent._get_finding_details(finding_id)
+        if not details_result.get("success"):
+            slack.post_message(
+                channel,
+                text=f"❌ Could not find finding `{finding_id}`: {details_result.get('error')}",
+            )
+            return {"statusCode": 200, "body": ""}
+
+        finding = details_result.get("finding", {})
+        remediation = details_result.get("remediation", {})
+
+        if not remediation.get("available"):
+            slack.post_message(
+                channel,
+                text=f"⚠️ No automated remediation available for this finding.\n\nPlease remediate manually.",
+            )
+            return {"statusCode": 200, "body": ""}
+
+        # Request approval
+        approval_result = agent._request_approval(finding_id, user)
+        if not approval_result.get("success"):
+            slack.post_message(
+                channel,
+                text=f"❌ Error requesting approval: {approval_result.get('error')}",
+            )
+            return {"statusCode": 200, "body": ""}
+
+        approval_id = approval_result.get("approval_id")
+        risk_level = approval_result.get("risk_level")
+        method = approval_result.get("method")
+        terraform_code = approval_result.get("terraform_code", "")
+
+        # Risk badges
+        risk_badge = {
+            "LOW": "🟢 LOW RISK",
+            "MEDIUM": "🟡 MEDIUM RISK",
+            "HIGH": "🔴 HIGH RISK",
+        }.get(risk_level, "⚪ UNKNOWN")
+
+        method_desc = {
+            "DIRECT_API": "Will be applied directly via AWS API",
+            "TERRAFORM_PR": "Will create a Pull Request with Terraform code",
+        }.get(method, "Unknown method")
+
+        # Build approval message with buttons
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"🔧 Remediation Request"}
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*Finding:* {finding.get('title')}\n"
+                        f"*Resource:* `{finding.get('resource_id')}`\n"
+                        f"*Severity:* {finding.get('severity')}"
+                    )
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Risk Level:*\n{risk_badge}"},
+                    {"type": "mrkdwn", "text": f"*Method:*\n{method_desc}"},
+                ]
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Terraform Code:*\n```hcl\n{terraform_code[:1500] if terraform_code else 'N/A'}{'...' if terraform_code and len(terraform_code) > 1500 else ''}\n```"
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Do you want to apply this fix?*\n\n_Approval ID: `{approval_id}`_"
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Approve & Apply"},
+                        "style": "primary",
+                        "action_id": f"approve_remediation_{approval_id}",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "❌ Reject"},
+                        "style": "danger",
+                        "action_id": f"deny_remediation_{approval_id}",
+                    },
+                ]
+            }
+        ]
+
         slack.post_message(
             channel,
-            text=f"Remediation {remediation_id} denied by <@{user}>.",
+            text=f"Remediation request for {finding.get('title')}",
+            blocks=blocks,
+        )
+
+    except Exception as e:
+        logger.exception(f"Error requesting remediation for {finding_id}")
+        slack.post_message(
+            channel,
+            text=f"❌ Error: {str(e)}",
+        )
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_remediate_command(
+    slack: SlackService, channel_id: str, user_id: str, args: str
+) -> dict:
+    """
+    Handle /carl remediate command.
+
+    Usage:
+    - /carl remediate list - List findings with available remediations
+    - /carl remediate <finding_id> - Request remediation for a specific finding
+    - /carl remediate all - Show all remediable findings for batch approval
+    """
+    try:
+        from services.remediation_agent import create_remediation_agent
+
+        agent = create_remediation_agent()
+
+        if not args or args.lower() == "list":
+            # List remediable findings
+            result = agent._get_pending_remediations(limit=10)
+
+            if not result.get("success"):
+                slack.post_message(
+                    channel_id,
+                    text=f"❌ Error: {result.get('error')}",
+                )
+                return {"statusCode": 200, "body": ""}
+
+            findings = result.get("findings", [])
+
+            if not findings:
+                slack.post_message(
+                    channel_id,
+                    text=(
+                        "✨ No findings with available remediations found.\n\n"
+                        "_Run `/carl evidence collect` first to scan for security issues._"
+                    ),
+                )
+                return {"statusCode": 200, "body": ""}
+
+            # Build list of remediable findings
+            risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
+
+            blocks = [
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "🔧 Remediable Findings"}
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"Found *{len(findings)}* findings with available remediations.\n_Sorted by risk level (low risk first)._"
+                    }
+                },
+                {"type": "divider"},
+            ]
+
+            for f in findings:
+                risk = f.get("risk_level", "MEDIUM")
+                method = f.get("remediation_method", "TERRAFORM_PR")
+                method_label = "Direct" if method == "DIRECT_API" else "PR"
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"{risk_emoji.get(risk, '⚪')} *{f.get('title')}*\n"
+                            f"• ID: `{f.get('finding_id')}`\n"
+                            f"• Severity: {f.get('severity')} | Risk: {risk} | Method: {method_label}\n"
+                            f"• Time: ~{f.get('estimated_time', '5 minutes')}"
+                        )
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🔧 Fix"},
+                        "action_id": f"request_remediation_{f.get('finding_id')}",
+                    }
+                })
+
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💡 Click *Fix* to see details and approve remediation, or use `/carl remediate <finding_id>`"
+                    }
+                ]
+            })
+
+            slack.post_message(
+                channel_id,
+                text="Remediable findings list",
+                blocks=blocks,
+            )
+
+        elif args.lower() == "help":
+            slack.post_message(
+                channel_id,
+                text=(
+                    "*🔧 Remediation Commands*\n\n"
+                    "• `/carl remediate list` - List findings with available fixes\n"
+                    "• `/carl remediate <finding_id>` - Request fix for a specific finding\n\n"
+                    "*How it works:*\n"
+                    "1. CARL shows you the fix details (Terraform code, risk level)\n"
+                    "2. You approve or reject the fix\n"
+                    "3. For LOW risk: CARL applies directly via AWS API\n"
+                    "4. For MEDIUM/HIGH risk: CARL creates a GitHub PR\n\n"
+                    "_CARL never applies fixes without your explicit approval._"
+                ),
+            )
+
+        else:
+            # Specific finding ID
+            finding_id = args.strip()
+
+            # Request remediation (reuse the button handler logic)
+            details_result = agent._get_finding_details(finding_id)
+
+            if not details_result.get("success"):
+                slack.post_message(
+                    channel_id,
+                    text=f"❌ Finding `{finding_id}` not found. Use `/carl remediate list` to see available findings.",
+                )
+                return {"statusCode": 200, "body": ""}
+
+            # Create a mock payload for the button handler
+            mock_payload = {
+                "channel": {"id": channel_id},
+                "user": {"id": user_id},
+            }
+            return handle_request_remediation(mock_payload, finding_id)
+
+    except Exception as e:
+        logger.exception("Error in remediate command")
+        slack.post_message(
+            channel_id,
+            text=f"❌ Error: {str(e)}",
         )
 
     return {"statusCode": 200, "body": ""}

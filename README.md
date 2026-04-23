@@ -118,6 +118,20 @@ All core capabilities have been implemented and deployed, including **NEW: Found
 /carl drift terraform <key>     - Compare with Terraform state
 ```
 
+### Remediation (Auto-Fix with Approval)
+```
+/carl remediate list            - List findings with available fixes
+/carl remediate <finding_id>    - Request fix for specific finding
+/carl remediate help            - Show remediation help
+```
+
+**How it works:**
+- 🟢 **LOW risk** (S3 encryption, versioning): Applied directly via AWS API
+- 🟡 **MEDIUM risk** (flow logs): Creates GitHub PR for review
+- 🔴 **HIGH risk** (security groups): Creates GitHub PR for careful review
+
+CARL **never** applies fixes without explicit user approval.
+
 ## Architecture Overview
 
 ```

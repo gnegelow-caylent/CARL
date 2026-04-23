@@ -663,6 +663,55 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### Remediation Agent with Human-in-the-Loop Approval 🔧 (April 23, 2026)
+
+**Status: COMPLETE** - AI-powered remediation with approval workflow
+
+**What's New:**
+1. ✅ **Remediation Agent** (`remediation_agent.py`) - AI agent for fixing security findings
+2. ✅ **Risk-Based Classification** - Findings ranked as LOW/MEDIUM/HIGH risk
+3. ✅ **Hybrid Fix Method** - LOW risk: direct AWS API, MEDIUM/HIGH: Terraform PR
+4. ✅ **Human-in-the-Loop** - Always shows fix details and requires explicit approval
+5. ✅ **Slack Integration** - `/carl remediate` command with approval buttons
+6. ✅ **Agent Handoff** - Ask Agent detects fix-related queries and offers remediation
+
+**Risk Classification:**
+- 🟢 **LOW** (Direct API): S3 encryption, versioning, public access block, IAM password policy
+- 🟡 **MEDIUM** (PR): VPC flow logs, CloudWatch logging, Config
+- 🔴 **HIGH** (PR): Security groups, RDS public access, EC2/ASG public IPs
+
+**Commands:**
+- `/carl remediate list` - List findings with available fixes (sorted by risk)
+- `/carl remediate <finding_id>` - Request fix for specific finding
+- `/carl remediate help` - Show remediation help
+
+**Workflow:**
+```
+User: /carl remediate list
+     ↓
+CARL: Shows findings ranked by risk (LOW first)
+     ↓
+User: Clicks "🔧 Fix" button
+     ↓
+CARL: Shows preview with Terraform code + risk badge
+     ↓
+User: Clicks "✅ Approve & Apply"
+     ↓
+CARL: LOW risk → Direct AWS API | HIGH risk → GitHub PR
+```
+
+**Key Safety Features:**
+- Never auto-fixes without approval
+- Shows Terraform code for ALL fixes (even direct API)
+- Risk badges help users understand impact
+- Approval IDs create audit trail
+
+**Files Added:**
+- `carl-app/src/services/remediation_agent.py` (~800 lines)
+
+**Files Modified:**
+- `carl-app/src/handlers/slack_router.py` - Added `/carl remediate` command and handlers
+
 ### Removed Dead Agent Code & Standardized on AgentCore 🧹 (January 31, 2026)
 
 **Status: COMPLETE** - All agents now use standardized AgentCore abstraction
