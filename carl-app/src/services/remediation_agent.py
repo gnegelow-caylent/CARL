@@ -20,14 +20,19 @@ Design Principles:
 import os
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Callable, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import boto3
+from boto3.dynamodb.conditions import Key
 
 from services.agent_core import AgentCore, Tool
+
+# DynamoDB table for persisting approvals across Lambda invocations
+APPROVALS_TABLE = os.environ.get("APPROVALS_TABLE", "carl-dev-approvals")
 from services.findings_service import FindingsService
 from services.remediation_service import RemediationService, RemediationGuidance
 from services.github_service import GitHubService
@@ -234,8 +239,9 @@ class RemediationAgent:
         self.infra_repo = infra_repo
         self.infra_repo_owner = infra_repo_owner or os.environ.get("GITHUB_REPO_OWNER")
 
-        # Pending approvals (in-memory for now, could be DynamoDB)
-        self.pending_approvals: dict[str, RemediationRequest] = {}
+        # DynamoDB for persistent approval storage (required for Lambda)
+        self.dynamodb = boto3.resource("dynamodb", region_name=region)
+        self.approvals_table = self.dynamodb.Table(APPROVALS_TABLE)
 
         # Build the agent
         self._build_agent()
@@ -399,6 +405,141 @@ You have access to these tools:
                 }
             ),
         ]
+
+    # =========================================================================
+    # DynamoDB Approval Storage
+    # =========================================================================
+
+    def _store_approval(self, request: RemediationRequest) -> bool:
+        """Store a pending approval in DynamoDB."""
+        try:
+            # Convert to dict and handle enums
+            item = {
+                "approval_id": request.approval_id,
+                "timestamp": request.requested_at,
+                "finding_id": request.finding_id,
+                "account_id": request.account_id,
+                "finding": json.dumps(request.finding),  # Store as JSON string
+                "risk_level": request.risk_level.value,
+                "method": request.method.value,
+                "terraform_code": request.terraform_code,
+                "aws_cli_commands": request.aws_cli_commands,
+                "requested_by": request.requested_by,
+                "requested_at": request.requested_at,
+                "status": request.status,
+                # TTL: expire after 24 hours
+                "ttl": int((datetime.utcnow() + timedelta(hours=24)).timestamp()),
+            }
+
+            self.approvals_table.put_item(Item=item)
+            logger.info(f"Stored approval {request.approval_id} in DynamoDB")
+            return True
+        except Exception as e:
+            logger.exception(f"Error storing approval {request.approval_id}: {e}")
+            return False
+
+    def _get_approval(self, approval_id: str) -> Optional[RemediationRequest]:
+        """Retrieve a pending approval from DynamoDB."""
+        try:
+            # Query by approval_id (hash key) - may have multiple timestamps
+            response = self.approvals_table.query(
+                KeyConditionExpression=Key("approval_id").eq(approval_id),
+                ScanIndexForward=False,  # Most recent first
+                Limit=1
+            )
+
+            items = response.get("Items", [])
+            if not items:
+                logger.warning(f"Approval {approval_id} not found in DynamoDB")
+                return None
+
+            item = items[0]
+
+            # Reconstruct RemediationRequest from DynamoDB item
+            request = RemediationRequest(
+                finding_id=item["finding_id"],
+                account_id=item["account_id"],
+                finding=json.loads(item["finding"]),  # Parse JSON string
+                risk_level=RiskLevel(item["risk_level"]),
+                method=RemediationMethod(item["method"]),
+                terraform_code=item["terraform_code"],
+                aws_cli_commands=item.get("aws_cli_commands", []),
+                requested_by=item["requested_by"],
+                requested_at=item["requested_at"],
+                status=item["status"],
+                approval_id=approval_id,
+            )
+
+            logger.info(f"Retrieved approval {approval_id} from DynamoDB")
+            return request
+        except Exception as e:
+            logger.exception(f"Error retrieving approval {approval_id}: {e}")
+            return None
+
+    def _update_approval_status(self, approval_id: str, status: str) -> bool:
+        """Update the status of an approval in DynamoDB."""
+        try:
+            # First get the item to get the timestamp (range key)
+            response = self.approvals_table.query(
+                KeyConditionExpression=Key("approval_id").eq(approval_id),
+                Limit=1
+            )
+
+            items = response.get("Items", [])
+            if not items:
+                return False
+
+            timestamp = items[0]["timestamp"]
+
+            self.approvals_table.update_item(
+                Key={
+                    "approval_id": approval_id,
+                    "timestamp": timestamp,
+                },
+                UpdateExpression="SET #status = :status",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={":status": status},
+            )
+            logger.info(f"Updated approval {approval_id} status to {status}")
+            return True
+        except Exception as e:
+            logger.exception(f"Error updating approval {approval_id} status: {e}")
+            return False
+
+    def _get_pending_approvals(self) -> list[RemediationRequest]:
+        """Get all pending approvals from DynamoDB."""
+        try:
+            # Scan for PENDING_APPROVAL status (not ideal but approvals should be few)
+            response = self.approvals_table.scan(
+                FilterExpression="status = :status",
+                ExpressionAttributeValues={":status": "PENDING_APPROVAL"}
+            )
+
+            requests = []
+            for item in response.get("Items", []):
+                try:
+                    request = RemediationRequest(
+                        finding_id=item["finding_id"],
+                        account_id=item["account_id"],
+                        finding=json.loads(item["finding"]),
+                        risk_level=RiskLevel(item["risk_level"]),
+                        method=RemediationMethod(item["method"]),
+                        terraform_code=item["terraform_code"],
+                        aws_cli_commands=item.get("aws_cli_commands", []),
+                        requested_by=item["requested_by"],
+                        requested_at=item["requested_at"],
+                        status=item["status"],
+                        approval_id=item["approval_id"],
+                    )
+                    requests.append(request)
+                except Exception as e:
+                    logger.warning(f"Error parsing approval item: {e}")
+                    continue
+
+            return requests
+        except Exception as e:
+            logger.exception(f"Error getting pending approvals: {e}")
+            return []
 
     # =========================================================================
     # Tool Implementations
@@ -890,8 +1031,8 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
                 approval_id=approval_id,
             )
 
-            # Store pending approval
-            self.pending_approvals[approval_id] = request
+            # Store pending approval in DynamoDB (persists across Lambda invocations)
+            self._store_approval(request)
 
             return {
                 "success": True,
@@ -914,8 +1055,8 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
     def _apply_direct_fix(self, approval_id: str) -> dict[str, Any]:
         """Apply a LOW risk fix directly via AWS API."""
         try:
-            # Get pending approval
-            request = self.pending_approvals.get(approval_id)
+            # Get pending approval from DynamoDB
+            request = self._get_approval(approval_id)
             if not request:
                 return {
                     "success": False,
@@ -951,8 +1092,8 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
                 }
 
             if result["success"]:
-                # Update status
-                request.status = "APPLIED"
+                # Update status in DynamoDB
+                self._update_approval_status(approval_id, "APPLIED")
 
                 # Update finding status
                 self.findings_service.update_finding_status(
@@ -970,7 +1111,8 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
                     "message": f"Successfully applied fix for {finding.get('title')}"
                 }
             else:
-                request.status = "FAILED"
+                # Update status in DynamoDB
+                self._update_approval_status(approval_id, "FAILED")
                 return result
 
         except Exception as e:
@@ -983,8 +1125,8 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
     def _create_fix_pr(self, approval_id: str) -> dict[str, Any]:
         """Create a GitHub PR with Terraform fix."""
         try:
-            # Get pending approval
-            request = self.pending_approvals.get(approval_id)
+            # Get pending approval from DynamoDB
+            request = self._get_approval(approval_id)
             if not request:
                 return {
                     "success": False,
@@ -1076,8 +1218,8 @@ This PR adds Terraform code to remediate the security finding.
 
             pr_url = pr.get("html_url")
 
-            # Update status
-            request.status = "PR_CREATED"
+            # Update status in DynamoDB
+            self._update_approval_status(approval_id, "PR_CREATED")
 
             return {
                 "success": True,
@@ -1091,6 +1233,8 @@ This PR adds Terraform code to remediate the security finding.
 
         except Exception as e:
             logger.exception(f"Error creating PR for {approval_id}")
+            # Update status in DynamoDB on failure
+            self._update_approval_status(approval_id, "FAILED")
             return {
                 "success": False,
                 "error": str(e),
@@ -1235,8 +1379,8 @@ This PR adds Terraform code to remediate the security finding.
         return self.agent.execute(user_message)
 
     def get_pending_approvals(self) -> list[dict]:
-        """Get all pending approval requests."""
-        return [req.to_dict() for req in self.pending_approvals.values()]
+        """Get all pending approval requests from DynamoDB."""
+        return [req.to_dict() for req in self._get_pending_approvals()]
 
     def approve_fix(self, approval_id: str) -> dict[str, Any]:
         """
@@ -1245,7 +1389,7 @@ This PR adds Terraform code to remediate the security finding.
         For LOW risk: Applies directly via AWS API
         For MEDIUM/HIGH risk: Creates GitHub PR
         """
-        request = self.pending_approvals.get(approval_id)
+        request = self._get_approval(approval_id)
         if not request:
             return {
                 "success": False,
@@ -1259,14 +1403,15 @@ This PR adds Terraform code to remediate the security finding.
 
     def reject_fix(self, approval_id: str, reason: str = "Rejected by user") -> dict[str, Any]:
         """Reject a fix request."""
-        request = self.pending_approvals.get(approval_id)
+        request = self._get_approval(approval_id)
         if not request:
             return {
                 "success": False,
                 "error": f"Approval {approval_id} not found"
             }
 
-        request.status = "REJECTED"
+        # Update status in DynamoDB
+        self._update_approval_status(approval_id, "REJECTED")
 
         return {
             "success": True,
