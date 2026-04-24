@@ -4,7 +4,7 @@
 
 ## What is CARL?
 
-CARL is an intelligent compliance platform that helps organizations achieve and maintain SOC 2 compliance on AWS. Built on AWS-native services and powered by Amazon Bedrock (Claude), CARL provides **end-to-end compliance automation**:
+CARL is an intelligent compliance platform that helps organizations achieve and maintain SOC 2 and HIPAA compliance on AWS. Built on AWS-native services and powered by Amazon Bedrock (Claude), CARL provides **end-to-end compliance automation**:
 
 | Capability | Description |
 |------------|-------------|
@@ -167,7 +167,7 @@ CARL **never** applies fixes without explicit user approval.
 │  │  ┌─────────────────────────────────────────────────────┐ │   │
 │  │  │  36+ Architecture Patterns (VPC, IAM, Security...)  │ │   │
 │  │  │  Accurate AWS Pricing Data                          │ │   │
-│  │  │  SOC 2 Control Mappings                             │ │   │
+│  │  │  SOC 2 + HIPAA Control Mappings                     │ │   │
 │  │  │  RAG + Continuous Learning                          │ │   │
 │  │  └─────────────────────────────────────────────────────┘ │   │
 │  └──────────────────────────┬───────────────────────────────┘   │
@@ -282,9 +282,9 @@ result = orchestrator.bootstrap_complete_environment(config)
 
 See [BOOTSTRAP_AUTOMATION.md](./BOOTSTRAP_AUTOMATION.md) for complete guide.
 
-## SOC 2 Control Coverage
+## Compliance Framework Coverage
 
-CARL maps all features to SOC 2 Trust Services Criteria:
+CARL maps all features to SOC 2 Trust Services Criteria and HIPAA safeguards:
 
 | Control Area | Coverage |
 |--------------|----------|
@@ -390,7 +390,7 @@ See detailed guides:
 
 1. **AI-Driven with Static Guardrails**: AI generates personalized recommendations; static patterns provide structure and accurate pricing (AI can hallucinate costs)
 
-2. **SOC 2 First**: Every feature maps to SOC 2 controls; evidence collection and reports are audit-ready
+2. **Compliance First**: Every feature maps to SOC 2 and HIPAA controls; evidence collection and reports are audit-ready
 
 3. **Accurate Pricing**: Real AWS pricing data, not estimates; users can trust the cost comparisons
 
@@ -454,7 +454,7 @@ AI-powered auto-fix with human-in-the-loop approval:
 
 ### Bootstrap Automation Released 🚀
 
-CARL now includes **complete AWS environment bootstrap automation**, enabling you to set up production-ready, SOC 2-compliant AWS environments from scratch through code.
+CARL now includes **complete AWS environment bootstrap automation**, enabling you to set up production-ready, SOC 2 and HIPAA-compliant AWS environments from scratch through code.
 
 **New Capabilities:**
 - ✅ **Organizations Bootstrap** - Automated OU structure + SCPs
