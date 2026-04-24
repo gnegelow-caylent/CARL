@@ -665,7 +665,7 @@ Before deploying any AI-driven feature:
 
 ### AWS Bedrock AgentCore Deployment ☁️ (April 24, 2026)
 
-**Status: PARTIAL COMPLETE** - Ask and Architect agents deployed on AWS Bedrock AgentCore
+**Status: COMPLETE** - All agents deployed on AWS Bedrock AgentCore
 
 **What's Deployed:**
 1. ✅ **Ask Agent on AgentCore** - `modules/agentcore-ask/`
@@ -679,9 +679,13 @@ Before deploying any AI-driven feature:
    - DynamoDB access for pricing cache
    - Container deployment via GitHub Actions
 
-**Remaining Work:**
-- [ ] **Remediation Agent** - Currently uses custom `agent_core.py` in Lambda
-  - Planned: Create `modules/agentcore-remediate/` module
+3. ✅ **Remediation Agent on AgentCore** - `modules/agentcore-remediate/`
+   - AgentCore Runtime with remediation tools
+   - Human-in-the-loop approval workflow
+   - Risk-based classification (LOW/MEDIUM/HIGH)
+   - Direct API for LOW risk, PR for MEDIUM/HIGH
+   - AI-generated Terraform code
+   - Container code at `agentcore-code/remediate-agent/`
 
 **Benefits:**
 - AWS-managed scaling and orchestration
@@ -692,6 +696,7 @@ Before deploying any AI-driven feature:
 **Infrastructure:**
 - `carl-infrastructure/modules/agentcore-ask/main.tf`
 - `carl-infrastructure/modules/agentcore-architect/main.tf`
+- `carl-infrastructure/modules/agentcore-remediate/main.tf`
 
 ### Remediation Agent with Human-in-the-Loop Approval 🔧 (April 23, 2026)
 
@@ -1288,17 +1293,16 @@ carl-infrastructure/
 See `ROADMAP.md` for detailed priority list.
 
 **High Priority (Next):**
-1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ PARTIAL (Ask + Architect done, Remediation pending)
-2. Migrate Remediation Agent to AgentCore
-3. Regression testing framework
-4. CARL uninstall & cleanup process
+1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ COMPLETE (All agents on AgentCore)
+2. Regression testing framework
+3. CARL uninstall & cleanup process
 
 **Medium Priority:**
 - Compute security patterns (EC2, ECS, EKS, Lambda)
 - Database deployment patterns (RDS, Aurora, DynamoDB)
 - Application patterns (API Gateway, ALB/NLB, caching)
 - Adaptive monitoring (auto-discovery, self-healing)
-- ~~Auto-remediation execution~~ ✅ COMPLETE (Remediation Agent built)
+- ~~Auto-remediation execution~~ ✅ COMPLETE (Remediation Agent on AgentCore)
 
 **Long-Term:**
 - Multi-framework support (HIPAA, PCI-DSS, ISO 27001)

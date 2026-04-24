@@ -134,7 +134,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ### Phase 1: Missing Security Patterns & AgentCore Migration
 
-#### 1.1 Migrate to AWS Bedrock AgentCore ✅ **PARTIAL COMPLETE** (April 2026)
+#### 1.1 Migrate to AWS Bedrock AgentCore ✅ **COMPLETE** (April 2026)
 **Goal:** Refactor custom AgentCore to use AWS Bedrock AgentCore managed platform (Design Principle #7: Use AWS Managed Services)
 
 **Why:**
@@ -157,24 +157,27 @@ This document outlines the priority roadmap for CARL development based on the ga
   - [x] Container deployment with architecture tools
   - [x] DynamoDB read access for pricing cache
 
-**Remaining (Remediation Agent):**
-- [ ] **Remediation Agent Migration** - Currently uses custom `agent_core.py` in Lambda
-  - [ ] Create `modules/agentcore-remediate/` module
-  - [ ] Convert remediation tools to AgentCore format
-  - [ ] Deploy container with remediation capabilities
-  - [ ] Update `/carl remediate` to invoke AgentCore Runtime
+- [x] **Remediation Agent on AgentCore** - Deployed via `modules/agentcore-remediate/`
+  - [x] AgentCore Runtime (`aws_bedrockagentcore_agent_runtime.remediate`)
+  - [x] Container deployment with remediation tools
+  - [x] Human-in-the-loop approval workflow
+  - [x] Risk-based classification (LOW/MEDIUM/HIGH)
+  - [x] Direct API fixes for LOW risk, GitHub PR for MEDIUM/HIGH
+  - [x] S3, IAM, VPC remediation capabilities
+  - [x] AI-generated Terraform code
 
 **Infrastructure Created:**
 - `carl-infrastructure/modules/agentcore-ask/` - Ask Agent AgentCore module
 - `carl-infrastructure/modules/agentcore-architect/` - Architect Agent AgentCore module
+- `carl-infrastructure/modules/agentcore-remediate/` - Remediation Agent AgentCore module
+- `carl-infrastructure/agentcore-code/remediate-agent/` - Container code
 
 **Benefits Realized:**
-- AWS-managed scaling and orchestration for Ask/Architect agents
+- AWS-managed scaling and orchestration for ALL agents
 - Container-based deployment via GitHub Actions
 - Built-in observability (CloudWatch Logs, X-Ray tracing)
 - Persistent memory option for continuous learning
-
-**Estimated Effort for Remaining Work:** 1 week (Remediation Agent only)
+- No more Lambda timeout limits (8-hour task support)
 
 ---
 

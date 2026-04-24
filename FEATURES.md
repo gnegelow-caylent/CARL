@@ -198,7 +198,7 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | **CloudWatch Metrics** | ✅ Live | Monitor learning progress (patterns learned, confidence scores) |
 | **Environment Adaptation** | ✅ Live | CARL learns your specific AWS setup and team's usage patterns |
 
-### ☁️ AWS Bedrock AgentCore Deployment (NEW - April 2026)
+### ☁️ AWS Bedrock AgentCore Deployment (COMPLETE - April 2026)
 
 CARL's agents run on **AWS Bedrock AgentCore**, the managed agent runtime platform.
 
@@ -206,11 +206,11 @@ CARL's agents run on **AWS Bedrock AgentCore**, the managed agent runtime platfo
 |-------|--------|-------------|----------------|
 | **Ask Agent** | ✅ Live | Q&A with AWS environment scanning | `modules/agentcore-ask/` |
 | **Architect Agent** | ✅ Live | Architecture recommendations with pricing | `modules/agentcore-architect/` |
-| **Remediation Agent** | 📋 Planned | AI-powered auto-fix (currently in Lambda) | Planned: `modules/agentcore-remediate/` |
+| **Remediation Agent** | ✅ Live | AI-powered auto-fix with human approval | `modules/agentcore-remediate/` |
 
 **AgentCore Features Used:**
 - **AgentCore Runtime** - Managed container execution for agents
-- **AgentCore Memory** - Optional persistent memory for continuous learning
+- **AgentCore Memory** - Persistent memory for continuous learning and remediation history
 - **AgentCore Gateway** - MCP-based tool management
 - **Built-in Observability** - CloudWatch Logs, X-Ray tracing, metrics
 
@@ -219,6 +219,7 @@ CARL's agents run on **AWS Bedrock AgentCore**, the managed agent runtime platfo
 - Container-based deployment via GitHub Actions CI/CD
 - 8-hour task support for long-running operations
 - Enterprise-grade security and isolation
+- Human-in-the-loop approval workflow for remediation
 
 ### 🧠 Agentic Architecture Patterns
 

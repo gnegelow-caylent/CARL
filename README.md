@@ -399,15 +399,15 @@ See detailed guides:
 
 ## What's New (Latest Update)
 
-### AWS Bedrock AgentCore Deployment ☁️ (April 2026)
+### AWS Bedrock AgentCore Deployment ☁️ (April 2026) - COMPLETE
 
-CARL's agents now run on **AWS Bedrock AgentCore**, the managed agent runtime platform:
+All CARL agents now run on **AWS Bedrock AgentCore**, the managed agent runtime platform:
 
 | Agent | Status | Description |
 |-------|--------|-------------|
 | **Ask Agent** | ✅ Deployed | Q&A with intelligent AWS environment scanning |
 | **Architect Agent** | ✅ Deployed | Architecture recommendations with real-time pricing |
-| **Remediation Agent** | 📋 Planned | AI-powered auto-fix (currently in Lambda) |
+| **Remediation Agent** | ✅ Deployed | AI-powered auto-fix with human approval |
 
 **Benefits:**
 - AWS-managed scaling and orchestration
@@ -415,14 +415,18 @@ CARL's agents now run on **AWS Bedrock AgentCore**, the managed agent runtime pl
 - Built-in observability (CloudWatch, X-Ray)
 - Container-based deployment via GitHub Actions
 
-**Infrastructure:** `modules/agentcore-ask/` and `modules/agentcore-architect/`
+**Infrastructure:**
+- `modules/agentcore-ask/` - Ask Agent
+- `modules/agentcore-architect/` - Architect Agent
+- `modules/agentcore-remediate/` - Remediation Agent
 
-### Remediation Agent 🔧 (April 2026)
+### Remediation Agent 🔧 (April 2026) - Now on AgentCore
 
 AI-powered auto-fix with human-in-the-loop approval:
 - **Risk Classification**: LOW/MEDIUM/HIGH automatic categorization
 - **Hybrid Method**: Direct AWS API for LOW risk, GitHub PR for MEDIUM/HIGH
 - **Safety**: Never applies fixes without explicit user approval
+- **AI-Generated Terraform**: All fixes include Terraform code for audit
 - Commands: `/carl remediate list`, `/carl remediate <id>`, `/carl remediate help`
 
 ### Bootstrap Automation Released 🚀
@@ -480,17 +484,16 @@ See [modules/mcp-gateway/README.md](./carl-infrastructure/modules/mcp-gateway/RE
 See [ROADMAP.md](./ROADMAP.md) for the complete priority roadmap.
 
 **High Priority:**
-1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ PARTIAL (Ask + Architect done)
-2. Migrate Remediation Agent to AgentCore
-3. Regression testing framework
-4. CARL uninstall & cleanup process
+1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ COMPLETE (All agents on AgentCore)
+2. Regression testing framework
+3. CARL uninstall & cleanup process
 
 **Medium Priority:**
-5. Compute security patterns (EC2, ECS, EKS, Lambda)
-6. Database deployment patterns (RDS, Aurora, DynamoDB)
-7. Application patterns (API Gateway, ALB/NLB, caching)
-8. Adaptive monitoring (auto-discovery, self-healing)
-9. Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
+4. Compute security patterns (EC2, ECS, EKS, Lambda)
+5. Database deployment patterns (RDS, Aurora, DynamoDB)
+6. Application patterns (API Gateway, ALB/NLB, caching)
+7. Adaptive monitoring (auto-discovery, self-healing)
+8. Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
 
 ---
 

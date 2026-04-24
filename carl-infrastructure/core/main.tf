@@ -1015,6 +1015,12 @@ variable "agentcore_architect_image_tag" {
   default     = "agentcore-architect" # Fallback if not passed from GitHub Actions
 }
 
+variable "agentcore_remediate_image_tag" {
+  description = "Tag for AgentCore Remediation container image (includes SHA for each deploy)"
+  type        = string
+  default     = "agentcore-remediate" # Fallback if not passed from GitHub Actions
+}
+
 resource "aws_lambda_function" "carl" {
   # Container image configuration
   # Uses shared ECR repo with tag "lambda" (AgentCore uses tag "agentcore-ask")
@@ -1064,6 +1070,9 @@ resource "aws_lambda_function" "carl" {
 
       # AgentCore Architect Agent (architecture recommendations)
       AGENTCORE_ARCHITECT_RUNTIME_ARN = var.enable_agentcore_architect ? module.agentcore_architect[0].agent_runtime_arn : ""
+
+      # AgentCore Remediation Agent (AI-powered fixes with human approval)
+      AGENTCORE_REMEDIATE_RUNTIME_ARN = var.enable_agentcore_remediate ? module.agentcore_remediate[0].runtime_arn : ""
 
       # Slack
       SLACK_BOT_TOKEN_SSM      = "/${var.environment}/carl/slack/bot-token"
@@ -1307,6 +1316,34 @@ module "agentcore_architect" {
 
   tags = merge(var.tags, {
     Feature = "agentcore_architect"
+  })
+}
+
+# AgentCore Remediation Agent (AI-powered security fixes with human approval)
+# Container is built and pushed by GitHub Actions to carl-lambda ECR repo with tag "agentcore-remediate"
+module "agentcore_remediate" {
+  source = "../modules/agentcore-remediate"
+  count  = var.enable_agentcore_remediate ? 1 : 0
+
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.carl_lambda.repository_url
+  ecr_repository_arn  = aws_ecr_repository.carl_lambda.arn
+  container_image_tag = var.agentcore_remediate_image_tag
+
+  # Use Claude Sonnet 4.5 inference profile (required for on-demand invocation)
+  foundation_model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+  # Enable memory for tracking remediation history
+  enable_memory  = true
+  enable_gateway = false # Direct invocation for now
+
+  environment_variables = {
+    ENVIRONMENT    = var.environment
+    FINDINGS_TABLE = "${local.name_prefix}-findings"
+  }
+
+  tags = merge(var.tags, {
+    Feature = "agentcore_remediate"
   })
 }
 
@@ -1556,4 +1593,14 @@ output "agentcore_architect_runtime_id" {
 output "agentcore_architect_runtime_arn" {
   description = "AgentCore Architect Agent Runtime ARN"
   value       = var.enable_agentcore_architect ? module.agentcore_architect[0].agent_runtime_arn : null
+}
+
+output "agentcore_remediate_runtime_id" {
+  description = "AgentCore Remediation Agent Runtime ID (if enabled)"
+  value       = var.enable_agentcore_remediate ? module.agentcore_remediate[0].runtime_id : "Not enabled - set enable_agentcore_remediate=true to deploy"
+}
+
+output "agentcore_remediate_runtime_arn" {
+  description = "AgentCore Remediation Agent Runtime ARN"
+  value       = var.enable_agentcore_remediate ? module.agentcore_remediate[0].runtime_arn : null
 }

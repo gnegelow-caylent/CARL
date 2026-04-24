@@ -37,6 +37,14 @@ CARL's agents run on AWS Bedrock AgentCore, the managed agent runtime platform.
 - DynamoDB access for pricing cache
 - Container deployment via GitHub Actions
 
+### Remediation Agent (`modules/agentcore-remediate/`)
+- AI-powered security fixes with human-in-the-loop approval
+- Risk-based classification (LOW/MEDIUM/HIGH)
+- LOW risk: Direct AWS API (S3 encryption, versioning, IAM password policy)
+- MEDIUM/HIGH risk: Creates GitHub PR with Terraform code
+- AI-generated Terraform for all fix types
+- Container code at `agentcore-code/remediate-agent/`
+
 ## Prerequisites
 
 - Terraform >= 1.5.0

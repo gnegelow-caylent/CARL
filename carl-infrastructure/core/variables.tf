@@ -102,6 +102,12 @@ variable "enable_agentcore_architect" {
   default     = true
 }
 
+variable "enable_agentcore_remediate" {
+  description = "Enable AWS Bedrock AgentCore for /carl remediate command"
+  type        = bool
+  default     = true
+}
+
 variable "enable_mcp_gateway" {
   description = "Enable MCP Gateway with GitHub, Memory, and Terraform MCPs for Bedrock AgentCore"
   type        = bool
