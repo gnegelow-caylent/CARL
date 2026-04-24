@@ -52,6 +52,7 @@ LOG_AGGREGATION_PATTERNS = ArchitectureDecision(
                 "100GB/mo new logs = approx. $25/mo current + archives",
             ],
             soc2_controls=["CC7.2", "CC7.3"],
+            hipaa_controls=["164.312(b)", "164.312(c)(1)"],  # Audit Controls, Integrity
             implementation_complexity="medium",
             operational_overhead="low",
         ),
@@ -87,6 +88,7 @@ LOG_AGGREGATION_PATTERNS = ArchitectureDecision(
                 "100GB/mo = approx. $500/mo",
             ],
             soc2_controls=["CC7.2", "CC7.3"],
+            hipaa_controls=["164.312(b)"],  # Audit Controls
             implementation_complexity="medium",
             operational_overhead="medium",
         ),
@@ -121,6 +123,7 @@ LOG_AGGREGATION_PATTERNS = ArchitectureDecision(
                 "Subscription filters to S3/Kinesis",
             ],
             soc2_controls=["CC7.2", "CC7.3"],
+            hipaa_controls=["164.312(b)", "164.312(c)(1)"],  # Audit Controls, Integrity
             implementation_complexity="high",
             operational_overhead="medium",
         ),
@@ -157,6 +160,7 @@ LOG_AGGREGATION_PATTERNS = ArchitectureDecision(
                 "Data transfer: Ingestion",
             ],
             soc2_controls=["CC7.2", "CC7.3"],
+            hipaa_controls=["164.312(b)"],  # Audit Controls
             implementation_complexity="high",
             operational_overhead="high",
         ),

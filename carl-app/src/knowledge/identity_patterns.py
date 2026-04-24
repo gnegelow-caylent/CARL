@@ -47,6 +47,7 @@ IDENTITY_CENTER_PATTERNS = ArchitectureDecision(
             monthly_cost_range=(0, 0),
             cost_drivers=["IAM Identity Center is free", "No external IdP costs"],
             soc2_controls=["CC6.1", "CC6.2", "CC6.3"],
+            hipaa_controls=["164.312(a)(1)", "164.312(a)(2)(i)", "164.312(d)"],  # Access Control, Unique User ID, Authentication
             implementation_complexity="low",
             operational_overhead="medium",
         ),
@@ -83,6 +84,7 @@ IDENTITY_CENTER_PATTERNS = ArchitectureDecision(
                 "Azure AD included with M365",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.3"],
+            hipaa_controls=["164.312(a)(1)", "164.312(a)(2)(i)", "164.312(d)"],  # Access Control, Unique User ID, Authentication
             implementation_complexity="medium",
             operational_overhead="low",
         ),
@@ -119,6 +121,7 @@ IDENTITY_CENTER_PATTERNS = ArchitectureDecision(
                 "Plus EC2 for on-prem AD connectivity",
             ],
             soc2_controls=["CC6.1", "CC6.2", "CC6.3"],
+            hipaa_controls=["164.312(a)(1)", "164.312(a)(2)(i)", "164.312(d)"],  # Access Control, Unique User ID, Authentication
             implementation_complexity="high",
             operational_overhead="high",
         ),

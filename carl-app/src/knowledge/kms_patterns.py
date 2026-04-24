@@ -52,6 +52,7 @@ KMS_KEY_STRATEGY_PATTERNS = ArchitectureDecision(
                 "API calls still charged: $0.03/10K",
             ],
             soc2_controls=["CC6.5"],
+            hipaa_controls=["164.312(a)(2)(iv)"],  # Encryption and Decryption
             implementation_complexity="low",
             operational_overhead="low",
         ),
@@ -88,6 +89,7 @@ KMS_KEY_STRATEGY_PATTERNS = ArchitectureDecision(
                 "API calls: $0.03/10K requests",
             ],
             soc2_controls=["CC6.5", "C1.1"],
+            hipaa_controls=["164.312(a)(2)(iv)", "164.312(c)(1)"],  # Encryption, Integrity
             implementation_complexity="medium",
             operational_overhead="low",
         ),
@@ -124,6 +126,7 @@ KMS_KEY_STRATEGY_PATTERNS = ArchitectureDecision(
                 "API calls scale with usage",
             ],
             soc2_controls=["CC6.1", "CC6.5", "C1.1"],
+            hipaa_controls=["164.312(a)(1)", "164.312(a)(2)(iv)", "164.312(c)(1)"],  # Access Control, Encryption, Integrity
             implementation_complexity="high",
             operational_overhead="high",
         ),
@@ -160,6 +163,7 @@ KMS_KEY_STRATEGY_PATTERNS = ArchitectureDecision(
                 "Cross-account API calls charged",
             ],
             soc2_controls=["CC6.5", "C1.1"],
+            hipaa_controls=["164.312(a)(2)(iv)", "164.312(c)(1)"],  # Encryption, Integrity
             implementation_complexity="high",
             operational_overhead="medium",
         ),

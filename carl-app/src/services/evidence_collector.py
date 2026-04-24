@@ -1,7 +1,10 @@
 """
 Audit Evidence Collection Service for CARL.
 
-Automatically collects and stores evidence for SOC 2 audits:
+Automatically collects and stores evidence for compliance audits.
+Supports multiple frameworks: SOC 2, HIPAA, and more.
+
+Evidence types:
 - Resource configurations (IAM policies, S3 bucket settings, etc.)
 - Security tool outputs (Security Hub findings, GuardDuty alerts)
 - Access logs and CloudTrail events
@@ -21,6 +24,14 @@ from botocore.exceptions import ClientError
 
 from utils.logger import get_logger
 from models.finding import Finding, FindingSource, FindingSeverity, FindingStatus
+
+# Import compliance frameworks for multi-framework support
+try:
+    from knowledge.compliance_frameworks import get_framework, DEFAULT_FRAMEWORK, FRAMEWORKS
+    FRAMEWORKS_AVAILABLE = True
+except ImportError:
+    FRAMEWORKS_AVAILABLE = False
+    DEFAULT_FRAMEWORK = "soc2"
 
 logger = get_logger(__name__)
 
@@ -98,6 +109,31 @@ class SOC2Control(Enum):
     PI1_5 = "PI1.5"  # Processing Integrity - Error Handling
 
 
+class HIPAAControl(Enum):
+    """HIPAA Security Rule Technical Safeguards (45 CFR 164.312)."""
+    # Access Control - 164.312(a)
+    ACCESS_CONTROL = "164.312(a)(1)"  # Access Control (Required)
+    UNIQUE_USER_ID = "164.312(a)(2)(i)"  # Unique User Identification (Required)
+    EMERGENCY_ACCESS = "164.312(a)(2)(ii)"  # Emergency Access Procedure (Required)
+    AUTO_LOGOFF = "164.312(a)(2)(iii)"  # Automatic Logoff (Addressable)
+    ENCRYPTION_DECRYPTION = "164.312(a)(2)(iv)"  # Encryption and Decryption (Addressable)
+
+    # Audit Controls - 164.312(b)
+    AUDIT_CONTROLS = "164.312(b)"  # Audit Controls (Required)
+
+    # Integrity - 164.312(c)
+    INTEGRITY = "164.312(c)(1)"  # Integrity (Required)
+    INTEGRITY_MECHANISM = "164.312(c)(2)"  # Mechanism to Authenticate ePHI (Addressable)
+
+    # Person or Entity Authentication - 164.312(d)
+    AUTHENTICATION = "164.312(d)"  # Person or Entity Authentication (Required)
+
+    # Transmission Security - 164.312(e)
+    TRANSMISSION_SECURITY = "164.312(e)(1)"  # Transmission Security (Required)
+    INTEGRITY_CONTROLS = "164.312(e)(2)(i)"  # Integrity Controls (Addressable)
+    ENCRYPTION = "164.312(e)(2)(ii)"  # Encryption (Addressable)
+
+
 # Mapping of AWS resources/checks to SOC 2 controls
 RESOURCE_CONTROL_MAPPING = {
     "iam_user": [SOC2Control.CC6_1, SOC2Control.CC6_2, SOC2Control.CC6_3],
@@ -126,6 +162,65 @@ RESOURCE_CONTROL_MAPPING = {
 }
 
 
+# Mapping of AWS resources/checks to HIPAA Security Rule controls
+HIPAA_RESOURCE_CONTROL_MAPPING = {
+    # IAM resources map to Access Control and Authentication
+    "iam_user": [HIPAAControl.ACCESS_CONTROL, HIPAAControl.UNIQUE_USER_ID, HIPAAControl.AUTHENTICATION],
+    "iam_role": [HIPAAControl.ACCESS_CONTROL, HIPAAControl.UNIQUE_USER_ID],
+    "iam_policy": [HIPAAControl.ACCESS_CONTROL, HIPAAControl.UNIQUE_USER_ID],
+    "iam_mfa": [HIPAAControl.AUTHENTICATION, HIPAAControl.ACCESS_CONTROL],
+
+    # S3 resources map to Integrity and Encryption
+    "s3_bucket": [HIPAAControl.INTEGRITY, HIPAAControl.ACCESS_CONTROL],
+    "s3_encryption": [HIPAAControl.ENCRYPTION_DECRYPTION, HIPAAControl.ENCRYPTION],
+    "s3_logging": [HIPAAControl.AUDIT_CONTROLS],
+
+    # Audit and monitoring resources
+    "cloudtrail": [HIPAAControl.AUDIT_CONTROLS, HIPAAControl.INTEGRITY],
+    "security_hub": [HIPAAControl.AUDIT_CONTROLS, HIPAAControl.INTEGRITY_MECHANISM],
+    "guardduty": [HIPAAControl.AUDIT_CONTROLS],
+    "config": [HIPAAControl.AUDIT_CONTROLS, HIPAAControl.INTEGRITY_MECHANISM],
+    "vpc_flow_logs": [HIPAAControl.AUDIT_CONTROLS],
+
+    # Encryption resources
+    "kms": [HIPAAControl.ENCRYPTION_DECRYPTION, HIPAAControl.ENCRYPTION],
+    "rds_encryption": [HIPAAControl.ENCRYPTION_DECRYPTION, HIPAAControl.ENCRYPTION],
+    "ebs_encryption": [HIPAAControl.ENCRYPTION_DECRYPTION, HIPAAControl.ENCRYPTION],
+    "secrets_manager": [HIPAAControl.ENCRYPTION_DECRYPTION, HIPAAControl.ACCESS_CONTROL],
+
+    # Backup resources map to Integrity (data protection)
+    "backup": [HIPAAControl.INTEGRITY, HIPAAControl.EMERGENCY_ACCESS],
+    "rds_backup": [HIPAAControl.INTEGRITY, HIPAAControl.EMERGENCY_ACCESS],
+
+    # Network/instance security
+    "ec2_imdsv2": [HIPAAControl.ACCESS_CONTROL, HIPAAControl.AUTHENTICATION],
+    "waf": [HIPAAControl.TRANSMISSION_SECURITY, HIPAAControl.INTEGRITY_CONTROLS],
+    "shield": [HIPAAControl.TRANSMISSION_SECURITY],
+
+    # Session management
+    "ssm_patch": [HIPAAControl.INTEGRITY, HIPAAControl.ACCESS_CONTROL],
+    "access_analyzer": [HIPAAControl.ACCESS_CONTROL, HIPAAControl.AUDIT_CONTROLS],
+}
+
+
+def get_controls_for_resource(resource_type: str, framework: str = "soc2") -> list[str]:
+    """Get control IDs for a resource type based on framework.
+
+    Args:
+        resource_type: The AWS resource type (e.g., "iam_user", "s3_bucket")
+        framework: The compliance framework ("soc2" or "hipaa")
+
+    Returns:
+        List of control ID strings for the specified framework
+    """
+    if framework.lower() == "hipaa":
+        controls = HIPAA_RESOURCE_CONTROL_MAPPING.get(resource_type, [])
+        return [c.value for c in controls]
+    else:  # Default to SOC 2
+        controls = RESOURCE_CONTROL_MAPPING.get(resource_type, [])
+        return [c.value for c in controls]
+
+
 @dataclass
 class Evidence:
     """An audit evidence item."""
@@ -133,7 +228,7 @@ class Evidence:
     evidence_type: str
     title: str
     description: str
-    controls: list[str]  # SOC 2 control IDs
+    controls: list[str]  # Control IDs (SOC 2 or HIPAA based on framework)
     resource_type: str
     resource_id: str
     account_id: str
@@ -146,6 +241,7 @@ class Evidence:
     audit_period_start: str = ""
     audit_period_end: str = ""
     tags: list[str] = field(default_factory=list)
+    framework: str = "soc2"  # Compliance framework: "soc2" or "hipaa"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -179,6 +275,7 @@ class Evidence:
             "audit_period_start": self.audit_period_start,
             "audit_period_end": self.audit_period_end,
             "tags": self.tags,
+            "framework": self.framework,
         }
         return item
 
@@ -205,17 +302,24 @@ class EvidenceCollection:
 
 
 class EvidenceCollector:
-    """Service for collecting and managing audit evidence."""
+    """Service for collecting and managing audit evidence.
+
+    Supports multiple compliance frameworks (SOC 2, HIPAA).
+    The framework parameter determines which control mappings are used
+    when creating evidence items.
+    """
 
     def __init__(
         self,
         evidence_bucket: str,
         evidence_table: str,
-        collections_table: str = None
+        collections_table: str = None,
+        framework: str = "soc2"
     ):
         self.evidence_bucket = evidence_bucket
         self.evidence_table = evidence_table
         self.collections_table = collections_table or f"{evidence_table}_collections"
+        self.framework = framework.lower()  # "soc2" or "hipaa"
 
         self.s3 = boto3.client("s3")
         self.dynamodb = boto3.resource("dynamodb")
@@ -258,6 +362,17 @@ class EvidenceCollector:
         if self._account_id is None:
             self._account_id = self.sts.get_caller_identity()["Account"]
         return self._account_id
+
+    def get_controls(self, resource_type: str) -> list[str]:
+        """Get control IDs for a resource type based on the collector's framework.
+
+        Args:
+            resource_type: The AWS resource type (e.g., "iam_user", "s3_bucket")
+
+        Returns:
+            List of control ID strings for the current framework
+        """
+        return get_controls_for_resource(resource_type, self.framework)
 
     def collect_iam_evidence(self) -> list[Evidence]:
         """Collect IAM-related evidence for access control compliance."""
@@ -1819,15 +1934,26 @@ class EvidenceCollector:
         resource_type: str,
         resource_id: str,
         content: Any,
-        controls: list[SOC2Control],
+        controls: list = None,
     ) -> Evidence:
-        """Store evidence in S3 and metadata in DynamoDB."""
+        """Store evidence in S3 and metadata in DynamoDB.
+
+        Args:
+            evidence_type: Type of evidence being collected
+            title: Human-readable title
+            description: Detailed description
+            resource_type: AWS resource type (e.g., "iam_user", "s3_bucket")
+            resource_id: AWS resource identifier
+            content: Evidence content to store
+            controls: Optional list of controls (SOC2Control, HIPAAControl, or strings).
+                      If not provided, controls are derived from resource_type and framework.
+        """
         timestamp = datetime.utcnow()
         content_json = json.dumps(content, default=str, indent=2)
         content_hash = hashlib.sha256(content_json.encode()).hexdigest()
 
         evidence_id = f"ev_{timestamp.strftime('%Y%m%d%H%M%S')}_{content_hash[:8]}"
-        s3_key = f"evidence/{timestamp.strftime('%Y/%m/%d')}/{evidence_type.value}/{evidence_id}.json"
+        s3_key = f"evidence/{self.framework}/{timestamp.strftime('%Y/%m/%d')}/{evidence_type.value}/{evidence_id}.json"
 
         # Store content in S3
         self.s3.put_object(
@@ -1839,8 +1965,17 @@ class EvidenceCollector:
                 "evidence-id": evidence_id,
                 "resource-type": resource_type,
                 "content-hash": content_hash,
+                "framework": self.framework,
             }
         )
+
+        # Determine control IDs based on framework
+        if controls is not None:
+            # Convert enum values to strings if needed
+            control_ids = [c.value if hasattr(c, 'value') else str(c) for c in controls]
+        else:
+            # Use framework-specific mapping based on resource type
+            control_ids = get_controls_for_resource(resource_type, self.framework)
 
         # Create evidence record
         evidence = Evidence(
@@ -1848,7 +1983,7 @@ class EvidenceCollector:
             evidence_type=evidence_type.value,
             title=title,
             description=description,
-            controls=[c.value for c in controls],
+            controls=control_ids,
             resource_type=resource_type,
             resource_id=resource_id,
             account_id=self.account_id,
@@ -1857,13 +1992,14 @@ class EvidenceCollector:
             collected_by="automated",
             s3_key=s3_key,
             content_hash=content_hash,
-            metadata=content if isinstance(content, dict) else {"raw": content}  # Store content for analysis
+            metadata=content if isinstance(content, dict) else {"raw": content},
+            framework=self.framework,
         )
 
         # Store metadata in DynamoDB
         self.table.put_item(Item=evidence.to_dynamodb_item())
 
-        logger.info(f"Stored evidence: {evidence_id} - {title}")
+        logger.info(f"Stored evidence [{self.framework.upper()}]: {evidence_id} - {title}")
         return evidence
 
     def get_recent_evidence(self, limit: int = 50, evidence_type: str = None) -> list[Evidence]:

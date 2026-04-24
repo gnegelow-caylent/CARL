@@ -47,6 +47,9 @@ class DecisionOption:
     # Optional fields with defaults (used by some pattern files)
     implementation_guidance: str = ""
     validation_checklist: list[str] = field(default_factory=list)
+    # HIPAA Security Rule controls (45 CFR 164.312)
+    # Added for multi-framework compliance support
+    hipaa_controls: list[str] = field(default_factory=list)
 
 
 # =============================================================================
@@ -92,6 +95,7 @@ EGRESS_PATTERNS = ArchitectureDecision(
                 "Each VPC bears full cost",
             ],
             soc2_controls=["CC6.6", "CC6.7"],
+            hipaa_controls=["164.312(e)(1)"],  # Transmission Security
             implementation_complexity="low",
             operational_overhead="low",
         ),
@@ -129,6 +133,7 @@ EGRESS_PATTERNS = ArchitectureDecision(
                 "Break-even vs distributed: typically 4-5 VPCs",
             ],
             soc2_controls=["CC6.6", "CC6.7", "CC7.2"],
+            hipaa_controls=["164.312(e)(1)", "164.312(b)"],  # Transmission Security, Audit Controls
             implementation_complexity="medium",
             operational_overhead="medium",
         ),
@@ -170,6 +175,7 @@ EGRESS_PATTERNS = ArchitectureDecision(
                 "500GB/mo processed = approx. $32.50 data processing",
             ],
             soc2_controls=["CC6.6", "CC6.7", "CC6.8", "CC7.1", "CC7.2"],
+            hipaa_controls=["164.312(e)(1)", "164.312(b)", "164.312(c)(1)"],  # Transmission, Audit, Integrity
             implementation_complexity="high",
             operational_overhead="medium",
         ),

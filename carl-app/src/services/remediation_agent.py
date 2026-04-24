@@ -30,16 +30,24 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from services.agent_core import AgentCore, Tool
-
-# DynamoDB table for persisting approvals across Lambda invocations
-APPROVALS_TABLE = os.environ.get("APPROVALS_TABLE", "carl-dev-approvals")
 from services.findings_service import FindingsService
 from services.remediation_service import RemediationService, RemediationGuidance
 from services.github_service import GitHubService
+from services.github_app_service import GitHubAppAuth
 from services.resource_detector import ResourceDetector
+from utils.aws_client import get_secret
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# DynamoDB table for persisting approvals across Lambda invocations
+APPROVALS_TABLE = os.environ.get("APPROVALS_TABLE", "carl-dev-approvals")
+
+# GitHub configuration (matches Lambda environment variables from main.tf)
+GITHUB_APP_CREDENTIALS_SECRET = os.environ.get("GITHUB_APP_CREDENTIALS_SECRET", "/carl/dev/github-app-credentials")
+GITHUB_INFRA_TOKEN_SECRET = os.environ.get("GITHUB_INFRA_TOKEN_SECRET", "")
+GITHUB_INFRA_OWNER = os.environ.get("GITHUB_INFRA_OWNER", "")
+GITHUB_INFRA_REPO = os.environ.get("GITHUB_INFRA_REPO", "carl-infrastructure")
 
 
 # =============================================================================
@@ -223,8 +231,8 @@ class RemediationAgent:
     def __init__(
         self,
         region: str = "us-east-1",
-        github_token: Optional[str] = None,
-        infra_repo: str = "carl-infrastructure",
+        github_token_or_provider: Optional[Any] = None,
+        infra_repo: Optional[str] = None,
         infra_repo_owner: Optional[str] = None,
         progress_callback: Optional[Callable[[str], None]] = None,
     ):
@@ -234,10 +242,10 @@ class RemediationAgent:
         self.resource_detector = ResourceDetector(region=region)
         self.progress_callback = progress_callback
 
-        # GitHub service for PR creation
-        self.github_token = github_token or os.environ.get("GITHUB_TOKEN")
-        self.infra_repo = infra_repo
-        self.infra_repo_owner = infra_repo_owner or os.environ.get("GITHUB_REPO_OWNER")
+        # GitHub service for PR creation (use module-level constants as defaults)
+        self.github_token_or_provider = github_token_or_provider
+        self.infra_repo = infra_repo or GITHUB_INFRA_REPO
+        self.infra_repo_owner = infra_repo_owner or GITHUB_INFRA_OWNER
 
         # DynamoDB for persistent approval storage (required for Lambda)
         self.dynamodb = boto3.resource("dynamodb", region_name=region)
@@ -1134,17 +1142,17 @@ Generate ONLY the Terraform HCL code, no explanations. The code should be produc
                 }
 
             # Validate GitHub configuration
-            if not self.github_token or not self.infra_repo_owner:
+            if not self.github_token_or_provider or not self.infra_repo_owner:
                 return {
                     "success": False,
-                    "error": "GitHub not configured. Set GITHUB_TOKEN and GITHUB_REPO_OWNER environment variables.",
+                    "error": "GitHub not configured. Set GITHUB_APP_CREDENTIALS_SECRET and GITHUB_INFRA_OWNER environment variables.",
                     "terraform_code": request.terraform_code,
                     "message": "You can copy the Terraform code above and manually create a PR."
                 }
 
             # Create GitHub service
             github = GitHubService(
-                token_or_provider=self.github_token,
+                token_or_provider=self.github_token_or_provider,
                 repo_owner=self.infra_repo_owner,
                 repo_name=self.infra_repo,
             )
@@ -1437,12 +1445,41 @@ This PR adds Terraform code to remediate the security finding.
 def create_remediation_agent(
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> RemediationAgent:
-    """Create a remediation agent with default configuration."""
+    """Create a remediation agent with default configuration.
+
+    Uses GitHub App authentication (preferred) or falls back to static token.
+    """
+    github_token_or_provider = None
+
+    # Try GitHub App first (preferred)
+    if GITHUB_APP_CREDENTIALS_SECRET:
+        try:
+            credentials_json = get_secret(GITHUB_APP_CREDENTIALS_SECRET)
+            credentials = json.loads(credentials_json)
+            github_app = GitHubAppAuth(
+                app_id=credentials["app_id"],
+                private_key=credentials["private_key"],
+                installation_id=credentials["installation_id"]
+            )
+            # Pass token provider function (generates short-lived tokens)
+            github_token_or_provider = github_app.get_installation_token
+            logger.info("Remediation agent using GitHub App authentication")
+        except Exception as e:
+            logger.warning(f"GitHub App not configured for remediation: {e}")
+
+    # Fall back to static token (legacy)
+    if not github_token_or_provider and GITHUB_INFRA_TOKEN_SECRET:
+        try:
+            github_token_or_provider = get_secret(GITHUB_INFRA_TOKEN_SECRET)
+            logger.info("Remediation agent using static token authentication (legacy)")
+        except Exception as e:
+            logger.warning(f"Failed to get GitHub token from Secrets Manager: {e}")
+
     return RemediationAgent(
         region=os.environ.get("AWS_REGION", "us-east-1"),
-        github_token=os.environ.get("GITHUB_TOKEN"),
-        infra_repo=os.environ.get("CARL_INFRA_REPO", "carl-infrastructure"),
-        infra_repo_owner=os.environ.get("GITHUB_REPO_OWNER"),
+        github_token_or_provider=github_token_or_provider,
+        infra_repo=GITHUB_INFRA_REPO,
+        infra_repo_owner=GITHUB_INFRA_OWNER,
         progress_callback=progress_callback,
     )
 

@@ -1,14 +1,33 @@
 """
 Bedrock Service for CARL AI capabilities.
+
+Supports multiple compliance frameworks (SOC 2, HIPAA).
+
+Implements AWS-recommended retry patterns for Bedrock throttling:
+- Exponential backoff with jitter for 429/503 errors
+- Configurable retry limits
+- Proper error classification (retryable vs non-retryable)
+
+Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/troubleshooting-api-error-codes.html
 """
 
 import json
 import os
+import random
+import time
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 from utils.logger import get_logger
+
+# Import compliance frameworks for framework-aware prompts
+try:
+    from knowledge.compliance_frameworks import get_framework, get_ai_context, FRAMEWORKS
+    FRAMEWORKS_AVAILABLE = True
+except ImportError:
+    FRAMEWORKS_AVAILABLE = False
 
 logger = get_logger(__name__)
 
@@ -18,7 +37,90 @@ BEDROCK_MODEL_ID = os.environ.get(
 # Use BEDROCK_REGION first, fall back to AWS_REGION, default to us-east-1
 AWS_REGION = os.environ.get("BEDROCK_REGION") or os.environ.get("AWS_REGION", "us-east-1")
 
-SYSTEM_PROMPT = """You are CARL (Cloud Automated Risk & Compliance Logic), an AI assistant specialized in AWS compliance and security. You help users understand and remediate compliance findings, particularly for SOC 2.
+# Default framework (can be overridden per request)
+DEFAULT_FRAMEWORK = os.environ.get("COMPLIANCE_FRAMEWORK", "soc2")
+
+# Retry configuration for Bedrock API calls
+# Based on AWS best practices: https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/retry-backoff.html
+MAX_RETRIES = int(os.environ.get("BEDROCK_MAX_RETRIES", "3"))
+BASE_BACKOFF_MS = int(os.environ.get("BEDROCK_BASE_BACKOFF_MS", "1000"))  # 1 second
+MAX_BACKOFF_MS = int(os.environ.get("BEDROCK_MAX_BACKOFF_MS", "30000"))  # 30 seconds
+JITTER_FACTOR = 0.5  # Random jitter up to 50% of backoff time
+
+# Retryable error codes (per AWS documentation)
+RETRYABLE_ERROR_CODES = {
+    "ThrottlingException",  # 429 - Rate limit exceeded
+    "ServiceUnavailable",   # 503 - Temporary unavailability
+    "InternalFailure",      # 500 - Server error
+    "ServiceException",     # Generic service error
+    "ModelStreamErrorException",  # Streaming error
+}
+
+# Non-retryable errors (fail fast)
+NON_RETRYABLE_ERROR_CODES = {
+    "ValidationException",      # 400 - Bad input
+    "AccessDeniedException",    # 403 - Permission denied
+    "ResourceNotFoundException", # 404 - Model not found
+    "ModelNotReadyException",   # Model still loading
+    "ModelTimeoutException",    # Model took too long
+}
+
+
+def get_system_prompt(framework: str = None) -> str:
+    """Get system prompt with framework-specific context.
+
+    Args:
+        framework: The compliance framework ("soc2" or "hipaa"). Defaults to SOC 2.
+
+    Returns:
+        System prompt with framework-specific controls and guidance.
+    """
+    framework = framework or DEFAULT_FRAMEWORK
+
+    # Get framework-specific context if available
+    if FRAMEWORKS_AVAILABLE:
+        try:
+            framework_context = get_ai_context(framework)
+        except KeyError:
+            framework_context = ""
+    else:
+        framework_context = ""
+
+    base_prompt = """You are CARL (Cloud Automated Risk & Compliance Logic), an AI assistant specialized in AWS compliance and security."""
+
+    if framework.lower() == "hipaa":
+        return f"""{base_prompt} You help users understand and remediate compliance findings for HIPAA.
+
+Your capabilities:
+- Explain compliance findings in plain language
+- Provide remediation guidance for AWS security issues
+- Answer questions about HIPAA Security Rule requirements
+- Recommend AWS security best practices for ePHI protection
+
+Guidelines:
+- Be concise and actionable
+- Prioritize ePHI protection and patient privacy
+- Reference specific AWS services and configurations
+- Acknowledge when you're uncertain
+- Never recommend disabling security controls
+- Always consider HIPAA breach notification requirements
+
+HIPAA Security Rule Technical Safeguards (45 CFR 164.312):
+- 164.312(a) Access Control: Limit ePHI access to authorized persons
+- 164.312(b) Audit Controls: Record and examine activity in ePHI systems
+- 164.312(c) Integrity: Protect ePHI from improper alteration or destruction
+- 164.312(d) Authentication: Verify person/entity seeking access to ePHI
+- 164.312(e) Transmission Security: Guard against unauthorized ePHI access during transmission
+
+{framework_context}
+
+When explaining findings, always include:
+1. What the issue is (plain language, with HIPAA context)
+2. Why it matters (risk to ePHI, potential breach implications)
+3. How to fix it (specific steps with AWS services)
+"""
+    else:  # Default to SOC 2
+        return f"""{base_prompt} You help users understand and remediate compliance findings for SOC 2.
 
 Your capabilities:
 - Explain compliance findings in plain language
@@ -41,6 +143,8 @@ SOC 2 Trust Service Criteria you're familiar with:
 - PI1: Processing Integrity
 - P1: Privacy
 
+{framework_context}
+
 When explaining findings, always include:
 1. What the issue is (plain language)
 2. Why it matters (risk/impact)
@@ -48,49 +152,219 @@ When explaining findings, always include:
 """
 
 
-class BedrockService:
-    """Service for interacting with Amazon Bedrock."""
+# Default system prompt (SOC 2)
+SYSTEM_PROMPT = get_system_prompt("soc2")
 
-    def __init__(self):
+
+class BedrockService:
+    """Service for interacting with Amazon Bedrock.
+
+    Supports multiple compliance frameworks (SOC 2, HIPAA).
+    """
+
+    def __init__(self, framework: str = None):
+        """Initialize the Bedrock service.
+
+        Args:
+            framework: The compliance framework to use ("soc2" or "hipaa").
+                      Defaults to environment variable COMPLIANCE_FRAMEWORK or "soc2".
+        """
         self.client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
         self.model_id = BEDROCK_MODEL_ID
+        self.framework = framework or DEFAULT_FRAMEWORK
+        self.system_prompt = get_system_prompt(self.framework)
+
+    def _calculate_backoff_with_jitter(self, attempt: int) -> float:
+        """Calculate backoff time with exponential increase and random jitter.
+
+        Uses AWS-recommended formula: min(max_backoff, base * 2^attempt) + random_jitter
+
+        Args:
+            attempt: The current retry attempt number (0-indexed)
+
+        Returns:
+            Backoff time in seconds
+        """
+        # Exponential backoff: base_ms * 2^attempt
+        exponential_backoff_ms = BASE_BACKOFF_MS * (2 ** attempt)
+
+        # Cap at maximum backoff
+        capped_backoff_ms = min(exponential_backoff_ms, MAX_BACKOFF_MS)
+
+        # Add random jitter (up to JITTER_FACTOR of the backoff time)
+        jitter_ms = random.uniform(0, capped_backoff_ms * JITTER_FACTOR)
+
+        total_backoff_ms = capped_backoff_ms + jitter_ms
+        return total_backoff_ms / 1000.0  # Convert to seconds
+
+    def _is_retryable_error(self, error: ClientError) -> bool:
+        """Check if an error is retryable based on AWS documentation.
+
+        Args:
+            error: The botocore ClientError exception
+
+        Returns:
+            True if the error should be retried, False otherwise
+        """
+        error_code = error.response.get("Error", {}).get("Code", "")
+        http_status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
+
+        # Check by error code first
+        if error_code in RETRYABLE_ERROR_CODES:
+            return True
+
+        # Check by HTTP status code (429 = throttling, 503 = service unavailable, 500 = internal error)
+        if http_status in (429, 500, 503):
+            return True
+
+        # Non-retryable errors
+        if error_code in NON_RETRYABLE_ERROR_CODES:
+            return False
+
+        return False
 
     def invoke_model(
         self,
         prompt: str,
-        system_prompt: str = SYSTEM_PROMPT,
+        system_prompt: str = None,
         max_tokens: int = 1024,
         temperature: float = 0.3,
     ) -> str:
-        """Invoke Bedrock model with prompt."""
-        try:
-            body = {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": prompt}],
-            }
+        """Invoke Bedrock model with prompt and automatic retry on transient errors.
 
-            response = self.client.invoke_model(
-                modelId=self.model_id,
-                body=json.dumps(body),
-                contentType="application/json",
-                accept="application/json",
-            )
+        Implements AWS-recommended retry pattern with exponential backoff and jitter
+        for handling throttling (429) and service unavailability (503) errors.
 
-            response_body = json.loads(response["body"].read())
-            return response_body["content"][0]["text"]
+        Args:
+            prompt: The user prompt to send
+            system_prompt: Optional system prompt override. If not provided, uses
+                          the framework-specific prompt.
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
 
-        except Exception as e:
-            logger.exception("Error invoking Bedrock model")
-            return f"I encountered an error processing your request: {str(e)}"
+        Returns:
+            The model's response text, or an error message if all retries fail.
+        """
+        # Use provided system prompt or fall back to framework-specific default
+        system_prompt = system_prompt or self.system_prompt
 
-    def ask_compliance_question(self, question: str, context: str = "") -> str:
-        """Answer a compliance-related question using environment context."""
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        last_error = None
+        for attempt in range(MAX_RETRIES + 1):  # +1 for initial attempt
+            try:
+                response = self.client.invoke_model(
+                    modelId=self.model_id,
+                    body=json.dumps(body),
+                    contentType="application/json",
+                    accept="application/json",
+                )
+
+                response_body = json.loads(response["body"].read())
+                return response_body["content"][0]["text"]
+
+            except ClientError as e:
+                last_error = e
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                http_status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
+
+                # Check if we should retry
+                if self._is_retryable_error(e) and attempt < MAX_RETRIES:
+                    backoff_time = self._calculate_backoff_with_jitter(attempt)
+                    logger.warning(
+                        f"Bedrock API error (attempt {attempt + 1}/{MAX_RETRIES + 1}): "
+                        f"{error_code} (HTTP {http_status}). Retrying in {backoff_time:.2f}s..."
+                    )
+                    time.sleep(backoff_time)
+                    continue
+
+                # Non-retryable error or max retries exceeded
+                if error_code == "ThrottlingException":
+                    logger.error(f"Bedrock throttling after {attempt + 1} attempts. Consider requesting quota increase.")
+                    return "I'm experiencing high demand right now. Please try again in a moment."
+                elif error_code == "AccessDeniedException":
+                    logger.error(f"Bedrock access denied: {e}")
+                    return "I don't have permission to access this model. Please check IAM permissions."
+                elif error_code == "ValidationException":
+                    logger.error(f"Bedrock validation error: {e}")
+                    return f"There was an issue with my request format: {str(e)}"
+                elif error_code == "ResourceNotFoundException":
+                    logger.error(f"Bedrock model not found: {self.model_id}")
+                    return f"The AI model '{self.model_id}' is not available. Please check model access."
+                else:
+                    logger.exception(f"Bedrock API error after {attempt + 1} attempts: {error_code}")
+                    return f"I encountered an error: {error_code}. Please try again."
+
+            except json.JSONDecodeError as e:
+                logger.exception("Failed to parse Bedrock response")
+                return "I received an invalid response from the AI service. Please try again."
+
+            except Exception as e:
+                last_error = e
+                logger.exception(f"Unexpected error invoking Bedrock model (attempt {attempt + 1})")
+
+                # Only retry on unexpected errors if we haven't exhausted retries
+                if attempt < MAX_RETRIES:
+                    backoff_time = self._calculate_backoff_with_jitter(attempt)
+                    logger.warning(f"Retrying after unexpected error in {backoff_time:.2f}s...")
+                    time.sleep(backoff_time)
+                    continue
+
+                return f"I encountered an unexpected error: {str(e)}"
+
+        # Should not reach here, but just in case
+        logger.error(f"All {MAX_RETRIES + 1} attempts failed for Bedrock invocation")
+        return f"I couldn't complete your request after multiple attempts. Please try again later."
+
+    def ask_compliance_question(self, question: str, context: str = "", framework: str = None) -> str:
+        """Answer a compliance-related question using environment context.
+
+        Args:
+            question: The user's compliance question
+            context: AWS environment scan data
+            framework: Compliance framework ("soc2" or "hipaa"). Uses instance default if not provided.
+        """
         has_scan_data = context and len(context.strip()) > 50
+        framework = framework or self.framework
 
-        prompt = f"""You are CARL, an AI compliance expert for AWS infrastructure and SOC 2 compliance.
+        # Framework-specific context
+        if framework.lower() == "hipaa":
+            framework_name = "HIPAA Security Rule"
+            framework_controls = """
+HIPAA Security Rule Controls:
+• 164.312(a) Access Control - Limit ePHI access to authorized persons
+• 164.312(b) Audit Controls - Record and examine system activity
+• 164.312(c) Integrity - Protect ePHI from alteration/destruction
+• 164.312(d) Authentication - Verify person/entity identity
+• 164.312(e) Transmission Security - Guard ePHI during transmission"""
+            compliance_examples = """
+*HIPAA Requirements*
+• Encrypt ePHI at rest and in transit (164.312(a)(2)(iv), 164.312(e)(2)(ii))
+• Enable CloudTrail for audit logs (164.312(b) - Audit Controls)
+• Implement MFA for ePHI access (164.312(d) - Authentication)
+• Use VPC endpoints for private access (164.312(e)(1) - Transmission Security)"""
+        else:  # Default to SOC 2
+            framework_name = "SOC 2"
+            framework_controls = """
+SOC 2 Trust Service Criteria:
+• CC6 - Logical and Physical Access Controls
+• CC7 - System Operations (monitoring, incident response)
+• A1 - Availability
+• C1 - Confidentiality
+• PI1 - Processing Integrity"""
+            compliance_examples = """
+*SOC 2 Requirements*
+• Force HTTPS with ACM certificate (CC6.7 - Encryption in Transit)
+• Enable ALB access logs (CC7.2 - Monitoring)
+• Restrict SSH access, no 0.0.0.0/0 (CC6.1 - Access Controls)"""
+
+        prompt = f"""You are CARL, an AI compliance expert for AWS infrastructure and {framework_name} compliance.
 
 Your job: Answer the user's question clearly and actionably using LIVE AWS environment data.
 
@@ -171,10 +445,7 @@ Question: "How do I stand up a web server?"
 2. *Add Application Load Balancer* for traffic distribution
 3. *Configure security groups* to allow HTTPS (443) from internet
 
-*SOC 2 Requirements*
-• Force HTTPS with ACM certificate (CC6.7 - Encryption in Transit)
-• Enable ALB access logs (CC7.2 - Monitoring)
-• Restrict SSH access, no 0.0.0.0/0 (CC6.1 - Access Controls)
+{compliance_examples}
 
 *Want More Detail?*
 I can scan additional resources (load balancers, detailed security group rules, Route53 configs) for deeper recommendations. Or say "yes" and I'll hand off to the Architect Agent to generate Terraform code.
@@ -189,13 +460,13 @@ Question: "Should I use AWS Glue or build my own ETL on EC2?"
 • Cost: Approx. $220/month (20 DPUs x 8 hours/day x 30 days x $0.44/DPU-hour)
 • Best for: Minimal ops overhead, automatic scaling
 • Pros: No servers to manage, pay only when running, built-in Spark
-• SOC 2: CC7.2 (CloudWatch logging automatic)
+• Compliance: Automatic audit logging ({framework_name} audit controls)
 
 *Option 2: Self-Managed EC2*
 • Cost: Approx. $50/month (t3.large 24/7) + 20 hours/month ops time (approx. $330 total value)
 • Best for: Custom logic, existing tools
 • Pros: Full control, can use any tool
-• SOC 2: CC6.1 (Must manage SSH access, patching)
+• Compliance: Must manage access controls, patching ({framework_name} access requirements)
 
 *💰 Recommended: AWS Glue*
 • Saves $110/month in ops time
@@ -216,10 +487,34 @@ Remember: Answer the SPECIFIC question. Include costs when relevant. Be helpful 
         account_id: str,
         region: str,
         raw_description: str,
-        soc2_controls: list[str],
+        controls: list[str],
         compliance_status: str,
+        framework: str = None,
     ) -> str:
-        """Generate a clear, actionable Jira ticket description using AI."""
+        """Generate a clear, actionable Jira ticket description using AI.
+
+        Args:
+            controls: List of control IDs (SOC 2 or HIPAA depending on framework)
+            framework: Compliance framework ("soc2" or "hipaa"). Uses instance default if not provided.
+        """
+        framework = framework or self.framework
+
+        # Framework-specific compliance section
+        if framework.lower() == "hipaa":
+            framework_name = "HIPAA"
+            controls_label = "HIPAA Security Rule Controls"
+            compliance_section = f"""## HIPAA Compliance
+{f"This finding affects HIPAA Security Rule controls: {', '.join(controls)}" if controls else "No specific HIPAA controls mapped yet."}
+Explain briefly (1 sentence) why this matters for ePHI protection and HIPAA compliance."""
+            compliance_impact = "potential ePHI breach, HIPAA violation, regulatory penalties"
+        else:  # Default to SOC 2
+            framework_name = "SOC 2"
+            controls_label = "SOC 2 Controls"
+            compliance_section = f"""## SOC 2 Compliance
+{f"This finding affects SOC 2 controls: {', '.join(controls)}" if controls else "No specific SOC 2 controls mapped yet."}
+Explain briefly (1 sentence) why this matters for auditors."""
+            compliance_impact = "data exposure, compliance failure, security breach"
+
         prompt = f"""You are writing a Jira ticket for a security finding. Write it in a clear, professional, human-friendly way that an engineer can immediately understand and act on.
 
 FINDING DETAILS:
@@ -231,8 +526,9 @@ FINDING DETAILS:
 - AWS Account: {account_id}
 - Region: {region}
 - Compliance Status: {compliance_status}
-- SOC 2 Controls: {', '.join(soc2_controls) if soc2_controls else 'None'}
+- {controls_label}: {', '.join(controls) if controls else 'None'}
 - Technical Description: {raw_description}
+- Framework: {framework_name}
 
 Write a Jira ticket description following these EXACT sections (use h2 headers):
 
@@ -240,7 +536,7 @@ Write a Jira ticket description following these EXACT sections (use h2 headers):
 Write 2-3 sentences explaining what's wrong in plain English. Avoid jargon. Make it clear why this matters.
 
 ## Business Impact
-1-2 sentences on the risk if this isn't fixed. Be specific about consequences (data exposure, compliance failure, security breach, etc.)
+1-2 sentences on the risk if this isn't fixed. Be specific about consequences ({compliance_impact}, etc.)
 
 ## Affected Resource
 • *Type:* {resource_type}
@@ -262,9 +558,7 @@ What needs to be true for this ticket to be considered done? Write 3-5 specific,
 - [ ] [Another testable condition]
 - [ ] [Verification completed]
 
-## SOC 2 Compliance
-{f"This finding affects SOC 2 controls: {', '.join(soc2_controls)}" if soc2_controls else "No specific SOC 2 controls mapped yet."}
-Explain briefly (1 sentence) why this matters for auditors.
+{compliance_section}
 
 ## References
 - AWS Documentation: [Include relevant AWS doc link if applicable]
@@ -363,9 +657,22 @@ CRITICAL RULES:
         business_justification: str,
         compensating_controls: str,
         expiration_date: str,
-        requested_by: str
+        requested_by: str,
+        framework: str = None,
     ) -> str:
-        """Generate a clear risk exception request description."""
+        """Generate a clear risk exception request description.
+
+        Args:
+            framework: Compliance framework ("soc2" or "hipaa"). Uses instance default if not provided.
+        """
+        framework = framework or self.framework
+
+        # Framework-specific compliance acknowledgment
+        if framework.lower() == "hipaa":
+            compliance_ack = "- [ ] HIPAA Privacy Officer acknowledgment (for ePHI-related controls)"
+        else:  # Default to SOC 2
+            compliance_ack = "- [ ] Compliance officer acknowledgment (for SOC 2 controls)"
+
         prompt = f"""You are writing a Jira ticket for a risk exception request. This is a formal request to accept a security risk instead of fixing it. Make it professional and thorough.
 
 EXCEPTION REQUEST DETAILS:
@@ -404,7 +711,7 @@ Brief description of the security issue that prompted this exception request.
 This exception request requires:
 - [ ] Security team review
 - [ ] Engineering manager approval
-- [ ] Compliance officer acknowledgment (for SOC 2 controls)
+{compliance_ack}
 
 ## Expiration and Review
 - This exception expires on {expiration_date}
@@ -426,15 +733,32 @@ CRITICAL RULES:
 
         return self.invoke_model(prompt, max_tokens=2048, temperature=0.4)
 
-    def explain_finding(self, finding: dict[str, Any]) -> str:
-        """Explain a security finding in plain language."""
+    def explain_finding(self, finding: dict[str, Any], framework: str = None) -> str:
+        """Explain a security finding in plain language.
+
+        Args:
+            finding: Finding dictionary with title, severity, resource_id, etc.
+            framework: Compliance framework ("soc2" or "hipaa"). Uses instance default if not provided.
+        """
+        framework = framework or self.framework
+
+        # Framework-specific labels
+        if framework.lower() == "hipaa":
+            controls_label = "HIPAA Controls"
+            impact_header = "*HIPAA Impact*"
+            impact_description = "[1 sentence about which HIPAA control this affects and ePHI risk]"
+        else:  # Default to SOC 2
+            controls_label = "SOC 2 Controls"
+            impact_header = "*SOC 2 Impact*"
+            impact_description = "[1 sentence about which control this affects]"
+
         prompt = f"""Explain this security finding briefly:
 
 *Finding:* {finding.get('title', 'Unknown')}
 *Severity:* {finding.get('severity', 'Unknown')}
 *Resource:* {finding.get('resource_id', 'Unknown')} ({finding.get('resource_type', 'Unknown')})
 *Description:* {finding.get('description', 'No description')}
-*SOC 2 Controls:* {', '.join(finding.get('control_ids', []))}
+*{controls_label}:* {', '.join(finding.get('control_ids', []))}
 
 SLACK FORMATTING RULES:
 - Use *text* for bold (single asterisk), NOT **text**
@@ -455,8 +779,8 @@ Format (max 300 words):
 • Step 2
 • Step 3
 
-*SOC 2 Impact*
-[1 sentence about which control this affects]"""
+{impact_header}
+{impact_description}"""
 
         return self.invoke_model(prompt, max_tokens=512)
 
