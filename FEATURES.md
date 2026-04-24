@@ -79,30 +79,63 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | Findings Management | ✅ Live | `/carl findings` to view, filter, acknowledge findings |
 | Risk Exception Management | ✅ Live | Accept risks with expiration dates and business justification |
 
-### 🏥 HIPAA Compliance Framework (NEW - April 2026)
+### 🏥 Multi-Framework Compliance Support
 
-CARL now includes comprehensive HIPAA compliance support for healthcare workloads.
+CARL supports 4 compliance frameworks with comprehensive control mappings and architecture patterns.
+
+| Framework | Status | Controls | Architecture Patterns |
+|-----------|--------|----------|----------------------|
+| **SOC 2 Type II** | ✅ Live | Trust Services Criteria (CC1-CC9, A1) | Existing patterns |
+| **HIPAA** | ✅ Live | 5 technical safeguards + admin/physical | 4 patterns |
+| **NIST CSF 2.0** | ✅ Live | 6 functions, 22 categories | 4 patterns |
+| **PCI DSS 4.0** | ✅ Live | 12 requirements, 6 goals | 4 patterns |
+
+### 🏥 HIPAA Compliance Framework
 
 | Feature | Status | Description |
 |---------|--------|-------------|
 | **HIPAA Controls Mapping** | ✅ Live | 18 HIPAA safeguard categories mapped to AWS services |
 | **HIPAA Eligible Services** | ✅ Live | 140+ AWS services with HIPAA eligibility status |
-| **Administrative Safeguards** | ✅ Live | Access controls, workforce training, security management |
-| **Physical Safeguards** | ✅ Live | Facility access, workstation security, device controls |
-| **Technical Safeguards** | ✅ Live | Access control, audit controls, integrity, transmission security |
-| **Organizational Requirements** | ✅ Live | BAA requirements, policies and procedures |
+| **HIPAA Architecture Patterns** | ✅ Live | PHI storage, RDS databases, VPC isolation, audit logging |
 
-**HIPAA Safeguard Categories:**
-- Administrative: Security Management, Workforce Security, Information Access, Training, Incident Response, Contingency Planning, Evaluation, BAA
-- Physical: Facility Access, Workstation Use, Workstation Security, Device Controls
-- Technical: Access Control, Audit Controls, Integrity, Person Authentication, Transmission Security
-- Organizational: BAA, Policies & Procedures, Documentation
+### 🔒 NIST Cybersecurity Framework 2.0 (NEW - April 2026)
 
-**AWS Services Coverage:**
-- 140+ services categorized by HIPAA eligibility
-- BAA coverage status for each service
-- Recommended configurations for HIPAA compliance
-- Integration with evidence collection for HIPAA audits
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **6 Core Functions** | ✅ Live | Govern, Identify, Protect, Detect, Respond, Recover |
+| **22 Categories** | ✅ Live | Full CSF 2.0 category coverage (GV.OC, ID.AM, PR.DS, etc.) |
+| **AWS Config Rules** | ✅ Live | 30+ Config rules mapped to NIST controls |
+| **Cross-Framework Mapping** | ✅ Live | NIST ↔ SOC 2 ↔ HIPAA mappings |
+| **NIST Architecture Patterns** | ✅ Live | Zero trust, vulnerability mgmt, incident response, DR |
+
+### 💳 PCI DSS 4.0 (NEW - April 2026)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **12 Requirements** | ✅ Live | Full PCI DSS 4.0 mapped to AWS services |
+| **6 Goals** | ✅ Live | Network security, data protection, vuln mgmt, access control |
+| **SAQ Applicability** | ✅ Live | Requirements tagged by SAQ type (A, B, C, D, etc.) |
+| **PCI Architecture Patterns** | ✅ Live | CDE segmentation, tokenization, logging, encryption |
+
+### 📋 Compliance Architecture Patterns (NEW)
+
+**HIPAA Patterns:**
+- `phi_storage_encrypted` - S3 with KMS, Macie, versioning for PHI
+- `phi_database_rds` - Multi-AZ RDS with encryption and audit logging
+- `hipaa_vpc_isolation` - Private VPC with VPC endpoints, no internet
+- `hipaa_audit_logging` - 6-year retention with S3 Object Lock
+
+**NIST CSF Patterns:**
+- `zero_trust_identity` - IAM Identity Center, Verified Access, MFA
+- `continuous_vulnerability_management` - Inspector, SSM patching, Security Hub
+- `incident_response_automation` - GuardDuty, Detective, Incident Manager
+- `resilient_backup_recovery` - AWS Backup, cross-region, vault lock
+
+**PCI DSS Patterns:**
+- `cde_network_segmentation` - Network Firewall, Transit Gateway isolation
+- `pan_tokenization` - AWS Payment Cryptography, format-preserving tokens
+- `pci_logging_monitoring` - CloudTrail, OpenSearch, 1-year retention
+- `pci_encryption_in_transit` - TLS 1.2+, ACM, ALB HTTPS-only
 
 ### 📊 Audit & Evidence
 

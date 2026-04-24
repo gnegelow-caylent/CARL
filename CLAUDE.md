@@ -663,6 +663,30 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### NIST CSF 2.0 & PCI DSS 4.0 Frameworks 📋 (April 24, 2026)
+
+**Status: COMPLETE** - Two new compliance frameworks with 12 architecture patterns
+
+**What's New:**
+1. ✅ **NIST CSF 2.0** - 6 functions, 22 categories mapped to AWS services
+2. ✅ **PCI DSS 4.0** - 12 requirements across 6 goals
+3. ✅ **12 Architecture Patterns** - HIPAA (4), NIST (4), PCI (4)
+4. ✅ **Cross-Framework Mappings** - NIST ↔ SOC 2 ↔ HIPAA ↔ PCI DSS
+5. ✅ **AI Prompt Context** - Framework-specific guidance
+
+**Files Created:**
+- `knowledge/nist_csf_controls.py` - NIST CSF 2.0 controls
+- `knowledge/pci_dss_controls.py` - PCI DSS 4.0 requirements
+- `knowledge/compliance_architecture_patterns.py` - 12 compliance patterns
+
+**Supported Frameworks:**
+| Framework | Controls | Patterns |
+|-----------|----------|----------|
+| SOC 2 | CC1-CC9, A1 | Existing |
+| HIPAA | 164.312 Technical Safeguards | 4 |
+| NIST CSF 2.0 | GV, ID, PR, DE, RS, RC | 4 |
+| PCI DSS 4.0 | Req 1-12 | 4 |
+
 ### Multi-Agent Handoffs 🤝 (April 24, 2026)
 
 **Status: COMPLETE** - Seamless context passing between Ask, Architect, and Remediate agents
