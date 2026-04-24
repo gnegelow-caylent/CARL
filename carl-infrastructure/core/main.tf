@@ -1097,6 +1097,9 @@ resource "aws_lambda_function" "carl" {
       # Foundation builder sessions
       FOUNDATION_TABLE = var.enable_foundation ? module.foundation[0].foundation_table_name : "${local.name_prefix}-foundation"
 
+      # Multi-agent handoffs table
+      HANDOFFS_TABLE = var.enable_foundation ? module.foundation[0].handoffs_table_name : "${local.name_prefix}-handoffs"
+
       # Feature flags (all disabled initially)
       FEATURE_MONITORING_ENABLED = "false"
       FEATURE_BOOTSTRAP_ENABLED  = "false"

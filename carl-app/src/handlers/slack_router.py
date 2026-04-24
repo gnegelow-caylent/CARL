@@ -181,7 +181,7 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
         session_id: Optional session ID for conversation continuity
 
     Returns:
-        dict with 'response' (text) and 'success' (bool)
+        dict with 'response' (text), 'success' (bool), and optionally 'handoff_suggestion'
     """
     import uuid
 
@@ -206,6 +206,7 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
 
         # Process response - AgentCore returns an event stream
         full_response = ""
+        handoff_suggestion = None
         event_stream = response.get("responseStream")
         if event_stream:
             for event in event_stream:
@@ -226,16 +227,23 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
                 body = resp.read()
                 if isinstance(body, bytes):
                     body = body.decode("utf-8")
-                # Parse JSON response - AgentCore wraps result in {"result": "..."}
+                # Parse JSON response - AgentCore returns {"result": "...", "handoff_suggestion": {...}}
                 try:
                     parsed = json.loads(body)
                     full_response = parsed.get("result", body)
+                    # Extract handoff_suggestion if present
+                    if "handoff_suggestion" in parsed:
+                        handoff_suggestion = parsed["handoff_suggestion"]
+                        logger.info(f"Handoff suggestion detected: {handoff_suggestion.get('target_agent')}")
                 except json.JSONDecodeError:
                     full_response = body
 
         if full_response:
             logger.info(f"AgentCore response received: {len(full_response)} chars")
-            return {"success": True, "response": full_response, "session_id": session_id}
+            result = {"success": True, "response": full_response, "session_id": session_id}
+            if handoff_suggestion:
+                result["handoff_suggestion"] = handoff_suggestion
+            return result
         else:
             logger.warning("AgentCore returned empty response")
             return {"success": False, "response": "", "error": "Empty response from AgentCore"}
@@ -315,6 +323,83 @@ def invoke_agentcore_architect(requirement: str, session_id: str = None) -> dict
 
     except Exception as e:
         logger.error(f"AgentCore Architect invocation failed: {e}", exc_info=True)
+        return {"success": False, "response": "", "error": str(e)}
+
+
+def invoke_agentcore_remediate(prompt: str, session_id: str = None, context: dict = None) -> dict:
+    """
+    Invoke AgentCore Remediate Agent for AI-powered security fixes.
+
+    Args:
+        prompt: The remediation request
+        session_id: Optional session ID for conversation continuity
+        context: Optional context from handoff (findings, scan results, etc.)
+
+    Returns:
+        dict with 'response' (text) and 'success' (bool)
+    """
+    import uuid
+
+    runtime_arn = os.environ.get("AGENTCORE_REMEDIATE_RUNTIME_ARN", "")
+    if not runtime_arn:
+        return {"success": False, "response": "", "error": "AgentCore Remediate not configured"}
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
+        # Build payload with prompt and optional context
+        payload = {"prompt": prompt}
+        if context:
+            payload["context"] = context
+
+        logger.info(f"Invoking AgentCore Remediate runtime: {runtime_arn}")
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            runtimeSessionId=session_id,
+            payload=json.dumps(payload).encode("utf-8")
+        )
+
+        # Process response - AgentCore returns an event stream
+        full_response = ""
+        event_stream = response.get("responseStream")
+        if event_stream:
+            for event in event_stream:
+                # AgentCore events contain chunks of the response
+                if "chunk" in event:
+                    chunk_data = event["chunk"]
+                    if "bytes" in chunk_data:
+                        chunk_text = chunk_data["bytes"].decode("utf-8")
+                        full_response += chunk_text
+                elif "trace" in event:
+                    # Trace events contain debugging info, skip for now
+                    pass
+
+        # Also check for direct response body (AgentCore returns JSON with "result" key)
+        if not full_response:
+            resp = response.get("response")
+            if resp and hasattr(resp, "read"):
+                body = resp.read()
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8")
+                # Parse JSON response - AgentCore wraps result in {"result": "..."}
+                try:
+                    parsed = json.loads(body)
+                    full_response = parsed.get("result", body)
+                except json.JSONDecodeError:
+                    full_response = body
+
+        if full_response:
+            logger.info(f"AgentCore Remediate response received: {len(full_response)} chars")
+            return {"success": True, "response": full_response, "session_id": session_id}
+        else:
+            logger.warning("AgentCore Remediate returned empty response")
+            return {"success": False, "response": "", "error": "Empty response from AgentCore Remediate"}
+
+    except Exception as e:
+        logger.error(f"AgentCore Remediate invocation failed: {e}", exc_info=True)
         return {"success": False, "response": "", "error": str(e)}
 
 
@@ -2496,6 +2581,7 @@ def handle_ask_command_sync(
     # Try AgentCore first (Phase 1 - intelligent Q&A with scanning)
     agentcore_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
     response = None
+    handoff_suggestion = None
     session_id = str(uuid.uuid4())
 
     if agentcore_arn:
@@ -2506,7 +2592,10 @@ def handle_ask_command_sync(
 
         if result["success"]:
             response = result["response"]
+            handoff_suggestion = result.get("handoff_suggestion")
             logger.info(f"AgentCore response: {len(response)} chars")
+            if handoff_suggestion:
+                logger.info(f"Handoff suggestion: {handoff_suggestion.get('target_agent')} (confidence: {handoff_suggestion.get('confidence', 0)})")
         else:
             logger.warning(f"AgentCore failed: {result.get('error')}, falling back to local scanning")
             slack.post_message(channel_id, text="⚠️ AgentCore unavailable, falling back to local scanning...")
@@ -2641,6 +2730,79 @@ def handle_ask_command_sync(
         })
 
     slack.post_message(channel_id, blocks=action_buttons)
+
+    # Check for handoff suggestion from AgentCore
+    if handoff_suggestion and handoff_suggestion.get("confidence", 0) >= 0.7:
+        target_agent = handoff_suggestion.get("target_agent")
+        reason = handoff_suggestion.get("reason", "")
+        confidence = handoff_suggestion.get("confidence", 0)
+        context_data = handoff_suggestion.get("context", {})
+
+        # Create handoff context
+        try:
+            from services.handoff_service import HandoffService
+            handoff_service = HandoffService()
+            handoff_context = handoff_service.create_handoff(
+                source_agent="ask",
+                target_agent=target_agent,
+                original_question=question,
+                context=context_data,
+                channel_id=channel_id,
+                user_id=user_id,
+                thread_ts=None,
+                session_id=session_id,
+                reason=reason,
+                confidence=confidence
+            )
+
+            if handoff_context:
+                # Show handoff suggestion with buttons
+                agent_emoji = "🏗️" if target_agent == "architect" else "🔧"
+                agent_name = "Architect Agent" if target_agent == "architect" else "Remediate Agent"
+
+                handoff_blocks = [
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"{agent_emoji} *Handoff Suggestion*\n\n{reason}\n\n_Would you like me to hand off to the {agent_name}?_"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "block_id": f"handoff_{handoff_context.handoff_id}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": f"{agent_emoji} Yes, hand off to {agent_name}",
+                                    "emoji": True
+                                },
+                                "style": "primary",
+                                "value": handoff_context.handoff_id,
+                                "action_id": f"handoff_accept_{handoff_context.handoff_id}"
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "ℹ️ No, just show info",
+                                    "emoji": True
+                                },
+                                "value": handoff_context.handoff_id,
+                                "action_id": f"handoff_decline_{handoff_context.handoff_id}"
+                            }
+                        ]
+                    }
+                ]
+                slack.post_message(channel_id, blocks=handoff_blocks)
+                logger.info(f"Posted handoff suggestion: {handoff_context.handoff_id} ({target_agent})")
+        except Exception as e:
+            logger.warning(f"Failed to create handoff context: {e}")
 
 
 def _handle_ask_with_local_scanning(slack: SlackService, channel_id: str, question: str) -> str:
@@ -3023,6 +3185,201 @@ def handle_ask_remediate(payload: dict, action: dict) -> dict:
     except Exception as e:
         logger.error(f"Remediation listing failed: {e}", exc_info=True)
         slack.post_message(channel, text=f"❌ Error: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_handoff_accept(payload: dict, action: dict) -> dict:
+    """
+    Handle handoff accept button click.
+    Retrieves handoff context and invokes the target agent.
+    """
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    # Extract handoff ID from action_id
+    action_id = action.get("action_id", "")
+    handoff_id = action_id.replace("handoff_accept_", "")
+
+    # Delete the handoff suggestion message
+    message_ts = payload.get("message", {}).get("ts", "")
+    if message_ts:
+        try:
+            slack.client.chat_delete(channel=channel, ts=message_ts)
+        except Exception as e:
+            logger.warning(f"Failed to delete handoff message: {e}")
+
+    try:
+        from services.handoff_service import HandoffService
+        handoff_service = HandoffService()
+
+        # Accept the handoff and get context
+        handoff = handoff_service.accept_handoff(handoff_id)
+
+        if not handoff:
+            slack.post_message(
+                channel,
+                text="❌ Handoff expired or not found. Please start a new conversation."
+            )
+            return {"statusCode": 200, "body": ""}
+
+        target_agent = handoff.target_agent
+        original_question = handoff.original_question
+        context_data = handoff.context
+        session_id = handoff.session_id
+
+        # Show handoff in progress message
+        agent_emoji = "🏗️" if target_agent == "architect" else "🔧"
+        agent_name = "Architect Agent" if target_agent == "architect" else "Remediate Agent"
+
+        slack.post_message(
+            channel,
+            text=f"{agent_emoji} *Handing off to {agent_name}...*\n_Transferring context from Ask Agent_"
+        )
+
+        # Invoke the target agent based on type
+        if target_agent == "architect":
+            # Build prompt with context
+            architect_prompt = f"""Based on the previous analysis, the user needs architecture recommendations.
+
+Original question: {original_question}
+
+Context from Ask Agent:
+{json.dumps(context_data, indent=2)}
+
+Please provide architecture recommendations with cost estimates."""
+
+            result = invoke_agentcore_architect(architect_prompt, session_id)
+
+            if result["success"]:
+                response = result["response"]
+                formatted_blocks = format_markdown_to_blocks(response, "🏗️ Architect Agent Response")
+                for block_group in formatted_blocks:
+                    slack.post_message(channel, blocks=block_group)
+            else:
+                slack.post_message(
+                    channel,
+                    text=f"❌ Architect Agent unavailable: {result.get('error', 'Unknown error')}"
+                )
+
+        elif target_agent == "remediate":
+            # Build prompt with context
+            finding_count = context_data.get("finding_count", 0)
+            finding_types = context_data.get("finding_types", [])
+
+            remediate_prompt = f"""Based on the previous analysis, the user wants to fix security issues.
+
+Original question: {original_question}
+
+Found {finding_count} security issues: {', '.join(finding_types)}
+
+Context from Ask Agent:
+{json.dumps(context_data, indent=2)}
+
+Please list the available remediations and help the user fix these issues."""
+
+            result = invoke_agentcore_remediate(remediate_prompt, session_id, context_data)
+
+            if result["success"]:
+                response = result["response"]
+                formatted_blocks = format_markdown_to_blocks(response, "🔧 Remediate Agent Response")
+                for block_group in formatted_blocks:
+                    slack.post_message(channel, blocks=block_group)
+
+                # Also show the available remediations list
+                # Trigger the remediate list command
+                try:
+                    from services.remediation_agent import create_remediation_agent
+                    agent = create_remediation_agent()
+                    findings_result = agent._get_pending_remediations(limit=10)
+
+                    if findings_result.get("success") and findings_result.get("findings"):
+                        findings = findings_result["findings"]
+                        risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
+
+                        blocks = [
+                            {"type": "divider"},
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"*Available Remediations ({len(findings)})*\n_Click a button to fix:_"
+                                }
+                            }
+                        ]
+
+                        for f in findings[:5]:  # Show top 5
+                            risk = f.get("risk_level", "MEDIUM")
+                            blocks.append({
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"{risk_emoji.get(risk, '⚪')} *{f.get('title', 'Unknown')}*\n`{f.get('resource_id', 'N/A')[:50]}`"
+                                },
+                                "accessory": {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "🔧 Fix"},
+                                    "action_id": f"request_remediation_{f.get('finding_id')}",
+                                }
+                            })
+
+                        slack.post_message(channel, blocks=blocks)
+                except Exception as e:
+                    logger.warning(f"Failed to show remediation list: {e}")
+            else:
+                slack.post_message(
+                    channel,
+                    text=f"❌ Remediate Agent unavailable: {result.get('error', 'Unknown error')}"
+                )
+
+        logger.info(f"Handoff {handoff_id} completed to {target_agent}")
+
+    except Exception as e:
+        logger.error(f"Handoff accept failed: {e}", exc_info=True)
+        slack.post_message(channel, text=f"❌ Handoff failed: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
+def handle_handoff_decline(payload: dict, action: dict) -> dict:
+    """
+    Handle handoff decline button click.
+    Acknowledges the user's choice to stay with the current agent.
+    """
+    channel = payload.get("channel", {}).get("id", "")
+    user = payload.get("user", {}).get("id", "")
+    slack = get_slack_service()
+
+    # Extract handoff ID from action_id
+    action_id = action.get("action_id", "")
+    handoff_id = action_id.replace("handoff_decline_", "")
+
+    # Delete the handoff suggestion message
+    message_ts = payload.get("message", {}).get("ts", "")
+    if message_ts:
+        try:
+            slack.client.chat_delete(channel=channel, ts=message_ts)
+        except Exception as e:
+            logger.warning(f"Failed to delete handoff message: {e}")
+
+    try:
+        from services.handoff_service import HandoffService
+        handoff_service = HandoffService()
+
+        # Decline the handoff
+        handoff = handoff_service.get_handoff(handoff_id)
+        if handoff:
+            handoff_service.decline_handoff(handoff_id)
+            logger.info(f"Handoff {handoff_id} declined by user")
+
+        slack.post_message(
+            channel,
+            text="✅ Got it! Let me know if you need anything else. You can always type `/carl architect` or `/carl remediate` later."
+        )
+
+    except Exception as e:
+        logger.warning(f"Failed to decline handoff: {e}")
 
     return {"statusCode": 200, "body": ""}
 
@@ -8350,6 +8707,10 @@ def handle_interaction(payload: dict) -> dict:
                 return handle_ask_full_report(payload, action)
             elif action_id == "ask_remediate":
                 return handle_ask_remediate(payload, action)
+            elif action_id.startswith("handoff_accept_"):
+                return handle_handoff_accept(payload, action)
+            elif action_id.startswith("handoff_decline_"):
+                return handle_handoff_decline(payload, action)
             elif action_id == "deploy_infrastructure":
                 return handle_deploy_review(payload, action)
             elif action_id == "confirm_deploy":

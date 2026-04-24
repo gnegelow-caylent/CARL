@@ -61,6 +61,12 @@ class TestServiceImports:
         from services.build_session_service import BuildSessionService
         assert BuildSessionService is not None
 
+    def test_import_handoff_service(self):
+        """Handoff service should import without errors."""
+        from services.handoff_service import HandoffService, HandoffContext
+        assert HandoffService is not None
+        assert HandoffContext is not None
+
 
 class TestKnowledgeImports:
     """Tests that all knowledge modules can be imported."""

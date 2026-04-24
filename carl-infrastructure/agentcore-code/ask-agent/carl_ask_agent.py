@@ -448,6 +448,122 @@ def classify_question(question: str) -> str:
     return "compliance"
 
 
+@dataclass
+class HandoffSuggestion:
+    """Represents a suggested handoff to another agent."""
+    target_agent: str  # "architect" or "remediate"
+    reason: str  # Why handoff is suggested
+    confidence: float  # 0.0 to 1.0
+    context: dict = field(default_factory=dict)  # Additional context for target agent
+
+
+def detect_handoff_intent(question: str, response: str, scan_results: dict) -> Optional[HandoffSuggestion]:
+    """
+    Detect if the user's question/response suggests handing off to another agent.
+
+    Returns HandoffSuggestion if handoff is appropriate, None otherwise.
+    """
+    question_lower = question.lower()
+    response_lower = response.lower() if response else ""
+
+    # Architecture handoff keywords - user wants design/recommendations
+    architect_keywords = [
+        "how should i design", "best way to architect", "recommend architecture",
+        "vpc design", "network design", "infrastructure design",
+        "what's the best approach", "how to structure", "best practices for",
+        "design pattern", "architecture recommendation", "design my"
+    ]
+
+    # Remediation handoff keywords - user wants to fix issues
+    remediate_keywords = [
+        "fix", "remediate", "resolve", "enable encryption", "enable versioning",
+        "block public access", "add flow logs", "fix password policy",
+        "secure", "patch", "update security", "make compliant", "fix this",
+        "how do i fix", "can you fix", "please fix"
+    ]
+
+    # Check for findings in scan results that could be remediated
+    has_findings = False
+    finding_count = 0
+    finding_types = []
+
+    for service, resources in scan_results.items():
+        if service.startswith("_"):
+            continue
+        for resource in resources:
+            data = resource.data if hasattr(resource, 'data') else {}
+
+            # Check for common security issues
+            if data.get("encryption") == "none":
+                has_findings = True
+                finding_count += 1
+                finding_types.append("unencrypted S3 bucket")
+            if data.get("mfa_enabled") is False:
+                has_findings = True
+                finding_count += 1
+                finding_types.append("MFA not enabled")
+            if data.get("has_open_ingress"):
+                has_findings = True
+                finding_count += 1
+                finding_types.append("open security group")
+            public_access = data.get("public_access_block", {})
+            if public_access and not public_access.get("block_public_acls"):
+                has_findings = True
+                finding_count += 1
+                finding_types.append("public access not blocked")
+
+    # Check for architecture intent
+    architect_score = sum(1 for kw in architect_keywords if kw in question_lower)
+    if architect_score >= 1:
+        return HandoffSuggestion(
+            target_agent="architect",
+            reason=f"Your question suggests you're looking for architecture recommendations.",
+            confidence=min(0.7 + (architect_score * 0.1), 0.95),
+            context={
+                "original_question": question,
+                "scan_summary": f"Scanned {sum(len(r) for r in scan_results.values() if isinstance(r, list))} resources"
+            }
+        )
+
+    # Check for remediation intent - either explicit request or findings + fix keywords
+    remediate_score = sum(1 for kw in remediate_keywords if kw in question_lower or kw in response_lower)
+
+    if remediate_score >= 1 and has_findings:
+        unique_findings = list(set(finding_types))[:3]  # Top 3 unique finding types
+        return HandoffSuggestion(
+            target_agent="remediate",
+            reason=f"I found {finding_count} security issue(s) that can be remediated: {', '.join(unique_findings)}.",
+            confidence=min(0.7 + (remediate_score * 0.1), 0.95),
+            context={
+                "original_question": question,
+                "finding_count": finding_count,
+                "finding_types": unique_findings,
+                "scan_results_summary": {
+                    service: len(resources)
+                    for service, resources in scan_results.items()
+                    if isinstance(resources, list) and not service.startswith("_")
+                }
+            }
+        )
+
+    # If there are findings mentioned in the response, offer remediation
+    finding_indicators = ["issue", "finding", "vulnerability", "non-compliant", "missing", "not enabled", "not configured"]
+    if has_findings and any(ind in response_lower for ind in finding_indicators):
+        unique_findings = list(set(finding_types))[:3]
+        return HandoffSuggestion(
+            target_agent="remediate",
+            reason=f"I found {finding_count} security issue(s) in your environment: {', '.join(unique_findings)}.",
+            confidence=0.75,
+            context={
+                "original_question": question,
+                "finding_count": finding_count,
+                "finding_types": unique_findings
+            }
+        )
+
+    return None
+
+
 def generate_response(question: str, context: str, question_type: str) -> str:
     """Generate AI response using Bedrock."""
     bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
@@ -538,7 +654,13 @@ def invoke(payload: dict, context: Any = None) -> dict:
 
     Returns:
     {
-        "result": "agent response here"
+        "result": "agent response here",
+        "handoff_suggestion": {  // Optional - only if handoff is appropriate
+            "target_agent": "architect" | "remediate",
+            "reason": "Why handoff is suggested",
+            "confidence": 0.0-1.0,
+            "context": {...}
+        }
     }
     """
     logger.info("=== INVOKE CALLED ===")
@@ -562,6 +684,7 @@ def invoke(payload: dict, context: Any = None) -> dict:
         logger.info(f"Question type: {question_type}")
 
         # Scan AWS environment
+        scan_results = {}
         try:
             scanner = AWSResourceScanner(region=AWS_REGION)
             scan_results = scanner.scan_all()
@@ -575,7 +698,19 @@ def invoke(payload: dict, context: Any = None) -> dict:
         response_text = generate_response(question, env_context, question_type)
         logger.info(f"Response generated, length: {len(response_text)}")
 
+        # Detect if user intent suggests handoff to another agent
         result = {"result": response_text}
+
+        handoff = detect_handoff_intent(question, response_text, scan_results)
+        if handoff and handoff.confidence >= 0.7:
+            logger.info(f"Handoff suggested: {handoff.target_agent} (confidence: {handoff.confidence})")
+            result["handoff_suggestion"] = {
+                "target_agent": handoff.target_agent,
+                "reason": handoff.reason,
+                "confidence": handoff.confidence,
+                "context": handoff.context
+            }
+
         logger.info("=== INVOKE COMPLETE ===")
         return result
 

@@ -247,3 +247,14 @@ output "foundation_table_arn" {
   description = "ARN of the foundation sessions table"
   value       = aws_dynamodb_table.foundation.arn
 }
+
+# Multi-Agent Handoffs Table
+output "handoffs_table_name" {
+  description = "Name of the handoffs DynamoDB table for multi-agent context"
+  value       = aws_dynamodb_table.handoffs.name
+}
+
+output "handoffs_table_arn" {
+  description = "ARN of the handoffs DynamoDB table"
+  value       = aws_dynamodb_table.handoffs.arn
+}
