@@ -105,6 +105,45 @@ Natural language query with context-aware responses.
 - Bullet points and lists
 - Context boxes for additional info
 
+**Multi-Agent Handoffs (NEW):**
+
+When `/carl ask` detects certain intent patterns, it offers to hand off to a specialized agent:
+
+**Architecture Intent → Architect Agent:**
+```
+/carl ask How should I design my VPC for a multi-tier application?
+
+CARL: "Your question suggests you're looking for architecture
+       recommendations. Would you like me to hand this off to the
+       Architect Agent for detailed design guidance?"
+
+       [✅ Yes, continue with Architect] [❌ No thanks]
+```
+
+**Remediation Intent → Remediate Agent:**
+```
+/carl ask Fix my S3 encryption issues
+
+CARL: "I found 3 security issues that can be remediated:
+       unencrypted S3 bucket, public access not blocked.
+       Want me to hand off to the Remediate Agent?"
+
+       [🔧 Fix with Remediate Agent] [ℹ️ Just show info]
+```
+
+**Handoff Flow:**
+1. Ask Agent analyzes question + scan results
+2. Detects intent (architecture or remediation)
+3. Shows handoff suggestion with buttons (if confidence ≥70%)
+4. User accepts → Target agent receives full context
+5. User declines → Continue with Ask Agent response
+
+**Context Passed to Target Agent:**
+- Original question
+- Scan results and findings
+- Session ID for continuity
+- Channel/thread info
+
 ---
 
 ### 2. Architecture & Building

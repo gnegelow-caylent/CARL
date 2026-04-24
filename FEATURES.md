@@ -175,6 +175,51 @@ CARL now includes comprehensive HIPAA compliance support for healthcare workload
 
 **Safety:** CARL **never** auto-fixes without explicit user approval. All fixes show preview + Terraform code first.
 
+### 🤝 Multi-Agent Handoffs (NEW - April 2026)
+
+**Seamless context passing between CARL's specialized agents.**
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Intent Detection** | ✅ Live | Ask Agent detects architecture or remediation intent from questions |
+| **Context Preservation** | ✅ Live | Full context passed to target agent (question, scan results, session) |
+| **User Confirmation** | ✅ Live | Handoff buttons let users accept or decline suggestions |
+| **DynamoDB Storage** | ✅ Live | Context stored with 1-hour TTL for handoff flow |
+| **Architect Handoffs** | ✅ Live | "How should I design..." triggers Architect agent suggestion |
+| **Remediate Handoffs** | ✅ Live | "Fix my..." with findings triggers Remediate agent suggestion |
+
+**How It Works:**
+```
+User: "How should I design my VPC for multi-tier app?"
+         ↓
+Ask Agent: Detects architecture intent (90% confidence)
+         ↓
+Ask Agent: "I can hand this off to the Architect Agent for
+           detailed recommendations. Want me to continue?"
+           [✅ Yes, continue with Architect] [❌ No thanks]
+         ↓
+User: Clicks "Yes, continue with Architect"
+         ↓
+Architect Agent: Receives full context, provides recommendations
+```
+
+**Intent Detection Keywords:**
+- **Architect**: "design", "architect", "best approach", "best practices", "how should I"
+- **Remediate**: "fix", "remediate", "enable encryption", "block public access", "secure"
+
+**Context Passed to Target Agent:**
+- Original question
+- Scan results summary
+- Session ID (for conversation continuity)
+- Channel and thread info
+- User ID
+- Handoff reason and confidence score
+
+**DynamoDB Schema:**
+- `pk`: `HANDOFF#{handoff_id}`
+- `sk`: `CONTEXT#{source_agent}#{target_agent}`
+- TTL: 1 hour (auto-cleanup)
+
 ### 🚀 AWS Environment Bootstrap (NEW)
 
 | Feature | Status | Description |
@@ -266,7 +311,7 @@ CARL implements industry-standard agentic AI patterns for intelligent, autonomou
 
 | Pattern | Status | Description |
 |---------|--------|-------------|
-| **Multi-Agent Handoffs** | 📋 Planned | Advisory → Architect agent collaboration with context passing |
+| **Multi-Agent Handoffs** | ✅ Live | Ask → Architect/Remediate agent handoffs with context passing |
 | **Planning Pattern** | 📋 Planned | Explicit plan creation before complex operations, user approval |
 | **Reflection / Self-Critique** | 📋 Planned | Agent evaluates own output, iteratively improves quality |
 | **Hierarchical Agents** | 📋 Planned | Supervisor agent delegates to specialized worker agents |
@@ -336,7 +381,7 @@ See [ROADMAP.md](./ROADMAP.md) for detailed implementation plans.
 
 | Pattern | Status | Effort | Description |
 |---------|--------|--------|-------------|
-| **Multi-Agent Handoffs** | 📋 Planned | 2-3 weeks | Advisory ↔ Architect agent collaboration with context passing |
+| **Multi-Agent Handoffs** | ✅ **COMPLETE** | - | Ask ↔ Architect/Remediate agent collaboration with context passing |
 | **Planning Pattern** | 📋 Planned | 1-2 weeks | Explicit plan creation before execution, user approval required |
 | **Reflection / Self-Critique** | 📋 Planned | 1-2 weeks | Agent evaluates and improves own output iteratively |
 | **Hierarchical Agents** | 📋 Planned | 3-4 weeks | Supervisor delegates to specialized workers (Scanner, Generator, Validator) |

@@ -663,6 +663,57 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### Multi-Agent Handoffs 🤝 (April 24, 2026)
+
+**Status: COMPLETE** - Seamless context passing between Ask, Architect, and Remediate agents
+
+**What's New:**
+1. ✅ **Intent Detection** - Ask Agent detects architecture/remediation intent from questions
+2. ✅ **Handoff Suggestions** - Shows buttons when handoff confidence ≥70%
+3. ✅ **Context Preservation** - Full context (question, scans, session) passed to target agent
+4. ✅ **DynamoDB Storage** - Handoff context stored with 1-hour TTL
+5. ✅ **Accept/Decline Buttons** - User controls whether to hand off
+6. ✅ **Comprehensive Tests** - 30 unit, integration, and regression tests
+
+**How It Works:**
+```
+User: "How should I design my VPC?"
+         ↓
+Ask Agent: Detects "design" keyword → architecture intent
+         ↓
+CARL: Shows handoff suggestion with buttons
+         [✅ Yes, continue with Architect] [❌ No thanks]
+         ↓
+User: Clicks accept
+         ↓
+Architect Agent: Receives context, provides recommendations
+```
+
+**Intent Detection:**
+- **Architect Keywords:** "design", "architect", "best approach", "best practices for", "how should I"
+- **Remediate Keywords:** "fix", "remediate", "enable encryption", "block public access" + findings present
+
+**Files Created:**
+- `carl-app/src/services/handoff_service.py` - DynamoDB context storage (~200 lines)
+- `carl-infrastructure/modules/foundation/handoffs_table.tf` - DynamoDB table with TTL
+
+**Files Modified:**
+- `carl-infrastructure/agentcore-code/ask-agent/carl_ask_agent.py` - Added `detect_handoff_intent()`
+- `carl-app/src/handlers/slack_router.py` - Added handoff handlers and buttons
+
+**Tests Added:**
+- `tests/unit/test_handoff_service.py` - 13 tests for DynamoDB operations
+- `tests/unit/test_handoff_intent_detection.py` - 17 tests for intent classification
+- `tests/integration/test_handoff_handlers.py` - 8 tests for Slack handlers
+- `tests/regression/test_service_imports.py` - Updated with handoff service import
+
+**DynamoDB Schema:**
+```
+pk: HANDOFF#{handoff_id}
+sk: CONTEXT#{source_agent}#{target_agent}
+TTL: 1 hour (auto-cleanup)
+```
+
 ### AWS Bedrock AgentCore Deployment ☁️ (April 24, 2026)
 
 **Status: COMPLETE** - All agents deployed on AWS Bedrock AgentCore
