@@ -200,6 +200,7 @@ jobs:
       lambda_image_uri: ${{ steps.build.outputs.lambda_image_uri }}
       agentcore_ask_tag: ${{ steps.build.outputs.agentcore_ask_tag }}
       agentcore_architect_tag: ${{ steps.build.outputs.agentcore_architect_tag }}
+      agentcore_remediate_tag: ${{ steps.build.outputs.agentcore_remediate_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -274,6 +275,21 @@ jobs:
           ) &
           ARCHITECT_PID=$!
 
+          # Build Remediate agent container (ARM64) in background
+          (
+            echo "🔨 Building Remediate agent container..."
+            cd carl-infrastructure/agentcore-code/remediate-agent
+            docker buildx build --platform linux/arm64 \
+              --provenance=false \
+              --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-remediate-cache \
+              --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-remediate-cache,mode=max \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-remediate-$IMAGE_TAG \
+              -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-remediate \
+              --push .
+            echo "✓ Remediate agent container pushed"
+          ) &
+          REMEDIATE_PID=$!
+
           # Build MCP Server containers (AMD64) - use same ECR repo with different tags
           echo "📦 Building MCP containers..."
 
@@ -318,6 +334,7 @@ jobs:
           wait $LAMBDA_PID || FAILED=1
           wait $ASK_PID || FAILED=1
           wait $ARCHITECT_PID || FAILED=1
+          wait $REMEDIATE_PID || FAILED=1
           wait $MCP_GITHUB_PID || FAILED=1
           wait $MCP_MEMORY_PID || FAILED=1
           wait $MCP_TERRAFORM_PID || FAILED=1
@@ -333,6 +350,7 @@ jobs:
           echo "lambda_image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "agentcore_ask_tag=agentcore-ask-$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "agentcore_architect_tag=agentcore-architect-$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "agentcore_remediate_tag=agentcore-remediate-$IMAGE_TAG" >> $GITHUB_OUTPUT
 
   # Plan for PR
   plan:
@@ -459,6 +477,7 @@ jobs:
             -var="lambda_image_uri=${{ needs.build-containers.outputs.lambda_image_uri }}" \
             -var="agentcore_image_tag=${{ needs.build-containers.outputs.agentcore_ask_tag }}" \
             -var="agentcore_architect_image_tag=${{ needs.build-containers.outputs.agentcore_architect_tag }}" \
+            -var="agentcore_remediate_image_tag=${{ needs.build-containers.outputs.agentcore_remediate_tag }}" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_DEV }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_DEV }}"
 
@@ -612,6 +631,7 @@ jobs:
             -var="lambda_image_uri=${{ needs.build-containers.outputs.lambda_image_uri }}" \
             -var="agentcore_image_tag=${{ needs.build-containers.outputs.agentcore_ask_tag }}" \
             -var="agentcore_architect_image_tag=${{ needs.build-containers.outputs.agentcore_architect_tag }}" \
+            -var="agentcore_remediate_image_tag=${{ needs.build-containers.outputs.agentcore_remediate_tag }}" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_QA }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_QA }}"
 
@@ -658,6 +678,7 @@ jobs:
             -var="lambda_image_uri=${{ needs.build-containers.outputs.lambda_image_uri }}" \
             -var="agentcore_image_tag=${{ needs.build-containers.outputs.agentcore_ask_tag }}" \
             -var="agentcore_architect_image_tag=${{ needs.build-containers.outputs.agentcore_architect_tag }}" \
+            -var="agentcore_remediate_image_tag=${{ needs.build-containers.outputs.agentcore_remediate_tag }}" \
             -var="slack_bot_token=${{ secrets.SLACK_BOT_TOKEN_PROD }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET_PROD }}" \
             -out=tfplan
