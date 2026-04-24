@@ -1,6 +1,6 @@
 # CARL Features - Status Overview
 
-**Last Updated:** April 23, 2026
+**Last Updated:** April 24, 2026
 
 This document provides a clear view of what CARL can do today vs what's planned for the future.
 
@@ -74,9 +74,35 @@ This document provides a clear view of what CARL can do today vs what's planned 
 |---------|--------|-------------|
 | Security Hub Integration | ✅ Live | Real-time findings from Security Hub |
 | SOC 2 Control Mapping | ✅ Live | All findings mapped to SOC 2 controls (CC6.x, CC7.x, A1.x) |
+| **HIPAA Compliance Framework** | ✅ Live | **NEW:** Full HIPAA controls mapping and eligible services database |
 | Compliance Status Dashboard | ✅ Live | `/carl status` shows overall compliance posture |
 | Findings Management | ✅ Live | `/carl findings` to view, filter, acknowledge findings |
 | Risk Exception Management | ✅ Live | Accept risks with expiration dates and business justification |
+
+### 🏥 HIPAA Compliance Framework (NEW - April 2026)
+
+CARL now includes comprehensive HIPAA compliance support for healthcare workloads.
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **HIPAA Controls Mapping** | ✅ Live | 18 HIPAA safeguard categories mapped to AWS services |
+| **HIPAA Eligible Services** | ✅ Live | 140+ AWS services with HIPAA eligibility status |
+| **Administrative Safeguards** | ✅ Live | Access controls, workforce training, security management |
+| **Physical Safeguards** | ✅ Live | Facility access, workstation security, device controls |
+| **Technical Safeguards** | ✅ Live | Access control, audit controls, integrity, transmission security |
+| **Organizational Requirements** | ✅ Live | BAA requirements, policies and procedures |
+
+**HIPAA Safeguard Categories:**
+- Administrative: Security Management, Workforce Security, Information Access, Training, Incident Response, Contingency Planning, Evaluation, BAA
+- Physical: Facility Access, Workstation Use, Workstation Security, Device Controls
+- Technical: Access Control, Audit Controls, Integrity, Person Authentication, Transmission Security
+- Organizational: BAA, Policies & Procedures, Documentation
+
+**AWS Services Coverage:**
+- 140+ services categorized by HIPAA eligibility
+- BAA coverage status for each service
+- Recommended configurations for HIPAA compliance
+- Integration with evidence collection for HIPAA audits
 
 ### 📊 Audit & Evidence
 

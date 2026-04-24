@@ -698,6 +698,34 @@ Before deploying any AI-driven feature:
 - `carl-infrastructure/modules/agentcore-architect/main.tf`
 - `carl-infrastructure/modules/agentcore-remediate/main.tf`
 
+### HIPAA Compliance Framework 🏥 (April 24, 2026)
+
+**Status: COMPLETE** - Full HIPAA compliance support for healthcare workloads
+
+**What's New:**
+1. ✅ **HIPAA Controls Mapping** (`hipaa_controls.py`) - 18 safeguard categories mapped to AWS
+2. ✅ **HIPAA Eligible Services** (`hipaa_eligible_services.py`) - 140+ AWS services with eligibility status
+3. ✅ **Compliance Frameworks Base** (`compliance_frameworks.py`) - Extensible framework for multiple standards
+4. ✅ **Evidence Collection Updates** - HIPAA-aware evidence collection
+5. ✅ **AI Prompts Updated** - Bedrock service includes HIPAA context
+
+**HIPAA Safeguard Categories:**
+- **Administrative (8):** Security Management, Workforce Security, Information Access, Training, Incident Response, Contingency Planning, Evaluation, BAA
+- **Physical (4):** Facility Access, Workstation Use, Workstation Security, Device Controls
+- **Technical (5):** Access Control, Audit Controls, Integrity, Person Authentication, Transmission Security
+- **Organizational (2):** BAA Requirements, Policies & Procedures
+
+**AWS Services Coverage:**
+- 140+ services categorized by HIPAA eligibility
+- BAA coverage status and configuration guidance
+- Integration with evidence collection for HIPAA audits
+
+**Files Added:**
+- `carl-app/src/knowledge/hipaa_controls.py` (538 lines)
+- `carl-app/src/knowledge/hipaa_eligible_services.py` (748 lines)
+- `carl-app/src/knowledge/compliance_frameworks.py` (309 lines)
+- `HIPAA_IMPLEMENTATION_PLAN.md`
+
 ### Remediation Agent with Human-in-the-Loop Approval 🔧 (April 23, 2026)
 
 **Status: COMPLETE** - AI-powered remediation with approval workflow

@@ -181,6 +181,45 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ---
 
+#### 1.1b HIPAA Compliance Framework ✅ **COMPLETE** (April 2026)
+**Goal:** Add comprehensive HIPAA compliance support for healthcare workloads
+
+**Completed:**
+- [x] **HIPAA Controls Mapping** (`hipaa_controls.py` - 538 lines)
+  - 18 safeguard categories (Administrative, Physical, Technical, Organizational)
+  - AWS service mappings for each control
+  - Implementation guidance and best practices
+
+- [x] **HIPAA Eligible Services Database** (`hipaa_eligible_services.py` - 748 lines)
+  - 140+ AWS services with HIPAA eligibility status
+  - BAA coverage information
+  - Recommended configurations for compliance
+
+- [x] **Compliance Framework Base** (`compliance_frameworks.py` - 309 lines)
+  - Extensible architecture for multiple compliance standards
+  - Ready for HIPAA, SOC 2, PCI-DSS, ISO 27001
+
+- [x] **Integration Updates**
+  - Evidence collector updated for HIPAA compliance
+  - Bedrock service prompts include HIPAA context
+  - Architecture patterns enhanced with HIPAA considerations
+
+**HIPAA Safeguard Categories:**
+- **Administrative (8):** Security Management, Workforce Security, Information Access, Training, Incident Response, Contingency Planning, Evaluation, BAA
+- **Physical (4):** Facility Access, Workstation Use, Workstation Security, Device Controls
+- **Technical (5):** Access Control, Audit Controls, Integrity, Person Authentication, Transmission Security
+- **Organizational (2):** BAA Requirements, Policies & Procedures
+
+**Files Added:**
+- `carl-app/src/knowledge/hipaa_controls.py`
+- `carl-app/src/knowledge/hipaa_eligible_services.py`
+- `carl-app/src/knowledge/compliance_frameworks.py`
+- `HIPAA_IMPLEMENTATION_PLAN.md`
+
+**Impact:** CARL now provides comprehensive HIPAA compliance support including control mappings, eligible service verification, and HIPAA-aware recommendations. Healthcare organizations can use CARL to assess and maintain HIPAA compliance alongside SOC 2.
+
+---
+
 #### 1.2 Remaining Critical Security Patterns ~~(Week 3-4)~~ ✅ **COMPLETED January 31, 2026**
 **Goal:** Complete security service coverage
 

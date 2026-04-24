@@ -1,6 +1,6 @@
 # CARL - Cloud Automated Risk & Compliance Logic
 
-> AI-powered AWS compliance automation for SOC 2 and beyond
+> AI-powered AWS compliance automation for SOC 2, HIPAA, and beyond
 
 ## What is CARL?
 
@@ -11,11 +11,12 @@ CARL is an intelligent compliance platform that helps organizations achieve and 
 | **AI Architecture Advisor** | Get personalized AWS architecture recommendations that learn from feedback |
 | **Foundation Builder** | Guided wizard to build compliant AWS infrastructure from scratch |
 | **Compliance Monitoring** | Real-time scanning via Security Hub, GuardDuty, Config |
-| **Audit Evidence Collection** | Automated collection mapped to SOC 2 controls |
+| **Audit Evidence Collection** | Automated collection mapped to SOC 2 and HIPAA controls |
 | **Compliance Reports** | Executive summaries and audit-ready documentation |
 | **Risk Exception Management** | Track and manage accepted risks with approval workflows |
 | **Drift Detection** | Detect configuration drift and security misconfigurations |
 | **Terraform Generation** | Generate compliant infrastructure code on demand |
+| **HIPAA Compliance Framework** | 18 safeguard categories, 140+ eligible services for healthcare workloads |
 
 ## Current Status: Fully Built + Deployed to AWS
 
@@ -63,7 +64,7 @@ All core capabilities have been implemented and deployed, including **NEW: Found
 
 | Attribute | Value |
 |-----------|-------|
-| **Target Frameworks** | SOC 2 (all controls), CIS Benchmarks |
+| **Target Frameworks** | SOC 2 (all controls), HIPAA (18 safeguards), CIS Benchmarks |
 | **Deployment Model** | Centralized management account |
 | **User Interface** | Slack |
 | **AI Backend** | Amazon Bedrock (Claude Haiku for simple queries, Sonnet for architecture) |
@@ -399,6 +400,28 @@ See detailed guides:
 
 ## What's New (Latest Update)
 
+### HIPAA Compliance Framework 🏥 (April 2026) - COMPLETE
+
+Full HIPAA compliance support for healthcare workloads on AWS:
+
+| Component | Details |
+|-----------|---------|
+| **HIPAA Controls** | 18 safeguard categories mapped to AWS services |
+| **Eligible Services** | 140+ AWS services with eligibility status and BAA coverage |
+| **Evidence Collection** | HIPAA-aware audit evidence collection |
+| **AI Integration** | Bedrock prompts include HIPAA context for recommendations |
+
+**HIPAA Safeguard Categories:**
+- **Administrative (8):** Security Management, Workforce Security, Information Access, Training, Incident Response, Contingency Planning, Evaluation, BAA
+- **Physical (4):** Facility Access, Workstation Use, Workstation Security, Device Controls
+- **Technical (5):** Access Control, Audit Controls, Integrity, Person Authentication, Transmission Security
+- **Organizational (2):** BAA Requirements, Policies & Procedures
+
+**Files Added:**
+- `carl-app/src/knowledge/hipaa_controls.py` - HIPAA safeguards mapped to AWS
+- `carl-app/src/knowledge/hipaa_eligible_services.py` - 140+ service eligibility catalog
+- `carl-app/src/knowledge/compliance_frameworks.py` - Extensible framework base
+
 ### AWS Bedrock AgentCore Deployment ☁️ (April 2026) - COMPLETE
 
 All CARL agents now run on **AWS Bedrock AgentCore**, the managed agent runtime platform:
@@ -493,7 +516,7 @@ See [ROADMAP.md](./ROADMAP.md) for the complete priority roadmap.
 5. Database deployment patterns (RDS, Aurora, DynamoDB)
 6. Application patterns (API Gateway, ALB/NLB, caching)
 7. Adaptive monitoring (auto-discovery, self-healing)
-8. Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
+8. Multi-framework support (~~HIPAA~~ ✅, PCI-DSS, ISO 27001)
 
 ---
 
