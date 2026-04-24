@@ -128,8 +128,9 @@ This document provides a clear view of what CARL can do today vs what's planned 
 |---------|--------|-------------|
 | **Risk-Based Classification** | ✅ Live | Findings ranked as LOW/MEDIUM/HIGH risk automatically |
 | **Hybrid Fix Method** | ✅ Live | LOW risk: direct AWS API, MEDIUM/HIGH: Terraform PR |
+| **Smart Resource Detection** | ✅ Live | Checks if resources already exist before generating fixes |
 | **Human-in-the-Loop Approval** | ✅ Live | Always shows fix details before applying |
-| **Terraform Code Generation** | ✅ Live | Generates Terraform for ALL fixes (even direct API) |
+| **AI-Generated Terraform** | ✅ Live | AI generates Terraform with context about existing resources |
 | **Slack Integration** | ✅ Live | `/carl remediate` with approval buttons |
 | **Agent Handoff** | ✅ Live | Ask Agent detects fix queries, offers remediation |
 | **GitHub PR Creation** | ✅ Live | Auto-creates PRs for MEDIUM/HIGH risk fixes |
@@ -197,6 +198,28 @@ This document provides a clear view of what CARL can do today vs what's planned 
 | **CloudWatch Metrics** | ✅ Live | Monitor learning progress (patterns learned, confidence scores) |
 | **Environment Adaptation** | ✅ Live | CARL learns your specific AWS setup and team's usage patterns |
 
+### ☁️ AWS Bedrock AgentCore Deployment (NEW - April 2026)
+
+CARL's agents run on **AWS Bedrock AgentCore**, the managed agent runtime platform.
+
+| Agent | Status | Description | Infrastructure |
+|-------|--------|-------------|----------------|
+| **Ask Agent** | ✅ Live | Q&A with AWS environment scanning | `modules/agentcore-ask/` |
+| **Architect Agent** | ✅ Live | Architecture recommendations with pricing | `modules/agentcore-architect/` |
+| **Remediation Agent** | 📋 Planned | AI-powered auto-fix (currently in Lambda) | Planned: `modules/agentcore-remediate/` |
+
+**AgentCore Features Used:**
+- **AgentCore Runtime** - Managed container execution for agents
+- **AgentCore Memory** - Optional persistent memory for continuous learning
+- **AgentCore Gateway** - MCP-based tool management
+- **Built-in Observability** - CloudWatch Logs, X-Ray tracing, metrics
+
+**Benefits:**
+- AWS-managed scaling and orchestration (no Lambda timeouts)
+- Container-based deployment via GitHub Actions CI/CD
+- 8-hour task support for long-running operations
+- Enterprise-grade security and isolation
+
 ### 🧠 Agentic Architecture Patterns
 
 CARL implements industry-standard agentic AI patterns for intelligent, autonomous operation.
@@ -205,12 +228,12 @@ CARL implements industry-standard agentic AI patterns for intelligent, autonomou
 
 | Pattern | Status | Description | Location |
 |---------|--------|-------------|----------|
-| **ReAct (Reason + Act)** | ✅ Live | Agent thinks → calls tool → observes result → repeats until done | `agent_core.py` |
+| **ReAct (Reason + Act)** | ✅ Live | Agent thinks → calls tool → observes result → repeats until done | AgentCore Runtime |
 | **Tool Use / Function Calling** | ✅ Live | 6 scanning tools + architecture tools the AI can invoke | `scanning_tools.py` |
 | **Router / Dispatcher** | ✅ Live | Classifies question intent → routes to specialized handler | `slack_router.py` |
 | **RAG (Retrieval-Augmented)** | ✅ Live | 148+ architecture patterns ground AI responses in facts | `knowledge/*.py` |
 | **Human-in-the-Loop** | ✅ Live | Feedback buttons, exception approvals, confirmations | Slack interactions |
-| **Memory / Continuous Learning** | ✅ Live | Learns from interactions, improves recommendations over time | `learning_service.py` |
+| **Memory / Continuous Learning** | ✅ Live | Learns from interactions, improves recommendations over time | AgentCore Memory |
 
 **Planned (Future):**
 

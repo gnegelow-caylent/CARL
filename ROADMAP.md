@@ -134,7 +134,7 @@ This document outlines the priority roadmap for CARL development based on the ga
 
 ### Phase 1: Missing Security Patterns & AgentCore Migration
 
-#### 1.1 Migrate to AWS Bedrock AgentCore (Week 1-4)
+#### 1.1 Migrate to AWS Bedrock AgentCore ✅ **PARTIAL COMPLETE** (April 2026)
 **Goal:** Refactor custom AgentCore to use AWS Bedrock AgentCore managed platform (Design Principle #7: Use AWS Managed Services)
 
 **Why:**
@@ -144,53 +144,37 @@ This document outlines the priority roadmap for CARL development based on the ga
 - **Cost-effective**: ~$0.40/month platform fee (acceptable for removing ~2,000 lines of custom code)
 - **Better compliance**: AWS-managed security, audit trails, enterprise-grade isolation
 
-**Current State:**
-- CARL uses custom `AgentCore` class (~500 lines in agent_core.py)
-- Custom session management via DynamoDB (foundation table)
-- Custom learning system (scan_history, resource_graph tables, 580+ lines)
-- Manual threading for long-running tasks
-- Limited to 15-minute Lambda timeout
+**Completed (April 2026):**
+- [x] **Ask Agent on AgentCore** - Deployed via `modules/agentcore-ask/`
+  - [x] AgentCore Runtime (`aws_bedrockagentcore_agent_runtime.ask`)
+  - [x] Container deployment with GitHub Actions CI/CD
+  - [x] IAM role with Bedrock, EC2, S3, IAM read permissions
+  - [x] Optional AgentCore Memory for persistent learning
+  - [x] Optional AgentCore Gateway for MCP tools
 
-**Target State:**
-- Use AWS Bedrock AgentCore Runtime for agent execution
-- Use AgentCore Memory for persistent learning (replaces scan_history/resource_graph)
-- Use AgentCore Gateway for tool management (replaces manual tool registration)
-- Use AgentCore Observability for monitoring (replaces custom CloudWatch logging)
-- Use AgentCore Policy for access control (enterprise security)
+- [x] **Architect Agent on AgentCore** - Deployed via `modules/agentcore-architect/`
+  - [x] AgentCore Runtime (`aws_bedrockagentcore_agent_runtime.architect`)
+  - [x] Container deployment with architecture tools
+  - [x] DynamoDB read access for pricing cache
 
-**Tasks:**
-- [ ] **Phase 1: POC (Week 3)** - Migrate `/carl ask` agent to AgentCore Runtime
-  - [ ] Set up AgentCore Runtime environment
-  - [ ] Convert scanning tools to AgentCore Gateway format
-  - [ ] Test persistent memory vs. custom learning tables
-  - [ ] Compare costs (custom vs. AgentCore)
-  - [ ] A/B test: custom vs. AgentCore for 1 week
+**Remaining (Remediation Agent):**
+- [ ] **Remediation Agent Migration** - Currently uses custom `agent_core.py` in Lambda
+  - [ ] Create `modules/agentcore-remediate/` module
+  - [ ] Convert remediation tools to AgentCore format
+  - [ ] Deploy container with remediation capabilities
+  - [ ] Update `/carl remediate` to invoke AgentCore Runtime
 
-- [ ] **Phase 2: Evaluation (Week 4)** - Measure benefits and limitations
-  - [ ] Performance comparison (response time, accuracy)
-  - [ ] Cost analysis (actual spend vs. estimates)
-  - [ ] Feature comparison (persistent memory, long tasks, code interpreter)
-  - [ ] Decision point: proceed or stay with custom?
+**Infrastructure Created:**
+- `carl-infrastructure/modules/agentcore-ask/` - Ask Agent AgentCore module
+- `carl-infrastructure/modules/agentcore-architect/` - Architect Agent AgentCore module
 
-- [ ] **Phase 3: Full Migration (Week 5-6)** - If POC succeeds
-  - [ ] Migrate architecture agent to AgentCore
-  - [ ] Migrate compliance agent to AgentCore
-  - [ ] Remove custom tables (scan_history, resource_graph, foundation - if AgentCore Memory replaces them)
-  - [ ] Update documentation (CARL_DESIGN_PRINCIPLES.md, ARCHITECTURE.md)
-  - [ ] Remove ~2,000 lines of custom agent code
+**Benefits Realized:**
+- AWS-managed scaling and orchestration for Ask/Architect agents
+- Container-based deployment via GitHub Actions
+- Built-in observability (CloudWatch Logs, X-Ray tracing)
+- Persistent memory option for continuous learning
 
-**Deliverables:**
-- POC demonstrating AgentCore Runtime with CARL's scanning tools
-- Cost/benefit analysis comparing custom vs. managed
-- Decision document: migrate or stay custom
-- If migrating: All agents running on AgentCore, custom code removed
-
-**Estimated Effort:** 3-4 weeks
-
-**Risk Mitigation:**
-- Keep custom AgentCore as fallback during migration
-- A/B test before full switchover
-- Can abort migration if AgentCore doesn't meet needs
+**Estimated Effort for Remaining Work:** 1 week (Remediation Agent only)
 
 ---
 

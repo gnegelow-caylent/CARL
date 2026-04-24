@@ -399,6 +399,32 @@ See detailed guides:
 
 ## What's New (Latest Update)
 
+### AWS Bedrock AgentCore Deployment ☁️ (April 2026)
+
+CARL's agents now run on **AWS Bedrock AgentCore**, the managed agent runtime platform:
+
+| Agent | Status | Description |
+|-------|--------|-------------|
+| **Ask Agent** | ✅ Deployed | Q&A with intelligent AWS environment scanning |
+| **Architect Agent** | ✅ Deployed | Architecture recommendations with real-time pricing |
+| **Remediation Agent** | 📋 Planned | AI-powered auto-fix (currently in Lambda) |
+
+**Benefits:**
+- AWS-managed scaling and orchestration
+- 8-hour task support (no Lambda timeout limits)
+- Built-in observability (CloudWatch, X-Ray)
+- Container-based deployment via GitHub Actions
+
+**Infrastructure:** `modules/agentcore-ask/` and `modules/agentcore-architect/`
+
+### Remediation Agent 🔧 (April 2026)
+
+AI-powered auto-fix with human-in-the-loop approval:
+- **Risk Classification**: LOW/MEDIUM/HIGH automatic categorization
+- **Hybrid Method**: Direct AWS API for LOW risk, GitHub PR for MEDIUM/HIGH
+- **Safety**: Never applies fixes without explicit user approval
+- Commands: `/carl remediate list`, `/carl remediate <id>`, `/carl remediate help`
+
 ### Bootstrap Automation Released 🚀
 
 CARL now includes **complete AWS environment bootstrap automation**, enabling you to set up production-ready, SOC 2-compliant AWS environments from scratch through code.
@@ -454,16 +480,17 @@ See [modules/mcp-gateway/README.md](./carl-infrastructure/modules/mcp-gateway/RE
 See [ROADMAP.md](./ROADMAP.md) for the complete priority roadmap.
 
 **High Priority:**
-1. Model Router MCP - Intelligent routing to Claude/Gemini models
-2. Integrate MCP Gateway with AgentCore agents
-3. CloudWatch alerting patterns
+1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ PARTIAL (Ask + Architect done)
+2. Migrate Remediation Agent to AgentCore
+3. Regression testing framework
+4. CARL uninstall & cleanup process
 
 **Medium Priority:**
-6. Compute security patterns (EC2, ECS, EKS, Lambda)
-7. Database deployment patterns (RDS, Aurora, DynamoDB)
-8. Application patterns (API Gateway, ALB/NLB, caching)
-9. Adaptive monitoring (auto-discovery, self-healing)
-10. Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
+5. Compute security patterns (EC2, ECS, EKS, Lambda)
+6. Database deployment patterns (RDS, Aurora, DynamoDB)
+7. Application patterns (API Gateway, ALB/NLB, caching)
+8. Adaptive monitoring (auto-discovery, self-healing)
+9. Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
 
 ---
 

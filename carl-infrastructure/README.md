@@ -7,17 +7,35 @@ Terraform modules for deploying CARL (Cloud Automated Risk & Compliance Logic) o
 ```
 carl-infrastructure/
 ├── modules/
-│   ├── foundation/        # Phase 0: Core resources (DynamoDB, S3, IAM, Secrets)
-│   ├── scanning/          # Phase 1-2: Security services and findings processing
-│   ├── remediation/       # Phase 3: Step Functions, remediation Lambda
-│   ├── multi-account/     # Phase 4: Cross-account roles and EventBridge
-│   └── github-integration/# Phase 5: GitHub App webhook handling
+│   ├── foundation/         # Phase 0: Core resources (DynamoDB, S3, IAM, Secrets)
+│   ├── scanning/           # Phase 1-2: Security services and findings processing
+│   ├── remediation/        # Phase 3: Step Functions, remediation Lambda
+│   ├── multi-account/      # Phase 4: Cross-account roles and EventBridge
+│   ├── github-integration/ # Phase 5: GitHub App webhook handling
+│   ├── agentcore-ask/      # AWS Bedrock AgentCore - Ask Agent ✅ DEPLOYED
+│   ├── agentcore-architect/# AWS Bedrock AgentCore - Architect Agent ✅ DEPLOYED
+│   └── mcp-gateway/        # MCP Gateway for tool integration
 ├── environments/
 │   ├── dev/               # Development environment
 │   └── prod/              # Production environment
 ├── scripts/               # Helper scripts
 └── .github/workflows/     # CI/CD pipelines
 ```
+
+## AWS Bedrock AgentCore Modules
+
+CARL's agents run on AWS Bedrock AgentCore, the managed agent runtime platform.
+
+### Ask Agent (`modules/agentcore-ask/`)
+- Intelligent Q&A with AWS environment scanning
+- Container deployment via GitHub Actions
+- IAM permissions for Bedrock, EC2, S3, IAM read access
+- Optional AgentCore Memory and Gateway integration
+
+### Architect Agent (`modules/agentcore-architect/`)
+- Architecture recommendations with real-time pricing
+- DynamoDB access for pricing cache
+- Container deployment via GitHub Actions
 
 ## Prerequisites
 

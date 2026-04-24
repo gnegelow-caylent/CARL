@@ -663,6 +663,36 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### AWS Bedrock AgentCore Deployment ☁️ (April 24, 2026)
+
+**Status: PARTIAL COMPLETE** - Ask and Architect agents deployed on AWS Bedrock AgentCore
+
+**What's Deployed:**
+1. ✅ **Ask Agent on AgentCore** - `modules/agentcore-ask/`
+   - AgentCore Runtime with container deployment
+   - GitHub Actions CI/CD for container builds
+   - IAM role with Bedrock + AWS read permissions
+   - Optional Memory and Gateway integration
+
+2. ✅ **Architect Agent on AgentCore** - `modules/agentcore-architect/`
+   - AgentCore Runtime with architecture tools
+   - DynamoDB access for pricing cache
+   - Container deployment via GitHub Actions
+
+**Remaining Work:**
+- [ ] **Remediation Agent** - Currently uses custom `agent_core.py` in Lambda
+  - Planned: Create `modules/agentcore-remediate/` module
+
+**Benefits:**
+- AWS-managed scaling and orchestration
+- 8-hour task support (no Lambda timeout limits)
+- Built-in observability (CloudWatch, X-Ray)
+- Enterprise-grade security and isolation
+
+**Infrastructure:**
+- `carl-infrastructure/modules/agentcore-ask/main.tf`
+- `carl-infrastructure/modules/agentcore-architect/main.tf`
+
 ### Remediation Agent with Human-in-the-Loop Approval 🔧 (April 23, 2026)
 
 **Status: COMPLETE** - AI-powered remediation with approval workflow
@@ -1258,16 +1288,17 @@ carl-infrastructure/
 See `ROADMAP.md` for detailed priority list.
 
 **High Priority (Next):**
-1. Migrate to AWS Bedrock AgentCore
-2. Regression testing framework
-3. CARL uninstall & cleanup process
+1. ~~Migrate to AWS Bedrock AgentCore~~ ✅ PARTIAL (Ask + Architect done, Remediation pending)
+2. Migrate Remediation Agent to AgentCore
+3. Regression testing framework
+4. CARL uninstall & cleanup process
 
 **Medium Priority:**
 - Compute security patterns (EC2, ECS, EKS, Lambda)
 - Database deployment patterns (RDS, Aurora, DynamoDB)
 - Application patterns (API Gateway, ALB/NLB, caching)
 - Adaptive monitoring (auto-discovery, self-healing)
-- Auto-remediation execution
+- ~~Auto-remediation execution~~ ✅ COMPLETE (Remediation Agent built)
 
 **Long-Term:**
 - Multi-framework support (HIPAA, PCI-DSS, ISO 27001)
