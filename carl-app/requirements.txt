@@ -22,7 +22,7 @@ python-dateutil>=2.8.2
 tenacity>=8.2.0  # Retry logic
 
 # JSON handling
-orjson>=3.9.0  # Faster JSON
+orjson>=3.11.8  # Faster JSON
 
 # YAML parsing (for compliance frameworks)
 PyYAML>=6.0.1
