@@ -31,4 +31,4 @@ PyYAML>=6.0.1
 # NOTE: These dependencies work with Lambda Container Images (Docker)
 weasyprint>=60.0  # HTML to PDF conversion
 matplotlib>=3.8.0  # Chart generation
-pillow>=10.0.0  # Image processing
+pillow>=10.4.0  # Image processing
