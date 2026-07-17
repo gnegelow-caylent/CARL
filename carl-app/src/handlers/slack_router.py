@@ -2320,31 +2320,42 @@ def handle_ask_command(
 
 def classify_question_type(question: str) -> str:
     """
-    Classify a question as 'compliance' (scan existing) or 'architecture' (design new).
+    Classify a question as 'compliance', 'architecture', or 'remediation'.
 
     Args:
         question: User's question
 
     Returns:
-        'compliance' or 'architecture'
+        'compliance', 'architecture', or 'remediation'
     """
     from services.bedrock_service import BedrockService
 
     question_lower = question.lower()
 
     # Simple heuristics first (fast path)
+
+    # Remediation = "fix/enable/remediate something"
+    remediation_keywords = [
+        "fix", "remediate", "resolve", "enable", "disable", "turn on", "turn off",
+        "patch", "update", "enforce", "apply", "implement a fix", "address",
+        "correct", "repair", "block", "allow", "configure encryption",
+        "enable mfa", "enable versioning", "enable logging", "restrict access"
+    ]
+
     # Architecture = "how do I build/setup something new?"
     architecture_keywords = [
         "design", "build", "create", "architect", "recommend", "best practice",
         "should i use", "what service", "which is better", "how to implement",
         "what's the best way", "how much would", "cost estimate", "pricing",
-        "options for", "alternatives to",
+        "options for", "alternatives to", "what are my options", "what options",
         # "How to build" patterns
         "setup", "set up", "deploy", "launch", "host", "run a", "install",
         "how do i", "how do you", "how would", "how should", "how can i",
-        "want to", "need to", "looking to", "trying to",
+        "want to", "need to", "looking to", "trying to", "want a", "if i want",
         "migrate", "move to", "switch to",
-        "configure a", "configure new", "new vpc", "new bucket", "new database"
+        "configure a", "configure new", "new vpc", "new bucket", "new database",
+        # Comparison questions
+        "fargate vs", "ec2 vs", "compare", "difference between", "which should"
     ]
 
     # Compliance = "what's the status of my existing resources?"
@@ -2356,24 +2367,29 @@ def classify_question_type(question: str) -> str:
         "what does my", "how is my"
     ]
 
+    remed_score = sum(1 for kw in remediation_keywords if kw in question_lower)
     arch_score = sum(1 for kw in architecture_keywords if kw in question_lower)
     comp_score = sum(1 for kw in compliance_keywords if kw in question_lower)
 
-    if arch_score > comp_score:
-        return "architecture"
-    elif comp_score > arch_score:
-        return "compliance"
-    else:
-        # Ambiguous - use AI to classify
-        bedrock = BedrockService()
-        prompt = f"""Classify this AWS question as either "COMPLIANCE" or "ARCHITECTURE":
+    # Return highest score
+    scores = {"remediation": remed_score, "architecture": arch_score, "compliance": comp_score}
+    max_score = max(scores.values())
+
+    # If there's a clear winner, return it
+    if max_score > 0 and list(scores.values()).count(max_score) == 1:
+        return max(scores, key=scores.get)
+
+    # Ambiguous - use AI to classify
+    bedrock = BedrockService()
+    prompt = f"""Classify this AWS question as either "COMPLIANCE", "ARCHITECTURE", or "REMEDIATION":
 
 Question: {question}
 
 - COMPLIANCE: Questions about existing deployed AWS resources (checking status, configuration, security)
 - ARCHITECTURE: Questions about what to build or how to design something new
+- REMEDIATION: Questions about fixing, enabling, or changing existing resources
 
-Reply with ONLY one word: COMPLIANCE or ARCHITECTURE"""
+Reply with ONLY one word: COMPLIANCE, ARCHITECTURE, or REMEDIATION"""
 
         try:
             response = bedrock.bedrock_client.invoke_model(
@@ -2389,7 +2405,9 @@ Reply with ONLY one word: COMPLIANCE or ARCHITECTURE"""
             response_body = json.loads(response['body'].read())
             classification = response_body['content'][0]['text'].strip().upper()
 
-            if "ARCHITECTURE" in classification:
+            if "REMEDIATION" in classification:
+                return "remediation"
+            elif "ARCHITECTURE" in classification:
                 return "architecture"
             else:
                 return "compliance"
@@ -2573,10 +2591,22 @@ def handle_ask_command_sync(
     question_type = classify_question_type(question)
     logger.info(f"Question classified as: {question_type}")
 
-    # Route architecture questions to architecture handler
+    # Route to appropriate agent based on question type
     if question_type == "architecture":
         logger.info("Routing to architecture agent")
         return handle_architecture_question(slack, channel_id, user_id, question)
+
+    elif question_type == "remediation":
+        logger.info("Routing to remediation agent")
+        slack.post_message(channel_id, text="🔧 Analyzing remediation options...")
+        # For now, explain that they should use /carl remediate
+        # TODO: In the future, invoke remediation agent directly
+        response = f"To fix issues, please use the `/carl remediate` command:\n\n" \
+                   f"• `/carl remediate list` - See fixable findings\n" \
+                   f"• `/carl remediate <finding_id>` - Fix a specific finding\n\n" \
+                   f"_Or ask me about the current state of your resources and I'll identify issues._"
+        slack.post_message(channel_id, text=response)
+        return {"statusCode": 200, "body": ""}
 
     # Try AgentCore first (Phase 1 - intelligent Q&A with scanning)
     agentcore_arn = os.environ.get("AGENTCORE_ASK_RUNTIME_ARN", "")
