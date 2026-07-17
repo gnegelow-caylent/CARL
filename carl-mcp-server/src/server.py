@@ -17,6 +17,7 @@ from .tools.scan import carl_scan_tool, handle_carl_scan
 from .tools.remediate import carl_remediate_tool, handle_carl_remediate
 from .tools.evidence import carl_evidence_tool, handle_carl_evidence
 from .tools.architect import carl_architect_tool, handle_carl_architect
+from .tools.report import carl_report_tool, handle_carl_report
 
 # Setup logging
 logging.basicConfig(
@@ -55,6 +56,7 @@ def create_server() -> Server:
             carl_scan_tool(),
             carl_remediate_tool(),
             carl_evidence_tool(),
+            carl_report_tool(),
             carl_architect_tool(),
         ]
 
@@ -72,6 +74,8 @@ def create_server() -> Server:
                 result = await handle_carl_remediate(arguments)
             elif name == "carl_collect_evidence":
                 result = await handle_carl_evidence(arguments)
+            elif name == "carl_generate_report":
+                result = await handle_carl_report(arguments)
             elif name == "carl_architect":
                 result = await handle_carl_architect(arguments)
             else:

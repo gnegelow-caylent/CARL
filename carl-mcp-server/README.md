@@ -111,17 +111,68 @@ Use carl_architect to:
 - "Design a compliant data processing pipeline"
 ```
 
-### `carl_scan_environment` (Coming Soon)
+### `carl_scan_environment`
 
-Scan AWS for security findings.
+Scan AWS environment for security findings.
 
-### `carl_remediate_finding` (Coming Soon)
+**Examples:**
+```
+Use carl_scan_environment to:
+- Scan all AWS services for security issues
+- scope: "all" - comprehensive scan
+- scope: "iam" - IAM-specific scan
+- scope: "s3" - S3 bucket security scan
+- scope: "vpc" - VPC and network security
+```
 
-Auto-fix security issues with approval.
+Returns findings with severity levels (CRITICAL, HIGH, MEDIUM, LOW) and recommendations.
 
-### `carl_collect_evidence` (Coming Soon)
+### `carl_remediate_finding`
+
+Auto-fix security issues with AI-generated solutions.
+
+**Examples:**
+```
+Use carl_remediate_finding to:
+- finding_id: "s3-bucket-my-bucket-no-encryption"
+- auto_approve: false (requires approval for all changes)
+
+CARL will:
+1. Analyze the finding
+2. Generate appropriate fix (Terraform or direct API)
+3. Show preview with risk level
+4. Apply fix after your approval
+```
+
+### `carl_collect_evidence`
 
 Collect compliance evidence for audits.
+
+**Examples:**
+```
+Use carl_collect_evidence to:
+- framework: "soc2" - SOC 2 evidence
+- framework: "hipaa" - HIPAA evidence
+- framework: "all" - All frameworks
+- store: true - Store in DynamoDB/S3
+
+Collects evidence across IAM, S3, VPC, CloudTrail, Security Hub, KMS
+Maps to compliance controls (CC6.1, HIPAA §164.312, etc.)
+```
+
+### `carl_generate_report`
+
+Generate compliance reports for auditors.
+
+**Examples:**
+```
+Use carl_generate_report to:
+- report_type: "executive" - Executive summary
+- report_type: "full" - Detailed compliance report
+- report_type: "control", control_id: "CC6.1" - Specific control
+- framework: "soc2"
+- save_to_s3: true - Save to S3 bucket
+```
 
 ## Configuration
 

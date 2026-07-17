@@ -150,13 +150,13 @@ Use carl_ask to check my AWS security posture
 
 **Deliverable:** Can ask CARL questions and get architecture recommendations via Claude Desktop
 
-### Phase 2: Additional Tools (Next - Week 1)
+### Phase 2: Additional Tools ✅ (DONE)
 
-**To Build:**
-- `carl_scan_environment` - Direct AWS scanning
-- `carl_remediate_finding` - Fix security findings
-- `carl_collect_evidence` - Compliance evidence collection
-- `carl_generate_report` - Compliance reports
+**What's Working:**
+- ✅ `carl_scan_environment` - Direct AWS scanning across IAM, S3, VPC, Security Hub, CloudTrail, GuardDuty
+- ✅ `carl_remediate_finding` - Fix security findings via AgentCore remediate agent
+- ✅ `carl_collect_evidence` - Compliance evidence collection with DynamoDB/S3 storage
+- ✅ `carl_generate_report` - Compliance reports (executive, full, control-specific)
 
 **Deliverable:** Full feature parity with Slack bot
 
@@ -282,9 +282,9 @@ Use carl_ask to check my AWS security posture
 - [x] Documentation is clear
 
 **Phase 2 Complete When:**
-- [ ] All core tools implemented (scan, remediate, evidence)
-- [ ] Feature parity with Slack bot
-- [ ] Comprehensive tests
+- [x] All core tools implemented (scan, remediate, evidence, reports)
+- [x] Feature parity with Slack bot
+- [ ] Comprehensive tests (TODO)
 
 **Phase 3 Complete When:**
 - [ ] EVO integration working
