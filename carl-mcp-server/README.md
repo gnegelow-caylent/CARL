@@ -11,6 +11,16 @@ AWS Security & Compliance assistant for Claude Desktop via Model Context Protoco
 - ✅ Maps everything to SOC 2, HIPAA, PCI DSS controls
 - 🔧 Can auto-fix issues with your approval
 
+## 🚀 Quick Start
+
+**→ [Complete Deployment Guide](./DEPLOYMENT.md)** ← Start here for step-by-step instructions
+
+Deployment takes ~30-45 minutes and includes:
+1. Deploy AWS infrastructure (Terraform)
+2. Build and push containers (Docker)
+3. Install MCP server (Python)
+4. Configure Claude Desktop
+
 ## Prerequisites
 
 1. **AWS Account** with CARL infrastructure deployed
