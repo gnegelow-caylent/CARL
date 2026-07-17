@@ -1229,10 +1229,34 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             except Exception as e:
                 logger.exception(f"Error generating Terraform: {e}")
-                slack.post_message(
-                    channel_id,
-                    text=f"❌ Error generating Terraform: {str(e)}\n\nPlease try again."
-                )
+
+                # Create retry button with session context
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"❌ *Error generating Terraform*\n\n```{str(e)}```"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "🔄 Try Again"
+                                },
+                                "style": "primary",
+                                "action_id": f"wizard_retry_{session_id}",
+                                "value": session_id
+                            }
+                        ]
+                    }
+                ]
+
+                slack.post_message(channel_id, text=f"❌ Error: {str(e)}", blocks=blocks)
 
             return {"statusCode": 200, "body": ""}
 
@@ -7498,6 +7522,56 @@ def handle_build_answer_button(payload: dict, action: dict) -> dict:
     return {"statusCode": 200, "body": ""}
 
 
+def handle_wizard_retry_button(payload: dict, session_id: str) -> dict:
+    """
+    Handle retry button click for failed Terraform generation.
+
+    Retrieves the session configuration and retries the generation.
+    """
+    import json
+    from services.build_session_service import BuildSessionService
+
+    slack = get_slack_service()
+    channel_id = payload["channel"]["id"]
+    user_id = payload["user"]["id"]
+
+    logger.info(f"Wizard retry requested: session={session_id}, user={user_id}")
+
+    # Acknowledge immediately
+    slack.post_message(
+        channel_id,
+        text=":arrows_counterclockwise: Retrying Terraform generation..."
+    )
+
+    # Get session data
+    try:
+        session_service = BuildSessionService()
+        session = session_service.get_session(session_id, user_id)
+
+        if not session:
+            slack.post_message(channel_id, text="❌ Session not found. Please start a new build.")
+            return {"statusCode": 200, "body": ""}
+
+        # Trigger async retry with the saved configuration
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'carl-dev-api'),
+            InvocationType='Event',  # Async
+            Payload=json.dumps({
+                'action': 'generate_terraform',
+                'session_id': session_id,
+                'channel_id': channel_id,
+                'user_id': user_id,
+                'config': session.get('config', {})
+            })
+        )
+    except Exception as e:
+        logger.exception(f"Failed to retry Terraform generation: {e}")
+        slack.post_message(channel_id, text=f"❌ Error retrying: {str(e)}")
+
+    return {"statusCode": 200, "body": ""}
+
+
 def process_build_answer_async(channel_id: str, user_id: str, session_id: str, answer_option: str, question_text: str) -> dict:
     """
     Process build answer asynchronously (called via Lambda invoke).
@@ -8693,6 +8767,9 @@ def handle_interaction(payload: dict) -> dict:
             elif action_id.startswith("deny_remediation_"):
                 remediation_id = action_id.replace("deny_remediation_", "")
                 return handle_remediation_approval(payload, remediation_id, False)
+            elif action_id.startswith("wizard_retry_"):
+                session_id = action_id.replace("wizard_retry_", "")
+                return handle_wizard_retry_button(payload, session_id)
             elif action_id.startswith("foundation_select_framework_"):
                 return handle_foundation_framework_selection(payload, action)
             elif action_id.startswith("account_factory_framework_"):
