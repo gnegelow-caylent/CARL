@@ -141,14 +141,24 @@ SERVERLESS_API_PATTERNS = {
 
 CONTAINER_PATTERNS = {
     "ecs_fargate": {
-        "name": "ECS Fargate",
+        "name": "ECS Fargate (Serverless)",
         "description": "Serverless containers with no EC2 management",
         "components": ["ECS Cluster", "Fargate tasks", "ALB", "ECR"],
         "cost_estimate": "$30-200/month for small workloads",
-        "pros": ["No EC2 management", "Auto-scaling", "Easy deployment"],
-        "cons": ["Higher per-unit cost", "Less control"],
+        "pros": ["No EC2 management", "Auto-scaling", "Easy deployment", "AWS handles patching"],
+        "cons": ["Higher per-unit cost (~50% more than EC2)", "Less infrastructure control", "Cold start delays"],
         "soc2_controls": ["CC6.1", "CC6.7", "CC7.2"],
-        "recommended_for": "Microservices, containerized apps, variable workloads"
+        "recommended_for": "Microservices, variable workloads, small teams without ops expertise"
+    },
+    "ecs_ec2": {
+        "name": "ECS on EC2 (Cost-Optimized)",
+        "description": "ECS tasks on self-managed EC2 instances - cheaper at scale",
+        "components": ["ECS Cluster", "EC2 Auto Scaling Group", "ECS agent", "ALB", "ECR"],
+        "cost_estimate": "$90-500/month (50% cheaper than Fargate at high utilization)",
+        "pros": ["Lower cost at scale", "Full instance control", "Reserved Instance savings", "Persistent storage"],
+        "cons": ["Manage EC2 instances (patching, scaling)", "More operational overhead", "More SOC 2 controls needed"],
+        "soc2_controls": ["CC6.1", "CC6.7", "CC7.2", "CC8.1 - patch management"],
+        "recommended_for": "High utilization workloads (>70% CPU), cost-sensitive deployments, teams with EC2 expertise"
     },
     "eks_managed": {
         "name": "EKS Managed Kubernetes",
