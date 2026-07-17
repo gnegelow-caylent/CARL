@@ -2415,30 +2415,30 @@ Question: {question}
 
 Reply with ONLY one word: COMPLIANCE, ARCHITECTURE, or REMEDIATION"""
 
-        try:
-            response = bedrock.bedrock_client.invoke_model(
-                modelId=bedrock.model_id,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 10,
-                    "temperature": 0,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
+    try:
+        response = bedrock.bedrock_client.invoke_model(
+            modelId=bedrock.model_id,
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 10,
+                "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}]
+            })
+        )
 
-            response_body = json.loads(response['body'].read())
-            classification = response_body['content'][0]['text'].strip().upper()
+        response_body = json.loads(response['body'].read())
+        classification = response_body['content'][0]['text'].strip().upper()
 
-            if "REMEDIATION" in classification:
-                return "remediation"
-            elif "ARCHITECTURE" in classification:
-                return "architecture"
-            else:
-                return "compliance"
-
-        except Exception as e:
-            logger.warning(f"AI classification failed: {e}, defaulting to compliance")
+        if "REMEDIATION" in classification:
+            return "remediation"
+        elif "ARCHITECTURE" in classification:
+            return "architecture"
+        else:
             return "compliance"
+
+    except Exception as e:
+        logger.warning(f"AI classification failed: {e}, defaulting to compliance")
+        return "compliance"
 
 
 def handle_architecture_question(
