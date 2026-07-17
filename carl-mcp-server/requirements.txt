@@ -1,0 +1,11 @@
+# CARL MCP Server Dependencies
+
+# MCP SDK
+mcp>=0.9.0
+
+# AWS SDK
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Async support
+aiofiles>=23.0.0
