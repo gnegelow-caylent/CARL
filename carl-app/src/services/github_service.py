@@ -137,7 +137,7 @@ class GitHubService:
                 return resp.json()
 
         # Get base branch SHA
-        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{base_branch}"
+        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{base_branch}"
         ref_resp = requests.get(ref_url, headers=self._get_headers(), timeout=10)
         ref_resp.raise_for_status()
         base_sha = ref_resp.json()["object"]["sha"]
@@ -165,7 +165,7 @@ class GitHubService:
             Commit SHA
         """
         # Get latest commit on branch
-        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/ref/heads/{branch}"
+        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{branch}"
         ref_resp = requests.get(ref_url, headers=self._get_headers(), timeout=10)
         ref_resp.raise_for_status()
         base_commit_sha = ref_resp.json()["object"]["sha"]

@@ -1,0 +1,25 @@
+{
+  "name": "CARL - Cloud Automated Risk & Compliance Logic",
+  "description": "AI-powered AWS compliance automation for SOC 2, HIPAA, and beyond. Built on AWS-native services and powered by Amazon Bedrock (Claude).",
+  "version": "1.0.0",
+  "knowledgeFiles": [
+    "CLAUDE.md",
+    "README.md",
+    "ARCHITECTURE.md",
+    "FEATURES.md",
+    "ROADMAP.md",
+    "SLACK_COMMANDS.md"
+  ],
+  "customInstructions": "This is CARL, an AWS compliance automation platform. Follow the safety guardrails in CLAUDE.md: NEVER run terraform apply, AWS CLI modifications, or write to external systems without explicit user approval. Local file edits are ALLOWED. Use MCP tools where available instead of local AWS CLI. Follow the 11 design principles, especially: use dynamic AI processing over static rules, avoid redundant tools, maintain cost-conscious architecture (<$200/month), and never use static Terraform templates. Review CLAUDE.md for complete context before making changes.",
+  "tags": [
+    "aws",
+    "compliance",
+    "security",
+    "terraform",
+    "bedrock",
+    "slack-bot",
+    "soc2",
+    "hipaa",
+    "agentcore"
+  ]
+}
