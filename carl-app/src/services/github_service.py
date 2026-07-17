@@ -92,13 +92,19 @@ class GitHubService:
 
     def branch_exists(self, branch_name: str) -> bool:
         """Check if a branch exists."""
-        branch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{branch_name}"
+        from urllib.parse import quote
+        # URL encode branch name (forward slashes must be %2F)
+        encoded_branch = quote(branch_name, safe='')
+        branch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{encoded_branch}"
         resp = requests.get(branch_url, headers=self._get_headers(), timeout=10)
         return resp.status_code == 200
 
     def delete_branch(self, branch_name: str) -> None:
         """Delete a branch."""
-        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{branch_name}"
+        from urllib.parse import quote
+        # URL encode branch name (forward slashes must be %2F)
+        encoded_branch = quote(branch_name, safe='')
+        ref_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{encoded_branch}"
         resp = requests.delete(ref_url, headers=self._get_headers(), timeout=10)
         resp.raise_for_status()
 
