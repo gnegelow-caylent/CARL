@@ -261,15 +261,16 @@ jobs:
           ASK_PID=$!
 
           # Build Architect agent container (ARM64) in background
+          # Build context is repo root to include knowledge base (37 pattern files)
           (
-            echo "🔨 Building Architect agent container..."
-            cd carl-infrastructure/agentcore-code/architect-agent
+            echo "🔨 Building Architect agent container with full knowledge base..."
             docker buildx build --platform linux/arm64 \
               --provenance=false \
               --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-cache \
               --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-cache,mode=max \
               -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect-$IMAGE_TAG \
               -t $ECR_REGISTRY/$ECR_REPOSITORY:agentcore-architect \
+              -f carl-infrastructure/agentcore-code/architect-agent/Dockerfile \
               --push .
             echo "✓ Architect agent container pushed"
           ) &
