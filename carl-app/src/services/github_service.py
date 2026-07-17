@@ -149,7 +149,15 @@ class GitHubService:
             "sha": base_sha
         }
         resp = requests.post(create_url, headers=self._get_headers(), json=payload, timeout=10)
-        resp.raise_for_status()
+        if resp.status_code != 201:
+            # Log detailed error for debugging
+            error_detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            raise requests.exceptions.HTTPError(
+                f"{resp.status_code} {resp.reason} for url: {resp.url}. "
+                f"GitHub said: {error_detail}. "
+                f"Payload: {payload}",
+                response=resp
+            )
         return resp.json()
 
     def commit_files(self, branch: str, files: dict[str, str], message: str) -> str:
