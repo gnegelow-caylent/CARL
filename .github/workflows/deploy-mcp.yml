@@ -154,12 +154,19 @@ jobs:
           from carl_mcp_server.tools import ask, architect, scan, remediate, evidence, report
 
           # Verify all tools have required MCP fields
-          tools = [ask.tool, architect.tool, scan.tool, remediate.tool, evidence.tool, report.tool]
+          tools = [
+              ask.carl_ask_tool(),
+              architect.carl_architect_tool(),
+              scan.carl_scan_tool(),
+              remediate.carl_remediate_tool(),
+              evidence.carl_evidence_tool(),
+              report.carl_report_tool()
+          ]
           for tool in tools:
-              assert 'name' in tool, f'Tool missing name'
-              assert 'description' in tool, f'Tool missing description'
-              assert 'inputSchema' in tool, f'Tool missing inputSchema'
-              print(f'✅ {tool[\"name\"]} is MCP compliant')
+              assert hasattr(tool, 'name'), f'Tool missing name'
+              assert hasattr(tool, 'description'), f'Tool missing description'
+              assert hasattr(tool, 'inputSchema'), f'Tool missing inputSchema'
+              print(f'✅ {tool.name} is MCP compliant')
           "
           echo "✅ MCP protocol compliance verified"
 

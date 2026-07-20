@@ -118,11 +118,17 @@ module "foundation" {
 
   project_name = "carl"
   environment  = var.environment
-  region       = local.region
+  aws_region   = local.region
   tags         = var.tags
 
-  # Pass KMS key ARN (foundation module expects it from data source)
-  # We'll need to adjust the foundation module to accept this as a variable
+  # MCP doesn't use Slack or Lambda, but foundation module requires these
+  # Pass placeholder values for validation
+  slack_bot_token      = "unused-in-mcp"
+  slack_signing_secret = "unused-in-mcp"
+  lambda_package_path  = "unused-in-mcp"
+
+  # Use existing KMS key if deployed
+  kms_key_arn = aws_kms_key.carl.arn
 }
 
 # ============================================================================
@@ -135,8 +141,8 @@ module "agentcore_ask" {
 
   name_prefix          = local.name_prefix
   ecr_repository_url   = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn   = aws_ecr_repository.agents.arn
   container_image_tag  = "agentcore-ask-${var.environment}"
-  environment          = var.environment
   foundation_model     = var.foundation_model
   enable_memory        = true
   enable_gateway       = false
@@ -158,8 +164,8 @@ module "agentcore_architect" {
 
   name_prefix          = local.name_prefix
   ecr_repository_url   = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn   = aws_ecr_repository.agents.arn
   container_image_tag  = "agentcore-architect-${var.environment}"
-  environment          = var.environment
   foundation_model     = var.foundation_model
 
   environment_variables = {
@@ -175,8 +181,8 @@ module "agentcore_remediate" {
 
   name_prefix          = local.name_prefix
   ecr_repository_url   = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn   = aws_ecr_repository.agents.arn
   container_image_tag  = "agentcore-remediate-${var.environment}"
-  environment          = var.environment
   foundation_model     = var.foundation_model
 
   environment_variables = {
