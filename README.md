@@ -11,12 +11,13 @@ CARL is an intelligent compliance platform that helps organizations achieve and 
 | **AI Architecture Advisor** | Get personalized AWS architecture recommendations that learn from feedback |
 | **Foundation Builder** | Guided wizard to build compliant AWS infrastructure from scratch |
 | **Compliance Monitoring** | Real-time scanning via Security Hub, GuardDuty, Config |
-| **Audit Evidence Collection** | Automated collection mapped to SOC 2 and HIPAA controls |
-| **Compliance Reports** | Executive summaries and audit-ready documentation |
+| **Audit Evidence Collection** | Automated collection mapped to SOC 2, HIPAA, PCI DSS, and NIST CSF controls |
+| **Multi-Framework Support** | SOC 2, HIPAA, PCI DSS 4.0, NIST CSF 2.0 compliance frameworks |
+| **Compliance Reports** | Executive summaries and audit-ready documentation (per framework) |
 | **Risk Exception Management** | Track and manage accepted risks with approval workflows |
 | **Drift Detection** | Detect configuration drift and security misconfigurations |
 | **Terraform Generation** | Generate compliant infrastructure code on demand |
-| **HIPAA Compliance Framework** | 18 safeguard categories, 140+ eligible services for healthcare workloads |
+| **AgentCore Cold Start Resilience** | 5-minute timeout handles cold starts gracefully |
 
 ## Current Status: Fully Built + Deployed to AWS
 
@@ -95,9 +96,9 @@ All core capabilities have been implemented and deployed, including **NEW: Found
 
 ### Audit & Evidence
 ```
-/carl evidence collect          - Collect audit evidence across all resources
-/carl evidence status           - View evidence collection coverage
-/carl report executive          - Generate executive compliance summary
+/carl evidence collect [framework]   - Collect audit evidence (soc2, hipaa, pci, nist)
+/carl evidence status [framework]    - View evidence collection coverage by framework
+/carl report executive [framework]   - Generate compliance summary for framework
 /carl report full               - Generate full audit report
 /carl report control <id>       - Generate control-specific report (e.g., CC6.1)
 ```
