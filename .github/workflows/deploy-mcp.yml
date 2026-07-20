@@ -1,9 +1,10 @@
 name: Deploy CARL MCP
 
 on:
-  push:
-    branches:
-      - feature/mcp-migration
+  # Disabled for feature branch - only runs on workflow_dispatch
+  # push:
+  #   branches:
+  #     - feature/mcp-migration
     paths:
       - 'carl-infrastructure/agentcore-code/**'
       - 'carl-infrastructure/mcp-deployment/**'
