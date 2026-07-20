@@ -1019,12 +1019,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
 
     if event.get("action") == "process_evidence_collect_async":
-        logger.info("Processing async evidence collection")
+        framework = event.get("framework", "soc2")
+        logger.info(f"Processing async evidence collection for framework: {framework}")
         slack = get_slack_service()
         return handle_evidence_collect_sync(
             slack,
             event.get("channel_id"),
-            event.get("user_id")
+            event.get("user_id"),
+            framework=framework
         )
 
     if event.get("action") == "process_drift_scan_async":
@@ -1803,7 +1805,7 @@ def handle_status_command(
 
 
 def handle_status_command_sync(
-    slack: SlackService, channel_id: str, user_id: str
+    slack: SlackService, channel_id: str, user_id: str, framework: str = "soc2"
 ) -> dict:
     """Handle /carl status command - synchronous version with live scanning."""
     import os
@@ -1816,10 +1818,11 @@ def handle_status_command_sync(
 
     try:
         # 1. LIVE SCAN - Environment-First Principle
-        logger.info("🔍 Running live AWS environment scan for status check")
+        logger.info(f"🔍 Running live AWS environment scan for {framework.upper()} compliance")
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
+            evidence_table=evidence_table,
+            framework=framework
         )
 
         # Collect all evidence
@@ -10862,13 +10865,28 @@ def handle_learning_feedback(payload: dict, action: dict) -> dict:
 def handle_evidence_command(
     slack: SlackService, channel_id: str, user_id: str, args: str
 ) -> dict:
-    """Handle /carl evidence command - audit evidence collection (async wrapper)."""
+    """Handle /carl evidence command - audit evidence collection (async wrapper).
+
+    Usage:
+        /carl evidence collect [framework]  - Collect evidence for framework (soc2, hipaa, pci-dss, nist)
+        /carl evidence status [framework]    - Show evidence collection status
+        /carl evidence list [framework]      - List collected evidence
+    """
     import os
     import json
     import boto3
 
     parts = args.split() if args else []
     subcommand = parts[0].lower() if parts else "status"
+
+    # Parse framework from command args (e.g., /carl evidence collect hipaa)
+    # Default to soc2 if not specified
+    framework = "soc2"
+    if len(parts) > 1:
+        framework_arg = parts[1].lower()
+        # Map common framework names
+        if framework_arg in ["hipaa", "soc2", "soc", "pci", "pci-dss", "nist", "nist-csf"]:
+            framework = framework_arg.replace("soc", "soc2").replace("pci-dss", "pci").replace("nist-csf", "nist")
 
     # For "collect" command, invoke async immediately without initializing heavy resources
     if subcommand == "collect":
@@ -10881,7 +10899,8 @@ def handle_evidence_command(
                 Payload=json.dumps({
                     'action': 'process_evidence_collect_async',
                     'channel_id': channel_id,
-                    'user_id': user_id
+                    'user_id': user_id,
+                    'framework': framework
                 })
             )
         except Exception as e:
@@ -10892,18 +10911,20 @@ def handle_evidence_command(
             evidence_table = os.environ.get("EVIDENCE_TABLE", "carl-evidence")
             collector = EvidenceCollector(
                 evidence_bucket=evidence_bucket,
-                evidence_table=evidence_table
+                evidence_table=evidence_table,
+                framework=framework
             )
-            return handle_evidence_collect_sync(slack, channel_id, user_id)
+            return handle_evidence_collect_sync(slack, channel_id, user_id, framework=framework)
 
         # Return immediate response in body (shows to user without additional API call)
         # This is MUCH faster than slack.post_message() and prevents timeout
+        framework_display = framework.upper() if framework != "soc2" else "SOC 2"
         return {
             "statusCode": 200,
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({
                 "response_type": "ephemeral",
-                "text": "🔍 *Starting evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
+                "text": f"🔍 *Starting {framework_display} evidence collection across all resources...*\n\n_This may take a few minutes. I'll post results when complete._"
             })
         }
 
@@ -10915,13 +10936,15 @@ def handle_evidence_command(
     try:
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
+            evidence_table=evidence_table,
+            framework=framework
         )
 
         if subcommand == "list":
             # Parse optional type filter (e.g., /carl evidence list IAM)
-            evidence_type_filter = parts[1] if len(parts) > 1 else None
-            return handle_evidence_list_command(slack, channel_id, user_id, evidence_type_filter)
+            # Note: framework was already parsed from parts[1], so type filter would be parts[2]
+            evidence_type_filter = parts[2] if len(parts) > 2 else None
+            return handle_evidence_list_command(slack, channel_id, user_id, evidence_type_filter, framework=framework)
 
         elif subcommand == "status":
             coverage = collector.get_control_coverage()
@@ -10976,7 +10999,7 @@ def handle_evidence_command(
     return {"statusCode": 200, "body": ""}
 
 
-def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: str) -> dict:
+def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: str, framework: str = "soc2") -> dict:
     """Synchronous version of evidence collect - does the actual work."""
     import os
     from services.evidence_collector import EvidenceCollector
@@ -10987,7 +11010,8 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
     try:
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
+            evidence_table=evidence_table,
+            framework=framework
         )
 
         # Collect evidence
@@ -10995,7 +11019,8 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
 
         # Post collection summary
         total = sum(len(items) for items in results.values())
-        summary_lines = [f"*Evidence Collection Complete*\n\nCollected *{total}* evidence items:\n"]
+        framework_display = framework.upper() if framework != "soc2" else "SOC 2"
+        summary_lines = [f"*{framework_display} Evidence Collection Complete*\n\nCollected *{total}* evidence items:\n"]
         for category, items in results.items():
             summary_lines.append(f"• {category.upper()}: {len(items)} items")
 
@@ -11055,7 +11080,7 @@ def handle_evidence_collect_sync(slack: SlackService, channel_id: str, user_id: 
 
 
 def handle_evidence_list_command(
-    slack: SlackService, channel_id: str, user_id: str, evidence_type_filter: str = None
+    slack: SlackService, channel_id: str, user_id: str, evidence_type_filter: str = None, framework: str = "soc2"
 ) -> dict:
     """Handle /carl evidence list command - shows all collected evidence items with findings status."""
     import os
@@ -11067,7 +11092,8 @@ def handle_evidence_list_command(
     try:
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
+            evidence_table=evidence_table,
+            framework=framework
         )
         findings_service = get_findings_service()
 
@@ -11368,7 +11394,7 @@ def handle_report_command(
 
 
 def handle_report_command_sync(
-    slack: SlackService, channel_id: str, user_id: str, report_type: str, control_id: str | None
+    slack: SlackService, channel_id: str, user_id: str, report_type: str, control_id: str | None, framework: str = "soc2"
 ) -> dict:
     """Synchronous version of report command - generates reports from collected evidence."""
     import os
@@ -11383,9 +11409,10 @@ def handle_report_command_sync(
     reports_bucket = os.environ.get("REPORTS_BUCKET", "carl-reports")
 
     # Post initial status message and get timestamp for updates
+    framework_display = framework.upper() if framework != "soc2" else "SOC 2"
     status_response = slack.post_message(
         channel_id,
-        text=f"📊 Generating {report_type} report...\n\n🔄 Loading evidence and findings..."
+        text=f"📊 Generating {framework_display} {report_type} report...\n\n🔄 Loading evidence and findings..."
     )
     status_ts = status_response.get("ts") if status_response else None
 
@@ -11396,7 +11423,7 @@ def handle_report_command_sync(
                 slack.update_message(
                     channel_id,
                     status_ts,
-                    text=f"📊 Generating {report_type} report...\n\n{status}"
+                    text=f"📊 Generating {framework_display} {report_type} report...\n\n{status}"
                 )
             except Exception as e:
                 logger.warning(f"Failed to update progress: {e}")
@@ -11407,7 +11434,8 @@ def handle_report_command_sync(
 
         collector = EvidenceCollector(
             evidence_bucket=evidence_bucket,
-            evidence_table=evidence_table
+            evidence_table=evidence_table,
+            framework=framework
         )
 
         generator = ReportGenerator(
