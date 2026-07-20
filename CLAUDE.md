@@ -663,6 +663,92 @@ Before deploying any AI-driven feature:
 
 ## Latest Updates (Current Session)
 
+### AgentCore Cold Start Timeout Fixes 🚀 (July 20, 2026)
+
+**Status: COMPLETE** - Both MCP and Slack versions handle cold starts gracefully
+
+**Problem:**
+- AgentCore runtimes take 30-60 seconds to initialize on first invocation (cold start)
+- Default boto3 timeout (60s) was too short
+- Users saw timeout errors: "⚠️ Agent returned no response"
+
+**Solution:**
+1. ✅ **Increased Timeouts** - 5-minute read timeout, 60s connect timeout
+2. ✅ **Retry Logic** - MCP server retries on empty responses
+3. ✅ **Applied to All Agents**:
+   - MCP Server: carl-mcp-server/src/carl_mcp_server/clients/agentcore.py
+   - Slack Bot: carl-app/src/handlers/slack_router.py (3 locations)
+     - Ask Agent (AGENTCORE_ASK_RUNTIME_ARN)
+     - Architect Agent (AGENTCORE_ARCHITECT_RUNTIME_ARN)
+     - Remediate Agent (AGENTCORE_REMEDIATE_RUNTIME_ARN)
+
+**Key Changes:**
+```python
+from botocore.config import Config
+
+config = Config(
+    read_timeout=300,  # 5 minutes for cold starts
+    connect_timeout=60
+)
+client = boto3.client("bedrock-agentcore", config=config)
+```
+
+**Result:**
+- No more timeout errors on first invocation
+- Agents warm up successfully within timeout window
+- User experience: First call takes 30-60s, subsequent calls are instant
+
+**Files Modified:**
+- carl-mcp-server/src/carl_mcp_server/clients/agentcore.py
+- carl-app/src/handlers/slack_router.py
+
+### Multi-Framework Evidence Collection 🏥 (July 20, 2026)
+
+**Status: COMPLETE** - HIPAA, PCI DSS, and NIST CSF evidence collection supported
+
+**Problem:**
+- All evidence was tagged with `framework="soc2"` by default
+- HIPAA evidence collection worked but wasn't stored with proper framework tags
+- No way to specify framework in Slack commands
+
+**Solution:**
+1. ✅ **Framework Parameter Support** - Parse framework from command args
+2. ✅ **Framework Aliases** - Support common variations (soc/soc2, pci/pci-dss, nist/nist-csf)
+3. ✅ **Pass Through Pipeline** - Framework flows through async Lambda invocations
+4. ✅ **Proper Tagging** - Evidence stored with correct framework in DynamoDB/S3
+
+**New Command Syntax:**
+```bash
+/carl evidence collect hipaa      # Collect HIPAA evidence
+/carl evidence status hipaa       # Show HIPAA compliance status
+/carl evidence list hipaa         # List HIPAA evidence
+/carl report executive hipaa      # Generate HIPAA report
+```
+
+**Supported Frameworks:**
+- `soc2` or `soc` - SOC 2 Type II (default)
+- `hipaa` - HIPAA Security Rule
+- `pci` or `pci-dss` - PCI DSS 4.0
+- `nist` or `nist-csf` - NIST CSF 2.0
+
+**Files Modified:**
+- carl-app/src/handlers/slack_router.py (5 functions updated)
+
+### GitHub Actions Terraform Retry Logic 🔄 (July 20, 2026)
+
+**Status: COMPLETE** - MCP workflow handles transient registry.terraform.io errors
+
+**Problem:**
+- GitHub Actions occasionally fails: "could not connect to registry.terraform.io"
+- Network errors are transient but fail the entire workflow
+
+**Solution:**
+- Added retry loop to `terraform init` (up to 3 attempts with 10s delay)
+- Handles connection resets and network timeouts gracefully
+
+**Files Modified:**
+- .github/workflows/deploy-mcp.yml
+
 ### NIST CSF 2.0 & PCI DSS 4.0 Frameworks 📋 (April 24, 2026)
 
 **Status: COMPLETE** - Two new compliance frameworks with 12 architecture patterns

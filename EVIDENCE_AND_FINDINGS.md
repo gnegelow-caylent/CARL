@@ -511,6 +511,76 @@ The CARL Lambda function needs these permissions for evidence collection:
 **Fix:** Changed to standard type "Task"
 **Files:** jira_service.py
 
+---
+
+## Multi-Framework Support
+
+CARL supports evidence collection for multiple compliance frameworks with proper tagging and storage organization.
+
+### Supported Frameworks
+- **SOC 2** (default) - Service Organization Control 2 Type II
+- **HIPAA** - Health Insurance Portability and Accountability Act Security Rule
+- **PCI DSS** - Payment Card Industry Data Security Standard 4.0
+- **NIST CSF** - NIST Cybersecurity Framework 2.0
+
+### Using Frameworks
+
+All evidence commands accept an optional framework parameter:
+
+```bash
+# Collect HIPAA evidence
+/carl evidence collect hipaa
+
+# View HIPAA compliance status
+/carl evidence status hipaa
+
+# Generate HIPAA report
+/carl report executive hipaa
+```
+
+### Framework Tagging
+
+Evidence is tagged with the framework in DynamoDB and organized by framework in S3:
+
+**DynamoDB Schema:**
+```json
+{
+  "evidence_id": "ev_20260720_abc123",
+  "framework": "hipaa",
+  "controls": ["§164.312(a)(2)(iv)"],
+  "resource_type": "s3_bucket",
+  "collected_at": "2026-07-20T12:30:45Z"
+}
+```
+
+**S3 Storage Structure:**
+```
+s3://carl-dev-evidence/
+  evidence/
+    soc2/
+      2026/07/20/config_snapshot/ev_*.json
+    hipaa/
+      2026/07/20/config_snapshot/ev_*.json
+    pci/
+      2026/07/20/security_finding/ev_*.json
+    nist/
+      2026/07/20/compliance_check/ev_*.json
+```
+
+### Control Mappings
+
+Each framework uses its own control identifiers:
+- **SOC 2**: CC1.1, CC6.1, etc.
+- **HIPAA**: §164.308(a)(1)(ii)(D), §164.312(a)(2)(iv), etc.
+- **PCI DSS**: Req 1.2.1, Req 8.3.1, etc.
+- **NIST CSF**: ID.AM-1, PR.AC-1, etc.
+
+### Backward Compatibility
+
+If no framework is specified, CARL defaults to `framework="soc2"` for backward compatibility with existing deployments.
+
+---
+
 ## Related Documentation
 
 - [SLACK_COMMANDS.md](./SLACK_COMMANDS.md) - All available Slack commands

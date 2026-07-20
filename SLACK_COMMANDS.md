@@ -454,13 +454,35 @@ Collect audit evidence across all AWS resources.
 - Network configurations
 - Backup status
 
+**Framework Support:**
+- `/carl evidence collect` - Collect SOC 2 evidence (default)
+- `/carl evidence collect hipaa` - Collect HIPAA evidence
+- `/carl evidence collect pci` - Collect PCI DSS evidence
+- `/carl evidence collect nist` - Collect NIST CSF evidence
+
+**Supported Frameworks:**
+- `soc2` or `soc` - SOC 2 Type II (default)
+- `hipaa` - HIPAA Security Rule §164.312
+- `pci` or `pci-dss` - PCI DSS 4.0 requirements
+- `nist` or `nist-csf` - NIST Cybersecurity Framework 2.0
+
+**Examples:**
+```
+/carl evidence collect hipaa
+/carl evidence status hipaa
+/carl evidence list hipaa
+/carl report executive hipaa
+```
+
 **Processing:**
 - **Async operation** (no timeout, completes in background)
 - Immediate response within 3 seconds
 - Completion messages posted when done (2-5 minutes)
-- Results stored in DynamoDB
-- Mapped to SOC 2 controls
+- Results stored in DynamoDB with framework tags
+- Mapped to framework-specific controls (SOC 2, HIPAA, PCI DSS, NIST CSF)
 - **Auto-resolve**: Findings automatically marked as REMEDIATED when evidence shows issues are fixed
+
+**Note:** All evidence commands support framework parameters. If not specified, defaults to SOC 2.
 
 **Recent Improvements:**
 - Fixed S3 encryption permission check (s3:GetEncryptionConfiguration)
