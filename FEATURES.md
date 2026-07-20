@@ -150,6 +150,12 @@ CARL supports 4 compliance frameworks with comprehensive control mappings and ar
 | Evidence Coverage Tracking | ✅ Live | Shows which controls have evidence |
 | **AI-Enhanced Report Generation** | ✅ Live | Executive, full audit, and control-specific reports with AI insights |
 | Audit-Ready Export | ✅ Live | PDF/JSON exports for auditors |
+| **Multi-Framework Support** | ✅ Live | SOC 2, HIPAA, PCI DSS, NIST CSF evidence collection |
+| - SOC 2 Framework | ✅ Live | SOC 2 Type II controls (CC1-CC9) |
+| - HIPAA Framework | ✅ Live | HIPAA Security Rule §164.312 |
+| - PCI DSS Framework | ✅ Live | PCI DSS 4.0 requirements (Req 1-12) |
+| - NIST CSF Framework | ✅ Live | NIST Cybersecurity Framework 2.0 |
+| **AgentCore Cold Start Resilience** | ✅ Live | 5-minute timeout handles cold starts gracefully |
 
 ### 📄 AI-Enhanced Compliance Reports (NEW - January 31, 2026)
 
