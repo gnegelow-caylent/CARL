@@ -1,118 +1,56 @@
-name: Deploy CARL MCP
+name: Validate CARL MCP
 
 on:
-  # Disabled for feature branch - only runs on workflow_dispatch
-  # push:
-  #   branches:
-  #     - feature/mcp-migration
+  push:
+    branches:
+      - feature/mcp-migration
+      - main
     paths:
       - 'carl-infrastructure/agentcore-code/**'
       - 'carl-infrastructure/mcp-deployment/**'
       - 'carl-mcp-server/**'
       - '.github/workflows/deploy-mcp.yml'
-
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'carl-infrastructure/agentcore-code/**'
+      - 'carl-infrastructure/mcp-deployment/**'
+      - 'carl-mcp-server/**'
 
 env:
-  AWS_REGION: us-east-1
   TERRAFORM_VERSION: 1.9.0
 
 jobs:
-  build-and-push-containers:
-    name: Build and Push Agent Containers
+  # NOTE: MCP deploys to CUSTOMER AWS accounts, not Caylent's
+  # So this workflow only validates code, does not deploy
+
+  validate-terraform:
+    name: Validate Terraform
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          aws-region: ${{ env.AWS_REGION }}
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/arm64
-
-      - name: Get ECR repository URL
-        id: ecr
+      - name: Validate MCP deployment
         run: |
-          # Try MCP-specific repo first, then fall back to existing Slack deployment repo
-          ECR_REPO=$(aws ecr describe-repositories --repository-names carl-dev-agents --query 'repositories[0].repositoryUri' --output text 2>/dev/null || \
-                     aws ecr describe-repositories --repository-names carl-lambda --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "")
-          if [ -z "$ECR_REPO" ]; then
-            echo "❌ ECR repository not found. Please deploy infrastructure first:"
-            echo "cd carl-infrastructure/mcp-deployment && terraform apply"
-            exit 1
-          fi
-          echo "Using ECR repository: $ECR_REPO"
-          echo "repository_url=$ECR_REPO" >> $GITHUB_OUTPUT
+          cd carl-infrastructure/mcp-deployment
+          terraform init -backend=false
+          terraform validate
+          echo "✅ Terraform configuration is valid"
 
-      - name: Login to Amazon ECR
+      - name: Check Terraform formatting
         run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-            docker login --username AWS --password-stdin ${{ steps.ecr.outputs.repository_url }}
-
-      - name: Build and push Ask Agent
-        run: |
-          echo "🔨 Building Ask Agent..."
-          cd carl-infrastructure/agentcore-code
-          docker buildx build --platform linux/arm64 \
-            --provenance=false \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-ask-dev \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-ask-${{ github.sha }} \
-            -f ask-agent/Dockerfile \
-            --push .
-          echo "✓ Ask Agent pushed"
-
-      - name: Build and push Architect Agent
-        run: |
-          echo "🔨 Building Architect Agent..."
-          cd carl-infrastructure/agentcore-code
-          docker buildx build --platform linux/arm64 \
-            --provenance=false \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-architect-dev \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-architect-${{ github.sha }} \
-            -f architect-agent/Dockerfile \
-            --push .
-          echo "✓ Architect Agent pushed"
-
-      - name: Build and push Remediate Agent
-        run: |
-          echo "🔨 Building Remediate Agent..."
-          cd carl-infrastructure/agentcore-code
-          docker buildx build --platform linux/arm64 \
-            --provenance=false \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-remediate-dev \
-            -t ${{ steps.ecr.outputs.repository_url }}:agentcore-remediate-${{ github.sha }} \
-            -f remediate-agent/Dockerfile \
-            --push .
-          echo "✓ Remediate Agent pushed"
-
-      - name: Summary
-        run: |
-          echo "## 🎉 Agent Containers Built" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Ask Agent: \`agentcore-ask-dev\`" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Architect Agent: \`agentcore-architect-dev\`" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Remediate Agent: \`agentcore-remediate-dev\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "AgentCore will use new images on next invocation." >> $GITHUB_STEP_SUMMARY
+          cd carl-infrastructure/mcp-deployment
+          terraform fmt -check -recursive
+          echo "✅ Terraform files are properly formatted"
 
   test-mcp-server:
     name: Test MCP Server
