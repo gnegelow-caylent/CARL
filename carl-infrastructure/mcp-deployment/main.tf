@@ -139,20 +139,20 @@ module "foundation" {
 module "agentcore_ask" {
   source = "../modules/agentcore-ask"
 
-  name_prefix          = local.name_prefix
-  ecr_repository_url   = aws_ecr_repository.agents.repository_url
-  ecr_repository_arn   = aws_ecr_repository.agents.arn
-  container_image_tag  = "agentcore-ask-${var.environment}"
-  foundation_model     = var.foundation_model
-  enable_memory        = true
-  enable_gateway       = false
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn  = aws_ecr_repository.agents.arn
+  container_image_tag = "agentcore-ask-${var.environment}"
+  foundation_model    = var.foundation_model
+  enable_memory       = true
+  enable_gateway      = false
 
   environment_variables = {
-    DYNAMODB_FINDINGS_TABLE  = module.foundation.findings_table_name
-    DYNAMODB_EVIDENCE_TABLE  = module.foundation.evidence_table_name
-    DYNAMODB_SCAN_HISTORY    = module.foundation.scan_history_table_name
-    DYNAMODB_RESOURCE_GRAPH  = module.foundation.resource_graph_table_name
-    S3_EVIDENCE_BUCKET       = module.foundation.evidence_bucket_name
+    DYNAMODB_FINDINGS_TABLE = module.foundation.findings_table_name
+    DYNAMODB_EVIDENCE_TABLE = module.foundation.evidence_table_name
+    DYNAMODB_SCAN_HISTORY   = module.foundation.scan_history_table_name
+    DYNAMODB_RESOURCE_GRAPH = module.foundation.resource_graph_table_name
+    S3_EVIDENCE_BUCKET      = module.foundation.evidence_bucket_name
   }
 
   tags = var.tags
@@ -162,11 +162,11 @@ module "agentcore_ask" {
 module "agentcore_architect" {
   source = "../modules/agentcore-architect"
 
-  name_prefix          = local.name_prefix
-  ecr_repository_url   = aws_ecr_repository.agents.repository_url
-  ecr_repository_arn   = aws_ecr_repository.agents.arn
-  container_image_tag  = "agentcore-architect-${var.environment}"
-  foundation_model     = var.foundation_model
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn  = aws_ecr_repository.agents.arn
+  container_image_tag = "agentcore-architect-${var.environment}"
+  foundation_model    = var.foundation_model
 
   environment_variables = {
     DYNAMODB_PRICING_CACHE = module.foundation.pricing_cache_table_name
@@ -179,17 +179,17 @@ module "agentcore_architect" {
 module "agentcore_remediate" {
   source = "../modules/agentcore-remediate"
 
-  name_prefix          = local.name_prefix
-  ecr_repository_url   = aws_ecr_repository.agents.repository_url
-  ecr_repository_arn   = aws_ecr_repository.agents.arn
-  container_image_tag  = "agentcore-remediate-${var.environment}"
-  foundation_model     = var.foundation_model
+  name_prefix         = local.name_prefix
+  ecr_repository_url  = aws_ecr_repository.agents.repository_url
+  ecr_repository_arn  = aws_ecr_repository.agents.arn
+  container_image_tag = "agentcore-remediate-${var.environment}"
+  foundation_model    = var.foundation_model
 
   environment_variables = {
-    DYNAMODB_FINDINGS_TABLE      = module.foundation.findings_table_name
-    DYNAMODB_REMEDIATIONS_TABLE  = module.foundation.remediations_table_name
-    DYNAMODB_APPROVALS_TABLE     = module.foundation.approvals_table_name
-    S3_EVIDENCE_BUCKET           = module.foundation.evidence_bucket_name
+    DYNAMODB_FINDINGS_TABLE     = module.foundation.findings_table_name
+    DYNAMODB_REMEDIATIONS_TABLE = module.foundation.remediations_table_name
+    DYNAMODB_APPROVALS_TABLE    = module.foundation.approvals_table_name
+    S3_EVIDENCE_BUCKET          = module.foundation.evidence_bucket_name
   }
 
   tags = var.tags

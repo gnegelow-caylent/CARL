@@ -5,22 +5,22 @@ output "mcp_configuration" {
   description = "Complete MCP server configuration"
   value = {
     # AgentCore ARNs
-    ask_agent_arn        = module.agentcore_ask.runtime_arn
-    architect_agent_arn  = module.agentcore_architect.agent_runtime_arn
-    remediate_agent_arn  = module.agentcore_remediate.runtime_arn
+    ask_agent_arn       = module.agentcore_ask.runtime_arn
+    architect_agent_arn = module.agentcore_architect.agent_runtime_arn
+    remediate_agent_arn = module.agentcore_remediate.runtime_arn
 
     # Storage
-    evidence_bucket      = module.foundation.evidence_bucket_name
-    reports_bucket       = module.foundation.reports_bucket_name
+    evidence_bucket = module.foundation.evidence_bucket_name
+    reports_bucket  = module.foundation.reports_bucket_name
 
     # DynamoDB Tables
-    findings_table       = module.foundation.findings_table_name
-    evidence_table       = module.foundation.evidence_table_name
-    scan_history_table   = module.foundation.scan_history_table_name
+    findings_table     = module.foundation.findings_table_name
+    evidence_table     = module.foundation.evidence_table_name
+    scan_history_table = module.foundation.scan_history_table_name
 
     # Configuration
-    aws_region           = var.region
-    environment          = var.environment
+    aws_region  = var.region
+    environment = var.environment
   }
 }
 
@@ -32,14 +32,14 @@ output "claude_desktop_config" {
         command = "python"
         args    = ["-m", "carl_mcp_server"]
         env = {
-          AWS_PROFILE                     = "YOUR_AWS_PROFILE"
-          AWS_REGION                      = var.region
-          CARL_AGENTCORE_ASK_ARN         = module.agentcore_ask.runtime_arn
-          CARL_AGENTCORE_ARCHITECT_ARN   = module.agentcore_architect.agent_runtime_arn
-          CARL_AGENTCORE_REMEDIATE_ARN   = module.agentcore_remediate.runtime_arn
-          CARL_DYNAMODB_PREFIX           = "carl-${var.environment}"
-          CARL_S3_EVIDENCE_BUCKET        = module.foundation.evidence_bucket_name
-          CARL_S3_REPORTS_BUCKET         = module.foundation.reports_bucket_name
+          AWS_PROFILE                  = "YOUR_AWS_PROFILE"
+          AWS_REGION                   = var.region
+          CARL_AGENTCORE_ASK_ARN       = module.agentcore_ask.runtime_arn
+          CARL_AGENTCORE_ARCHITECT_ARN = module.agentcore_architect.agent_runtime_arn
+          CARL_AGENTCORE_REMEDIATE_ARN = module.agentcore_remediate.runtime_arn
+          CARL_DYNAMODB_PREFIX         = "carl-${var.environment}"
+          CARL_S3_EVIDENCE_BUCKET      = module.foundation.evidence_bucket_name
+          CARL_S3_REPORTS_BUCKET       = module.foundation.reports_bucket_name
         }
       }
     }
@@ -53,7 +53,7 @@ output "ecr_repository_url" {
 
 output "next_steps" {
   description = "What to do next"
-  value = <<-EOT
+  value       = <<-EOT
 
     ✅ CARL Infrastructure Deployed!
 
