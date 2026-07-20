@@ -54,7 +54,23 @@ jobs:
       - name: Validate MCP deployment
         run: |
           cd carl-infrastructure/mcp-deployment
-          terraform init -backend=false
+
+          # Retry terraform init up to 3 times (handles transient registry.terraform.io network issues)
+          for attempt in 1 2 3; do
+            echo "Terraform init attempt $attempt..."
+            if terraform init -backend=false; then
+              echo "✅ Terraform init successful"
+              break
+            else
+              if [ $attempt -eq 3 ]; then
+                echo "❌ Terraform init failed after 3 attempts"
+                exit 1
+              fi
+              echo "⚠️ Terraform init failed, retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+
           terraform validate
           echo "✅ Terraform configuration is valid"
 
