@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 import boto3
+from botocore.config import Config
 
 from services.bedrock_service import BedrockService
 from services.findings_service import FindingsService
@@ -193,7 +194,12 @@ def invoke_agentcore_ask(question: str, session_id: str = None) -> dict:
         session_id = str(uuid.uuid4())
 
     try:
-        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        # Configure increased timeout for AgentCore cold starts (30-60 seconds)
+        config = Config(
+            read_timeout=300,  # 5 minutes for cold starts
+            connect_timeout=60
+        )
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"), config=config)
 
         payload = {"prompt": question}
 
@@ -274,7 +280,12 @@ def invoke_agentcore_architect(requirement: str, session_id: str = None) -> dict
         session_id = str(uuid.uuid4())
 
     try:
-        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        # Configure increased timeout for AgentCore cold starts (30-60 seconds)
+        config = Config(
+            read_timeout=300,  # 5 minutes for cold starts
+            connect_timeout=60
+        )
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"), config=config)
 
         payload = {"prompt": requirement}
 
@@ -348,7 +359,12 @@ def invoke_agentcore_remediate(prompt: str, session_id: str = None, context: dic
         session_id = str(uuid.uuid4())
 
     try:
-        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        # Configure increased timeout for AgentCore cold starts (30-60 seconds)
+        config = Config(
+            read_timeout=300,  # 5 minutes for cold starts
+            connect_timeout=60
+        )
+        client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"), config=config)
 
         # Build payload with prompt and optional context
         payload = {"prompt": prompt}
