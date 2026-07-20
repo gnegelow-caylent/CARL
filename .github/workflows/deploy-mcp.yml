@@ -51,12 +51,15 @@ jobs:
       - name: Get ECR repository URL
         id: ecr
         run: |
-          ECR_REPO=$(aws ecr describe-repositories --repository-names carl-dev-agents --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "")
+          # Try MCP-specific repo first, then fall back to existing Slack deployment repo
+          ECR_REPO=$(aws ecr describe-repositories --repository-names carl-dev-agents --query 'repositories[0].repositoryUri' --output text 2>/dev/null || \
+                     aws ecr describe-repositories --repository-names carl-lambda --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "")
           if [ -z "$ECR_REPO" ]; then
             echo "❌ ECR repository not found. Please deploy infrastructure first:"
             echo "cd carl-infrastructure/mcp-deployment && terraform apply"
             exit 1
           fi
+          echo "Using ECR repository: $ECR_REPO"
           echo "repository_url=$ECR_REPO" >> $GITHUB_OUTPUT
 
       - name: Login to Amazon ECR
