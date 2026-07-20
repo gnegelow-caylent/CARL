@@ -11,9 +11,22 @@ AWS Security & Compliance assistant for Claude Desktop via Model Context Protoco
 - ✅ Maps everything to SOC 2, HIPAA, PCI DSS controls
 - 🔧 Can auto-fix issues with your approval
 
+## 📚 Documentation
+
+Start here based on your needs:
+
+| Document | Use Case |
+|----------|----------|
+| **[QUICKSTART.md](../QUICKSTART.md)** | Have existing CARL infrastructure? 5-minute setup |
+| **[DEPLOYMENT.md](./DEPLOYMENT.md)** | New deployment? Complete step-by-step guide |
+| **[MCP_MIGRATION.md](../MCP_MIGRATION.md)** | Migrating from Slack version? Architecture comparison |
+| **[VALIDATION.md](../.github/VALIDATION.md)** | Contributing code? CI/CD validation guide |
+
 ## 🚀 Quick Start
 
-**→ [Complete Deployment Guide](./DEPLOYMENT.md)** ← Start here for step-by-step instructions
+**→ [5-Minute Setup (Existing Infrastructure)](../QUICKSTART.md)**
+
+**→ [Complete Deployment Guide (New Installation)](./DEPLOYMENT.md)**
 
 Deployment takes ~30-45 minutes and includes:
 1. Deploy AWS infrastructure (Terraform)
