@@ -5,13 +5,12 @@ Run with: python -m carl_mcp_server
 """
 import asyncio
 import sys
-from .server import create_server
+from .server import run_server
 
 def main():
     """Main entry point for CARL MCP server."""
     try:
-        server = create_server()
-        asyncio.run(server.run())
+        asyncio.run(run_server())
     except KeyboardInterrupt:
         print("\n🛑 CARL MCP Server stopped", file=sys.stderr)
         sys.exit(0)
