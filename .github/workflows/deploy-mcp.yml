@@ -39,6 +39,17 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
+        continue-on-error: true
+        id: setup_terraform
+
+      - name: Fallback - Install Terraform via direct download
+        if: steps.setup_terraform.outcome == 'failure'
+        run: |
+          echo "⚠️ Hashicorp action failed, using direct download..."
+          curl -Lo terraform.zip https://releases.hashicorp.com/terraform/${{ env.TERRAFORM_VERSION }}/terraform_${{ env.TERRAFORM_VERSION }}_linux_amd64.zip
+          unzip -o terraform.zip
+          sudo mv terraform /usr/local/bin/
+          terraform version
 
       - name: Validate MCP deployment
         run: |
