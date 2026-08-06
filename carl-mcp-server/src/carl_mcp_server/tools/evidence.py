@@ -181,7 +181,7 @@ class EvidenceCollector:
         try:
             buckets = s3.list_buckets()['Buckets']
 
-            for bucket in buckets[:10]:  # Limit to 10
+            for bucket in buckets[:100]:  # Limit to 100 (aligned with scan.py)
                 bucket_name = bucket['Name']
 
                 try:
@@ -289,24 +289,26 @@ class EvidenceCollector:
         evidence = []
 
         try:
-            # Get active findings
-            response = securityhub.get_findings(
+            # Get active findings (aligned with scan.py pagination)
+            paginator = securityhub.get_paginator('get_findings')
+            page_iterator = paginator.paginate(
                 Filters={'RecordState': [{'Value': 'ACTIVE', 'Comparison': 'EQUALS'}]},
-                MaxResults=20
+                PaginationConfig={'MaxItems': 100}
             )
 
-            for finding in response.get('Findings', []):
-                evidence.append({
-                    "resource_type": "SecurityHub::Finding",
-                    "resource_id": finding['Id'],
-                    "data": {
-                        "title": finding['Title'],
-                        "severity": finding['Severity']['Label'],
-                        "resource": finding.get('Resources', [{}])[0].get('Id'),
-                        "generator_id": finding['GeneratorId']
-                    },
-                    "controls": self._map_controls("security_monitoring"),
-                    "compliant": False  # Active findings indicate non-compliance
+            for page in page_iterator:
+                for finding in page.get('Findings', []):
+                    evidence.append({
+                        "resource_type": "SecurityHub::Finding",
+                        "resource_id": finding['Id'],
+                        "data": {
+                            "title": finding['Title'],
+                            "severity": finding['Severity']['Label'],
+                            "resource": finding.get('Resources', [{}])[0].get('Id'),
+                            "generator_id": finding['GeneratorId']
+                        },
+                        "controls": self._map_controls("security_monitoring"),
+                        "compliant": False  # Active findings indicate non-compliance
                 })
 
         except securityhub.exceptions.InvalidAccessException:
@@ -322,7 +324,7 @@ class EvidenceCollector:
         evidence = []
 
         try:
-            keys = kms.list_keys(Limit=10)['Keys']
+            keys = kms.list_keys(Limit=100)['Keys']  # Aligned with scan.py
 
             for key in keys:
                 key_id = key['KeyId']
@@ -330,17 +332,31 @@ class EvidenceCollector:
 
                 # Only include customer-managed keys
                 if metadata['KeyManager'] == 'CUSTOMER':
+                    # Check key rotation status (required for PCI 3.5/3.6)
+                    rotation_status = None
+                    rotation_enabled = False
+                    try:
+                        rotation_status = kms.get_key_rotation_status(KeyId=key_id)
+                        rotation_enabled = rotation_status.get('KeyRotationEnabled', False)
+                    except Exception as e:
+                        logger.debug(f"Could not check rotation for key {key_id}: {e}")
+
                     evidence.append({
                         "resource_type": "KMS::Key",
                         "resource_id": key_id,
                         "data": {
                             "key_state": metadata['KeyState'],
                             "enabled": metadata['Enabled'],
+                            "rotation_enabled": rotation_enabled,
                             "description": metadata.get('Description', ''),
                             "creation_date": metadata['CreationDate'].isoformat()
                         },
                         "controls": self._map_controls("encryption_at_rest"),
-                        "compliant": metadata['Enabled'] and metadata['KeyState'] == 'Enabled'
+                        "compliant": (
+                            metadata['Enabled'] and
+                            metadata['KeyState'] == 'Enabled' and
+                            rotation_enabled  # Rotation required for compliance
+                        )
                     })
 
         except Exception as e:
@@ -395,8 +411,14 @@ class EvidenceCollector:
             }
         }
 
-        framework_key = self.framework if self.framework != "all" else "soc2"
-        return control_mappings.get(evidence_type, {}).get(framework_key, [])
+        # If framework is "all", aggregate all frameworks
+        if self.framework == "all":
+            all_controls = []
+            for framework_controls in control_mappings.get(evidence_type, {}).values():
+                all_controls.extend(framework_controls)
+            return list(set(all_controls))  # Remove duplicates
+        else:
+            return control_mappings.get(evidence_type, {}).get(self.framework, [])
 
     def _check_password_policy_compliance(self, policy: Dict[str, Any]) -> bool:
         """Check if password policy meets compliance requirements."""
@@ -505,6 +527,14 @@ def format_evidence_results(
         output.append(f"- S3 Bucket: `{storage_info.get('bucket', 'Not configured')}`")
         output.append(f"- Items Stored: {storage_info['count']}")
     else:
-        output.append(f"\n⚠️ Evidence collected but not stored (storage disabled)")
+        output.append(f"\n## Storage")
+        if storage_info.get("error"):
+            output.append(f"❌ Evidence storage failed")
+            output.append(f"- Error: {storage_info['error']}")
+            output.append(f"\nTo enable storage, deploy CARL infrastructure:")
+            output.append(f"- DynamoDB table: Set `CARL_DYNAMODB_EVIDENCE_TABLE`")
+            output.append(f"- S3 bucket (optional): Set `CARL_S3_EVIDENCE_BUCKET`")
+        else:
+            output.append(f"⚠️ Evidence collected but not stored (storage disabled)")
 
     return "\n".join(output)

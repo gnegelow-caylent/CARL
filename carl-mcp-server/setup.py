@@ -30,9 +30,9 @@ setup(
     ],
     python_requires=">=3.11",
     install_requires=[
-        "mcp>=0.9.0",
+        "mcp>=0.9.0,<2.0.0",
         "boto3>=1.34.0",
-        "botocore>=1.34.0",
+        "botocore[crt]>=1.34.0",
         "aiofiles>=23.0.0",
     ],
     entry_points={

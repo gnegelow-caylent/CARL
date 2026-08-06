@@ -138,9 +138,14 @@ class AWSScanner:
 
             # Check for users without MFA
             users = iam.list_users()['Users']
-            for user in users[:10]:  # Limit to 10 to avoid rate limits
+            total_users = len(users)
+            users_to_check = users[:100]  # Check up to 100 users
+            users_checked = 0
+
+            for user in users_to_check:
                 try:
                     mfa_devices = iam.list_mfa_devices(UserName=user['UserName'])['MFADevices']
+                    users_checked += 1
                     if not mfa_devices:
                         findings.append({
                             "severity": "HIGH",
@@ -154,18 +159,56 @@ class AWSScanner:
             logger.error(f"IAM scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "IAM", "issue": str(e)})
 
-        return {"service": "IAM", "findings": findings, "scanned": True}
+        return {
+            "service": "IAM",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "users_checked": users_checked if 'users_checked' in locals() else 0,
+                "total_users": total_users if 'total_users' in locals() else 0,
+                "truncated": total_users > 100 if 'total_users' in locals() else False
+            }
+        }
 
     def scan_s3(self) -> Dict[str, Any]:
         """Scan S3 buckets."""
         s3 = self.session.client('s3')
+        sts = self.session.client('sts')
         findings = []
 
         try:
-            buckets = s3.list_buckets()['Buckets']
+            # Get account ID for account-level checks
+            account_id = sts.get_caller_identity()['Account']
 
-            for bucket in buckets[:20]:  # Limit to 20 buckets
+            # Check account-level S3 Block Public Access (overrides bucket-level)
+            account_level_protected = False
+            try:
+                account_public_access = s3.get_public_access_block(
+                    AccountId=account_id
+                )['PublicAccessBlockConfiguration']
+
+                account_level_protected = all([
+                    account_public_access.get('BlockPublicAcls'),
+                    account_public_access.get('IgnorePublicAcls'),
+                    account_public_access.get('BlockPublicPolicy'),
+                    account_public_access.get('RestrictPublicBuckets')
+                ])
+            except s3.exceptions.ClientError:
+                # Account-level block not configured
+                findings.append({
+                    "severity": "HIGH",
+                    "resource": "S3 Account Settings",
+                    "issue": "Account-level Block Public Access not configured (recommended since 2019)"
+                })
+
+            buckets = s3.list_buckets()['Buckets']
+            total_buckets = len(buckets)
+            buckets_to_check = buckets[:100]  # Check up to 100 buckets
+            buckets_checked = 0
+
+            for bucket in buckets_to_check:
                 bucket_name = bucket['Name']
+                buckets_checked += 1
 
                 try:
                     # Check encryption
@@ -179,35 +222,37 @@ class AWSScanner:
                                 "issue": "Encryption not enabled"
                             })
 
-                    # Check versioning
-                    versioning = s3.get_bucket_versioning(Bucket=bucket_name)
-                    if versioning.get('Status') != 'Enabled':
-                        findings.append({
-                            "severity": "MEDIUM",
-                            "resource": f"S3 Bucket: {bucket_name}",
-                            "issue": "Versioning not enabled"
-                        })
+                    # Check versioning (skip AWS auto-created buckets)
+                    if not any(prefix in bucket_name for prefix in ['cf-templates-', 'elasticbeanstalk-', 'aws-']):
+                        versioning = s3.get_bucket_versioning(Bucket=bucket_name)
+                        if versioning.get('Status') != 'Enabled':
+                            findings.append({
+                                "severity": "MEDIUM",
+                                "resource": f"S3 Bucket: {bucket_name}",
+                                "issue": "Versioning not enabled"
+                            })
 
-                    # Check public access block
-                    try:
-                        public_access = s3.get_public_access_block(Bucket=bucket_name)['PublicAccessBlockConfiguration']
-                        if not all([
-                            public_access.get('BlockPublicAcls'),
-                            public_access.get('IgnorePublicAcls'),
-                            public_access.get('BlockPublicPolicy'),
-                            public_access.get('RestrictPublicBuckets')
-                        ]):
+                    # Check bucket-level public access block (only if account-level not protecting)
+                    if not account_level_protected:
+                        try:
+                            public_access = s3.get_public_access_block(Bucket=bucket_name)['PublicAccessBlockConfiguration']
+                            if not all([
+                                public_access.get('BlockPublicAcls'),
+                                public_access.get('IgnorePublicAcls'),
+                                public_access.get('BlockPublicPolicy'),
+                                public_access.get('RestrictPublicBuckets')
+                            ]):
+                                findings.append({
+                                    "severity": "CRITICAL",
+                                    "resource": f"S3 Bucket: {bucket_name}",
+                                    "issue": "Public access block not fully configured"
+                                })
+                        except s3.exceptions.ClientError:
                             findings.append({
                                 "severity": "CRITICAL",
                                 "resource": f"S3 Bucket: {bucket_name}",
-                                "issue": "Public access block not fully configured"
+                                "issue": "No public access block configured"
                             })
-                    except s3.exceptions.ClientError:
-                        findings.append({
-                            "severity": "CRITICAL",
-                            "resource": f"S3 Bucket: {bucket_name}",
-                            "issue": "No public access block configured"
-                        })
 
                 except Exception as e:
                     logger.debug(f"Could not scan bucket {bucket_name}: {e}")
@@ -216,7 +261,16 @@ class AWSScanner:
             logger.error(f"S3 scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "S3", "issue": str(e)})
 
-        return {"service": "S3", "findings": findings, "scanned": True}
+        return {
+            "service": "S3",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "buckets_checked": buckets_checked if 'buckets_checked' in locals() else 0,
+                "total_buckets": total_buckets if 'total_buckets' in locals() else 0,
+                "truncated": total_buckets > 100 if 'total_buckets' in locals() else False
+            }
+        }
 
     def scan_vpc(self) -> Dict[str, Any]:
         """Scan VPC configuration."""
@@ -240,21 +294,45 @@ class AWSScanner:
 
             # Check security groups for overly permissive rules
             sgs = ec2.describe_security_groups()['SecurityGroups']
-            for sg in sgs[:20]:  # Limit to 20
+            total_sgs = len(sgs)
+            sgs_to_check = sgs[:100]  # Check up to 100 security groups
+            sgs_checked = 0
+
+            for sg in sgs_to_check:
+                sgs_checked += 1
                 for rule in sg.get('IpPermissions', []):
                     for ip_range in rule.get('IpRanges', []):
                         if ip_range.get('CidrIp') == '0.0.0.0/0':
+                            port = rule.get('FromPort', 'ALL')
+                            # Severity depends on port: SSH/RDP are HIGH, HTTP/HTTPS are INFO
+                            if port in [22, 3389]:  # SSH, RDP
+                                severity = "HIGH"
+                            elif port in [80, 443]:  # HTTP, HTTPS - normal for web servers
+                                severity = "INFO"
+                            else:
+                                severity = "MEDIUM"
+
                             findings.append({
-                                "severity": "HIGH",
+                                "severity": severity,
                                 "resource": f"Security Group: {sg['GroupId']}",
-                                "issue": f"Port {rule.get('FromPort', 'ALL')} open to internet (0.0.0.0/0)"
+                                "issue": f"Port {port} open to internet (0.0.0.0/0)"
                             })
 
         except Exception as e:
             logger.error(f"VPC scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "VPC", "issue": str(e)})
 
-        return {"service": "VPC", "findings": findings, "scanned": True}
+        return {
+            "service": "VPC",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "vpcs_checked": len(vpcs) if 'vpcs' in locals() else 0,
+                "security_groups_checked": sgs_checked if 'sgs_checked' in locals() else 0,
+                "total_security_groups": total_sgs if 'total_sgs' in locals() else 0,
+                "truncated": total_sgs > 100 if 'total_sgs' in locals() else False
+            }
+        }
 
     def scan_security_hub(self) -> Dict[str, Any]:
         """Scan Security Hub findings."""
@@ -264,20 +342,24 @@ class AWSScanner:
         try:
             # Check if Security Hub is enabled
             try:
-                response = securityhub.get_findings(
+                # Get all active findings (all severity levels, paginated)
+                paginator = securityhub.get_paginator('get_findings')
+                page_iterator = paginator.paginate(
                     Filters={
-                        'SeverityLabel': [{'Value': 'CRITICAL', 'Comparison': 'EQUALS'}],
                         'RecordState': [{'Value': 'ACTIVE', 'Comparison': 'EQUALS'}]
                     },
-                    MaxResults=10
+                    PaginationConfig={'MaxItems': 100}  # Limit to 100 findings
                 )
 
-                for finding in response.get('Findings', []):
-                    findings.append({
-                        "severity": finding['Severity']['Label'],
-                        "resource": finding.get('Resources', [{}])[0].get('Id', 'Unknown'),
-                        "issue": finding['Title']
-                    })
+                findings_count = 0
+                for page in page_iterator:
+                    for finding in page.get('Findings', []):
+                        findings_count += 1
+                        findings.append({
+                            "severity": finding['Severity']['Label'],
+                            "resource": finding.get('Resources', [{}])[0].get('Id', 'Unknown'),
+                            "issue": finding['Title']
+                        })
 
             except securityhub.exceptions.InvalidAccessException:
                 findings.append({
@@ -290,7 +372,15 @@ class AWSScanner:
             logger.error(f"Security Hub scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "Security Hub", "issue": str(e)})
 
-        return {"service": "Security Hub", "findings": findings, "scanned": True}
+        return {
+            "service": "Security Hub",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "findings_retrieved": findings_count if 'findings_count' in locals() else 0,
+                "max_findings": 100
+            }
+        }
 
     def scan_cloudtrail(self) -> Dict[str, Any]:
         """Scan CloudTrail configuration."""
@@ -347,17 +437,20 @@ class AWSScanner:
                     "issue": "GuardDuty not enabled"
                 })
             else:
+                total_findings = 0
                 for detector_id in detectors:
-                    # Get active findings
-                    finding_ids = guardduty.list_findings(
+                    # Get all active findings (paginated)
+                    paginator = guardduty.get_paginator('list_findings')
+                    page_iterator = paginator.paginate(
                         DetectorId=detector_id,
-                        FindingCriteria={
-                            'Criterion': {
-                                'severity': {'Gte': 7}  # High and Critical
-                            }
-                        },
-                        MaxResults=10
-                    )['FindingIds']
+                        PaginationConfig={'MaxItems': 100}  # Limit to 100 findings
+                    )
+
+                    finding_ids = []
+                    for page in page_iterator:
+                        finding_ids.extend(page['FindingIds'])
+
+                    total_findings = len(finding_ids)
 
                     if finding_ids:
                         finding_details = guardduty.get_findings(
@@ -376,7 +469,15 @@ class AWSScanner:
             logger.error(f"GuardDuty scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "GuardDuty", "issue": str(e)})
 
-        return {"service": "GuardDuty", "findings": findings, "scanned": True}
+        return {
+            "service": "GuardDuty",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "findings_retrieved": total_findings if 'total_findings' in locals() else 0,
+                "max_findings": 100
+            }
+        }
 
 
 def format_scan_results(results: Dict[str, Any], scope: str) -> str:
@@ -393,9 +494,36 @@ def format_scan_results(results: Dict[str, Any], scope: str) -> str:
                 continue
 
             findings = service_results.get("findings", [])
-            if findings:
+            stats = service_results.get("stats", {})
+
+            if findings or stats:
                 output.append(f"\n## {service_results['service']}")
-                output.append(f"Found {len(findings)} issue(s):\n")
+
+                # Display stats if available
+                if stats:
+                    stat_parts = []
+                    if 'users_checked' in stats:
+                        stat_parts.append(f"Checked {stats['users_checked']} of {stats['total_users']} users")
+                        if stats.get('truncated'):
+                            stat_parts.append("⚠️ **Truncated** - increase scan limit")
+                    if 'buckets_checked' in stats:
+                        stat_parts.append(f"Checked {stats['buckets_checked']} of {stats['total_buckets']} buckets")
+                        if stats.get('truncated'):
+                            stat_parts.append("⚠️ **Truncated** - increase scan limit")
+                    if 'security_groups_checked' in stats:
+                        stat_parts.append(f"Checked {stats['security_groups_checked']} of {stats['total_security_groups']} security groups")
+                        if stats.get('truncated'):
+                            stat_parts.append("⚠️ **Truncated** - increase scan limit")
+                    if 'vpcs_checked' in stats:
+                        stat_parts.append(f"Checked {stats['vpcs_checked']} VPCs")
+                    if 'findings_retrieved' in stats:
+                        stat_parts.append(f"Retrieved {stats['findings_retrieved']} findings (max: {stats.get('max_findings', 100)})")
+
+                    if stat_parts:
+                        output.append(f"*{', '.join(stat_parts)}*\n")
+
+                if findings:
+                    output.append(f"Found {len(findings)} issue(s):\n")
 
                 for finding in findings:
                     severity = finding.get("severity", "UNKNOWN")
@@ -426,9 +554,33 @@ def format_scan_results(results: Dict[str, Any], scope: str) -> str:
     else:
         # Format single service scan
         findings = results.get("findings", [])
+        stats = results.get("stats", {})
         service = results.get("service", scope.upper())
 
         output = [f"# {service} Security Scan\n"]
+
+        # Display stats if available
+        if stats:
+            stat_parts = []
+            if 'users_checked' in stats:
+                stat_parts.append(f"Checked {stats['users_checked']} of {stats['total_users']} users")
+                if stats.get('truncated'):
+                    stat_parts.append("⚠️ **Truncated** - increase scan limit")
+            if 'buckets_checked' in stats:
+                stat_parts.append(f"Checked {stats['buckets_checked']} of {stats['total_buckets']} buckets")
+                if stats.get('truncated'):
+                    stat_parts.append("⚠️ **Truncated** - increase scan limit")
+            if 'security_groups_checked' in stats:
+                stat_parts.append(f"Checked {stats['security_groups_checked']} of {stats['total_security_groups']} security groups")
+                if stats.get('truncated'):
+                    stat_parts.append("⚠️ **Truncated** - increase scan limit")
+            if 'vpcs_checked' in stats:
+                stat_parts.append(f"Checked {stats['vpcs_checked']} VPCs")
+            if 'findings_retrieved' in stats:
+                stat_parts.append(f"Retrieved {stats['findings_retrieved']} findings (max: {stats.get('max_findings', 100)})")
+
+            if stat_parts:
+                output.append(f"*{', '.join(stat_parts)}*\n")
 
         if not findings:
             output.append("✅ No issues found!")

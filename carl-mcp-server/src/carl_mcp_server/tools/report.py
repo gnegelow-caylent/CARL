@@ -152,26 +152,31 @@ class ReportGenerator:
         # Overall score
         total_controls = evidence_summary.get("total_controls", 0)
         compliant_controls = evidence_summary.get("compliant_controls", 0)
-        if total_controls > 0:
+        if evidence_summary.get("error"):
+            output.append(f"**Overall Compliance**: ❌ {evidence_summary['error']}")
+        elif total_controls > 0:
             score = (compliant_controls / total_controls) * 100
             output.append(f"**Overall Compliance**: {score:.1f}% ({compliant_controls}/{total_controls} controls)")
         else:
-            output.append("**Overall Compliance**: No evidence collected yet")
+            output.append("**Overall Compliance**: No evidence collected yet. Run `carl_collect_evidence` first.")
 
         # Findings summary
         output.append(f"\n## Security Findings\n")
-        critical = findings_summary.get("critical", 0)
-        high = findings_summary.get("high", 0)
-        medium = findings_summary.get("medium", 0)
-        low = findings_summary.get("low", 0)
-
-        if critical + high + medium + low > 0:
-            output.append(f"- 🔴 Critical: {critical}")
-            output.append(f"- 🟠 High: {high}")
-            output.append(f"- 🟡 Medium: {medium}")
-            output.append(f"- 🟢 Low: {low}")
+        if findings_summary.get("error"):
+            output.append(f"❌ {findings_summary['error']}")
         else:
-            output.append("✅ No active findings")
+            critical = findings_summary.get("critical", 0)
+            high = findings_summary.get("high", 0)
+            medium = findings_summary.get("medium", 0)
+            low = findings_summary.get("low", 0)
+
+            if critical + high + medium + low > 0:
+                output.append(f"- 🔴 Critical: {critical}")
+                output.append(f"- 🟠 High: {high}")
+                output.append(f"- 🟡 Medium: {medium}")
+                output.append(f"- 🟢 Low: {low}")
+            else:
+                output.append("✅ No active findings")
 
         # Key gaps
         output.append(f"\n## Key Compliance Gaps\n")
@@ -326,8 +331,22 @@ class ReportGenerator:
             }
 
         except Exception as e:
-            logger.error(f"Error getting evidence summary: {e}")
-            return {"total_controls": 0, "compliant_controls": 0}
+            error_name = type(e).__name__
+            logger.error(f"Error getting evidence summary: {error_name}: {e}")
+
+            # Distinguish between infrastructure errors and no evidence
+            if "ResourceNotFoundException" in error_name or "not found" in str(e).lower():
+                return {
+                    "total_controls": 0,
+                    "compliant_controls": 0,
+                    "error": f"DynamoDB table '{table_name}' not found. Deploy CARL infrastructure first."
+                }
+            else:
+                return {
+                    "total_controls": 0,
+                    "compliant_controls": 0,
+                    "error": f"Failed to query evidence: {error_name}: {str(e)}"
+                }
 
     def _get_findings_summary(self) -> Dict[str, int]:
         """Get summary of findings by severity."""
@@ -353,8 +372,26 @@ class ReportGenerator:
             return summary
 
         except Exception as e:
-            logger.error(f"Error getting findings summary: {e}")
-            return {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            error_name = type(e).__name__
+            logger.error(f"Error getting findings summary: {error_name}: {e}")
+
+            # Distinguish between infrastructure errors and no findings
+            if "ResourceNotFoundException" in error_name or "not found" in str(e).lower():
+                return {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "error": f"DynamoDB table '{table_name}' not found. Deploy CARL infrastructure first."
+                }
+            else:
+                return {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "error": f"Failed to query findings: {error_name}: {str(e)}"
+                }
 
     def _identify_compliance_gaps(self, evidence_summary: Dict[str, Any]) -> list:
         """Identify key compliance gaps."""
