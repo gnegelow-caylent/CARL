@@ -425,12 +425,47 @@ class ReportGenerator:
 
     def _get_control_definitions(self) -> Dict[str, Dict[str, str]]:
         """Get control definitions for framework."""
-        # Simplified control definitions (would load from knowledge base in full implementation)
+        # Control definitions mapped to what the scanner actually checks
         if self.framework == "soc2":
             return {
                 "CC6.1": {"name": "Logical Access", "description": "Entity implements logical access controls", "category": "Security"},
+                "CC6.2": {"name": "MFA & Authentication", "description": "Entity implements multi-factor authentication", "category": "Security"},
                 "CC6.7": {"name": "Data Classification", "description": "Entity protects confidential information", "category": "Security"},
-                "CC7.2": {"name": "Monitoring", "description": "Entity monitors system and takes action", "category": "Operations"}
+                "CC7.2": {"name": "Monitoring", "description": "Entity monitors system and takes action", "category": "Operations"},
+                "CC7.3": {"name": "Logging & Alerting", "description": "Entity evaluates security events and anomalies", "category": "Operations"}
+            }
+        elif self.framework == "pci":
+            return {
+                "3.4": {"name": "Encryption at Rest", "description": "PAN is rendered unreadable anywhere it is stored", "category": "Data Protection"},
+                "3.5": {"name": "Key Management", "description": "Document and implement procedures to protect cryptographic keys", "category": "Data Protection"},
+                "8.1.6": {"name": "Password Policy", "description": "Password parameters are configured to require minimum password length", "category": "Access Control"},
+                "8.2.3": {"name": "Password Strength", "description": "Passwords must meet minimum complexity requirements", "category": "Access Control"},
+                "8.3": {"name": "Multi-Factor Authentication", "description": "MFA implemented for all access to CDE", "category": "Access Control"},
+                "10.1": {"name": "Audit Trails", "description": "Processes and mechanisms for implementing audit trails", "category": "Monitoring"},
+                "10.2": {"name": "Automated Audit Trails", "description": "Audit logs record user activities and exceptions", "category": "Monitoring"},
+                "10.3": {"name": "Audit Log Protection", "description": "Audit logs are protected from destruction and unauthorized modification", "category": "Monitoring"},
+                "11.5": {"name": "Change Detection", "description": "Deploy a change-detection mechanism to alert personnel", "category": "Security Monitoring"}
+            }
+        elif self.framework == "hipaa":
+            return {
+                "164.308(a)(1)(ii)(D)": {"name": "Information System Activity Review", "description": "Implement procedures to regularly review records of information system activity", "category": "Administrative Safeguards"},
+                "164.308(a)(5)(ii)(D)": {"name": "Password Management", "description": "Procedures for creating, changing, and safeguarding passwords", "category": "Administrative Safeguards"},
+                "164.312(a)(2)(i)": {"name": "Unique User Identification", "description": "Assign unique name/number for identifying and tracking user identity", "category": "Access Control"},
+                "164.312(a)(2)(iv)": {"name": "Encryption and Decryption", "description": "Implement mechanism to encrypt and decrypt ePHI", "category": "Access Control"},
+                "164.312(b)": {"name": "Audit Controls", "description": "Implement hardware, software, and/or procedural mechanisms that record and examine activity", "category": "Audit Controls"},
+                "164.312(e)(2)(ii)": {"name": "Encryption", "description": "Implement mechanism to encrypt ePHI whenever deemed appropriate", "category": "Transmission Security"}
+            }
+        elif self.framework == "nist":
+            return {
+                "PR.AC-1": {"name": "Identity Management", "description": "Identities and credentials are issued, managed, verified, revoked for authorized devices/users", "category": "Protect - Access Control"},
+                "PR.AC-7": {"name": "Authentication", "description": "Users and devices are authenticated commensurate with the risk", "category": "Protect - Access Control"},
+                "PR.DS-1": {"name": "Data-at-Rest Protection", "description": "Data-at-rest is protected", "category": "Protect - Data Security"},
+                "PR.DS-5": {"name": "Data-in-Transit Protection", "description": "Protections against data leaks are implemented", "category": "Protect - Data Security"},
+                "PR.PT-1": {"name": "Audit Logs", "description": "Audit/log records are determined, documented, implemented, and reviewed", "category": "Protect - Protective Technology"},
+                "DE.AE-3": {"name": "Event Analysis", "description": "Event data are collected and correlated from multiple sources and sensors", "category": "Detect - Anomalies and Events"},
+                "DE.CM-1": {"name": "Network Monitoring", "description": "The network is monitored to detect potential cybersecurity events", "category": "Detect - Continuous Monitoring"},
+                "DE.CM-7": {"name": "Unauthorized Activity Monitoring", "description": "Monitoring for unauthorized personnel, connections, devices, and software", "category": "Detect - Continuous Monitoring"},
+                "RS.AN-1": {"name": "Incident Investigation", "description": "Notifications from detection systems are investigated", "category": "Respond - Analysis"}
             }
         return {}
 

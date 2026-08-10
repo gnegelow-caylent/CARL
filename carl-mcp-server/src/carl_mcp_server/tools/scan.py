@@ -419,7 +419,14 @@ class AWSScanner:
             logger.error(f"CloudTrail scan error: {e}")
             findings.append({"severity": "ERROR", "resource": "CloudTrail", "issue": str(e)})
 
-        return {"service": "CloudTrail", "findings": findings, "scanned": True}
+        return {
+            "service": "CloudTrail",
+            "findings": findings,
+            "scanned": True,
+            "stats": {
+                "trails_checked": len(trails) if 'trails' in locals() else 0
+            }
+        }
 
     def scan_guardduty(self) -> Dict[str, Any]:
         """Scan GuardDuty findings."""
@@ -516,8 +523,12 @@ def format_scan_results(results: Dict[str, Any], scope: str) -> str:
                             stat_parts.append("⚠️ **Truncated** - increase scan limit")
                     if 'vpcs_checked' in stats:
                         stat_parts.append(f"Checked {stats['vpcs_checked']} VPCs")
+                    if 'trails_checked' in stats:
+                        stat_parts.append(f"Checked {stats['trails_checked']} CloudTrail trail(s)")
                     if 'findings_retrieved' in stats:
                         stat_parts.append(f"Retrieved {stats['findings_retrieved']} findings (max: {stats.get('max_findings', 100)})")
+                        if stats['findings_retrieved'] >= stats.get('max_findings', 100):
+                            stat_parts.append("⚠️ **Results limited** - some findings may not be shown")
 
                     if stat_parts:
                         output.append(f"*{', '.join(stat_parts)}*\n")

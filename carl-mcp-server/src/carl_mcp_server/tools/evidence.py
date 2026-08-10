@@ -202,6 +202,17 @@ class EvidenceCollector:
                     except s3.exceptions.ClientError:
                         pass
 
+                    # Check compliance: encryption enabled AND all 4 public access settings are True
+                    # This matches scan.py logic (lines 239-244)
+                    public_access_compliant = False
+                    if public_access is not None:
+                        public_access_compliant = all([
+                            public_access.get('BlockPublicAcls'),
+                            public_access.get('IgnorePublicAcls'),
+                            public_access.get('BlockPublicPolicy'),
+                            public_access.get('RestrictPublicBuckets')
+                        ])
+
                     evidence.append({
                         "resource_type": "S3::Bucket",
                         "resource_id": bucket_name,
@@ -211,7 +222,7 @@ class EvidenceCollector:
                             "public_access_block": public_access
                         },
                         "controls": self._map_controls("s3_security"),
-                        "compliant": encryption is not None and public_access is not None
+                        "compliant": encryption is not None and public_access_compliant
                     })
 
                 except Exception as e:
