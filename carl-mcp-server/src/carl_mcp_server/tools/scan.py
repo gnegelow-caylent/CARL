@@ -6,6 +6,7 @@ Scan AWS environment for security findings.
 import logging
 import os
 import boto3
+from datetime import datetime, timezone
 from typing import Dict, Any
 from mcp.types import Tool
 
@@ -136,6 +137,18 @@ class AWSScanner:
                     "issue": "No password policy configured"
                 })
 
+            # Check root account MFA (CIS AWS Foundations critical control)
+            try:
+                account_summary = iam.get_account_summary()['SummaryMap']
+                if account_summary.get('AccountMFAEnabled', 0) == 0:
+                    findings.append({
+                        "severity": "CRITICAL",
+                        "resource": "Root Account",
+                        "issue": "MFA not enabled for root account (CIS AWS Foundations critical)"
+                    })
+            except Exception as e:
+                logger.debug(f"Could not check root account MFA: {e}")
+
             # Check for users without MFA
             users = iam.list_users()['Users']
             total_users = len(users)
@@ -144,16 +157,29 @@ class AWSScanner:
 
             for user in users_to_check:
                 try:
-                    mfa_devices = iam.list_mfa_devices(UserName=user['UserName'])['MFADevices']
+                    username = user['UserName']
+                    mfa_devices = iam.list_mfa_devices(UserName=username)['MFADevices']
                     users_checked += 1
                     if not mfa_devices:
                         findings.append({
                             "severity": "HIGH",
-                            "resource": f"IAM User: {user['UserName']}",
+                            "resource": f"IAM User: {username}",
                             "issue": "MFA not enabled"
                         })
+
+                    # Check access key age (CIS AWS Foundations: rotate every 90 days)
+                    access_keys = iam.list_access_keys(UserName=username)['AccessKeyMetadata']
+                    for key in access_keys:
+                        if key['Status'] == 'Active':
+                            key_age_days = (datetime.now(timezone.utc) - key['CreateDate']).days
+                            if key_age_days > 90:
+                                findings.append({
+                                    "severity": "MEDIUM",
+                                    "resource": f"IAM User: {username}",
+                                    "issue": f"Access key {key['AccessKeyId']} is {key_age_days} days old (rotate every 90 days)"
+                                })
                 except Exception as e:
-                    logger.debug(f"Could not check MFA for {user['UserName']}: {e}")
+                    logger.debug(f"Could not check MFA/keys for {username}: {e}")
 
         except Exception as e:
             logger.error(f"IAM scan error: {e}")
@@ -281,16 +307,37 @@ class AWSScanner:
             # Check VPCs for flow logs
             vpcs = ec2.describe_vpcs()['Vpcs']
             flow_logs = ec2.describe_flow_logs()['FlowLogs']
-            vpc_ids_with_logs = {fl['ResourceId'] for fl in flow_logs}
+
+            # Map VPC IDs to their flow logs for detailed checking
+            vpc_flow_logs = {}
+            for fl in flow_logs:
+                resource_id = fl['ResourceId']
+                if resource_id not in vpc_flow_logs:
+                    vpc_flow_logs[resource_id] = []
+                vpc_flow_logs[resource_id].append(fl)
 
             for vpc in vpcs:
                 vpc_id = vpc['VpcId']
-                if vpc_id not in vpc_ids_with_logs:
+                if vpc_id not in vpc_flow_logs:
                     findings.append({
                         "severity": "MEDIUM",
                         "resource": f"VPC: {vpc_id}",
                         "issue": "VPC Flow Logs not enabled"
                     })
+                else:
+                    # Check if any flow log captures ALL traffic (recommended for compliance)
+                    has_all_traffic = any(
+                        fl.get('TrafficType') == 'ALL'
+                        for fl in vpc_flow_logs[vpc_id]
+                    )
+                    if not has_all_traffic:
+                        # Get traffic types configured
+                        traffic_types = [fl.get('TrafficType', 'UNKNOWN') for fl in vpc_flow_logs[vpc_id]]
+                        findings.append({
+                            "severity": "LOW",
+                            "resource": f"VPC: {vpc_id}",
+                            "issue": f"VPC Flow Logs not capturing ALL traffic (current: {', '.join(traffic_types)})"
+                        })
 
             # Check security groups for overly permissive rules
             sgs = ec2.describe_security_groups()['SecurityGroups']
@@ -397,6 +444,15 @@ class AWSScanner:
                     "issue": "No CloudTrail trails configured"
                 })
             else:
+                # Check if at least one multi-region trail exists (CIS AWS Foundations)
+                has_multi_region_trail = any(trail.get('IsMultiRegionTrail', False) for trail in trails)
+                if not has_multi_region_trail:
+                    findings.append({
+                        "severity": "HIGH",
+                        "resource": "CloudTrail",
+                        "issue": "No multi-region trail configured (CIS AWS Foundations recommendation)"
+                    })
+
                 for trail in trails:
                     # Check if trail is logging
                     status = cloudtrail.get_trail_status(Name=trail['TrailARN'])
@@ -413,6 +469,14 @@ class AWSScanner:
                             "severity": "MEDIUM",
                             "resource": f"CloudTrail: {trail['Name']}",
                             "issue": "Log file validation not enabled"
+                        })
+
+                    # Check if multi-region trail
+                    if not trail.get('IsMultiRegionTrail', False):
+                        findings.append({
+                            "severity": "MEDIUM",
+                            "resource": f"CloudTrail: {trail['Name']}",
+                            "issue": "Trail is not multi-region (only logs events in single region)"
                         })
 
         except Exception as e:
