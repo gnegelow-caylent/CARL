@@ -5,6 +5,32 @@ All notable changes to the CARL MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added (2026-08-10)
+- PCI DSS, HIPAA, and NIST CSF control definitions for report generation (9 + 6 + 9 controls)
+- CloudTrail multi-region checks (CIS AWS Foundations compliance)
+- VPC Flow Logs traffic type validation (ALL vs ACCEPT/REJECT)
+- IAM root account MFA check (CRITICAL severity)
+- IAM access key rotation checks (90-day threshold)
+- Comprehensive scan disclosure showing "X of Y resources scanned"
+- CloudTrail trail count stats
+- Assessment status tracking document (ASSESSMENT_STATUS.md)
+
+### Changed (2026-08-10)
+- Standardized S3 public access block compliance logic between scan.py and evidence.py
+- Improved error reporting in evidence collection (shows actual errors vs "storage disabled")
+- Enhanced Security Hub/GuardDuty output with limit warnings
+- Updated GitHub Actions to latest versions (v4.2.2, v5.3.0, v3.1.2)
+
+### Fixed (2026-08-10)
+- S3 compliance logic contradiction (evidence.py now matches scan.py requirements)
+
+### Verified (2026-08-10)
+- KMS key rotation checks already implemented and working correctly
+
+---
+
 ## [0.2.0] - 2026-08-06
 
 ### Fixed - Critical Blockers
