@@ -33,7 +33,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Checkout correct branch based on environment
           ref: ${{ (inputs.environment || github.event.inputs.environment || 'dev') == 'dev' && 'develop' || (inputs.environment || github.event.inputs.environment) == 'qa' && 'qa' || 'main' }}
